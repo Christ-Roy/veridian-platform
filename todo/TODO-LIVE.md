@@ -1,13 +1,12 @@
 # TODO-LIVE — Veridian Prospection
 
 > **Fichier vivant** lu en premier quand je suis en mode autonome.
-> Édité à la main au fil de l'eau. Gitignored (`tmp/` dans .gitignore).
-> Source de vérité pour "qu'est-ce qu'il reste à faire" — pas les anciens
-> fichiers en mémoire qui sont archivés.
+> Source de vérité pour "qu'est-ce qu'il reste à faire".
 >
-> Dernière update : 2026-04-05 soir, session Agent Teams `veridian-invite-flow`
-> — 47 commits pushés, feature invitations V1 shipped, CI security + unit gate
-> en place.
+> Dernière update : 2026-04-06 soir — migration monorepo
+> `Christ-Roy/veridian-platform` (hub/ + prospection/ + infra/).
+> CI par service avec paths filter, secrets configurés.
+> **Blocker** : GitHub Actions billing en panne → fixer dans Settings → Billing.
 >
 > Légende priorité :
 > - 🔥 **P0** — bloquant / urgent (demo demain, régression prod, sécurité critical)
