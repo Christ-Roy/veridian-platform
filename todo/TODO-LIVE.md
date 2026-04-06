@@ -12,11 +12,13 @@
 ## P0 — Bloquant / Urgent
 
 ### P0.0 — CRITIQUE : Kong rate-limit par app au lieu de par IP client
-- [ ] **Faille gigantesque** : Kong rate-limite les requetes internes (entre containers) au lieu de l'IP du visiteur
-- [ ] Diagnostic : verifier la config Kong dans infra/docker-compose.yml (plugin rate-limiting)
-- [ ] Fix : configurer `limit_by: ip` ou `limit_by: header` avec `X-Real-IP` de Traefik
-- [ ] Test core : spec qui verifie que 2 IPs differentes ont des quotas independants
-- [ ] Test core : spec qui verifie qu'un abus depuis 1 IP ne bloque pas les autres
+- [x] Diagnostic : limit_by absent → default = consumer (tous les users dans le meme bucket)
+- [x] Fix : `limit_by: header` + `header_name: X-Real-IP` sur les 4 blocs rate-limiting
+- [x] Limites augmentees : 100/min open routes, 200/min auth routes
+- [x] Commit pret (infra/volumes/supabase/api/kong.yml)
+- [ ] **Appliquer en staging** : restart Kong container sur dev server
+- [ ] **Tester** : 2 IPs differentes → quotas independants
+- [ ] **Appliquer en prod** : accord Robert necessaire, restart Kong prod
 
 ### P0.1 — CVE next@15.3.3 (prospection)
 - [x] `npm install next@15.5.14` — fait le 7 avril
