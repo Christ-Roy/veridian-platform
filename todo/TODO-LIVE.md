@@ -11,6 +11,13 @@
 
 ## P0 — Bloquant / Urgent
 
+### P0.0 — CRITIQUE : Kong rate-limit par app au lieu de par IP client
+- [ ] **Faille gigantesque** : Kong rate-limite les requetes internes (entre containers) au lieu de l'IP du visiteur
+- [ ] Diagnostic : verifier la config Kong dans infra/docker-compose.yml (plugin rate-limiting)
+- [ ] Fix : configurer `limit_by: ip` ou `limit_by: header` avec `X-Real-IP` de Traefik
+- [ ] Test core : spec qui verifie que 2 IPs differentes ont des quotas independants
+- [ ] Test core : spec qui verifie qu'un abus depuis 1 IP ne bloque pas les autres
+
 ### P0.1 — CVE next@15.3.3 (prospection)
 - [ ] `cd prospection && npm install next@15.5.14` — 2 CVEs image-optimization
 - [ ] Verifier que le build passe apres upgrade
