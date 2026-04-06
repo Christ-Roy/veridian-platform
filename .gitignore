@@ -1,0 +1,59 @@
+# === Anciens repos (gardés localement, pas dans le monorepo) ===
+app.veridian/
+prospection-old-repo/
+
+# === Legacy files at root (not part of monorepo) ===
+MASTER_DB_SPEC.md
+WORKSPACE.md
+veridian.code-workspace
+
+# === Dependencies ===
+node_modules/
+.pnpm-store/
+
+# === Build ===
+.next/
+out/
+dist/
+build/
+
+# === Environment ===
+.env
+.env.local
+.env.production.local
+.env.development.local
+*.key
+credentials/
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Data (too large for git) ===
+*.db
+*.sqlite
+*.duckdb
+data/
+logs/
+
+# === Docker ===
+docker-compose.override.yml
+
+# === Test ===
+test-results/
+playwright-report/
+coverage/
+
+# === Temp ===
+tmp/
+*.tmp
+
+# === Claude local ===
+.claude/settings.local.json
+CLAUDE.local.md

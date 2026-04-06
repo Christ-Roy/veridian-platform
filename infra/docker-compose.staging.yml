@@ -1,0 +1,498 @@
+# SaaS Staging — Dokploy on Dev Server (staging.veridian.site)
+# Compose ID: 0f3uUHxT5kUdJuZWdApm0
+
+services:
+
+  # === SUPABASE DB ===
+  supabase-db:
+    image: supabase/postgres:15.14.1.067
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+      - supabase-internal
+    volumes:
+      - staging-supabase-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: ${JWT_EXPIRY}
+
+  # === KONG (API Gateway) ===
+  kong:
+    image: kong:2.8.5
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+      - supabase-internal
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    volumes:
+      - /opt/dokploy-data/saas-staging/kong-resolved.yml:/home/kong/kong.yml:ro
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,request-termination
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.staging-api.rule=Host(`saas-api.staging.veridian.site`)
+      - traefik.http.routers.staging-api.entrypoints=websecure
+      - traefik.http.routers.staging-api.tls.certresolver=letsencrypt
+      - traefik.http.services.staging-api.loadbalancer.server.port=8000
+
+  # === AUTH (GoTrue) ===
+  auth:
+    image: supabase/gotrue:v2.184.0
+    restart: unless-stopped
+    networks:
+      - supabase-internal
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: "9999"
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB}
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS}
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-admin@staging.veridian.site}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST:-smtp-relay.brevo.com}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT:-587}
+      GOTRUE_SMTP_USER: ${SMTP_USER:-}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS:-}
+      GOTRUE_SMTP_SENDER_NAME: Veridian Staging
+      MAILER_URLPATHS_INVITE: /auth/v1/verify
+      MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
+      MAILER_URLPATHS_RECOVERY: /auth/v1/verify
+      MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
+      GOTRUE_RATE_LIMIT_TOKEN_REFRESH: "30"
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: "10"
+
+  # === REST (PostgREST) ===
+  rest:
+    image: postgrest/postgrest:v14.2
+    restart: unless-stopped
+    networks:
+      - supabase-internal
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB}
+      PGRST_DB_SCHEMAS: public,storage,graphql_public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+
+  # === REALTIME ===
+  realtime:
+    image: supabase/realtime:v2.69.1
+    restart: unless-stopped
+    networks:
+      - supabase-internal
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PORT: 4000
+      DB_HOST: supabase-db
+      DB_PORT: "5432"
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+      DB_AFTER_CONNECT_QUERY: SET search_path TO _realtime
+      DB_ENC_KEY: supabaserealtime
+      API_JWT_SECRET: ${JWT_SECRET}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      ERL_AFLAGS: -proto_dist inet_tcp
+      DNS_NODES: "''"
+      RLIMIT_NOFILE: "10000"
+      APP_NAME: realtime
+      SEED_SELF_HOST: "true"
+
+  # === STORAGE ===
+  storage:
+    image: supabase/storage-api:v1.33.4
+    restart: unless-stopped
+    networks:
+      - supabase-internal
+    volumes:
+      - staging-supabase-storage:/var/lib/storage
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://rest:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB}
+      FILE_SIZE_LIMIT: "52428800"
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+
+  # === META ===
+  meta:
+    image: supabase/postgres-meta:v0.95.1
+    restart: unless-stopped
+    networks:
+      - supabase-internal
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: "5432"
+      PG_META_DB_NAME: ${POSTGRES_DB}
+      PG_META_DB_USER: supabase_admin
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+
+  # === STUDIO ===
+  studio:
+    image: supabase/studio:2025.12.29-sha-c223130
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+      - supabase-internal
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      HOSTNAME: "::"
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_HOST: supabase-db
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_META_CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+      DEFAULT_ORGANIZATION_NAME: Veridian Staging
+      DEFAULT_PROJECT_NAME: Staging
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.staging-studio.rule=Host(`saas-studio.staging.veridian.site`)
+      - traefik.http.routers.staging-studio.entrypoints=websecure
+      - traefik.http.routers.staging-studio.tls.certresolver=letsencrypt
+      - traefik.http.services.staging-studio.loadbalancer.server.port=3000
+
+  # === WEB DASHBOARD (Hub app.veridian) ===
+  web-dashboard:
+    image: ghcr.io/christ-roy/veridian-dashboard:latest
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+      - supabase-internal
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+      DOMAIN: dev.veridian.site
+      SUPABASE_URL: http://kong:8000
+      NEXT_PUBLIC_SUPABASE_URL: https://saas-api.staging.veridian.site
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB}
+      NEXT_PUBLIC_SITE_URL: https://saas-hub.staging.veridian.site
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      TENANT_API_SECRET: ${TENANT_API_SECRET}
+      TWENTY_GRAPHQL_URL: http://twenty-server:3000/graphql
+      TWENTY_METADATA_URL: http://twenty-server:3000/metadata
+      TWENTY_SERVER_URL: http://twenty-server:3000
+      TWENTY_FRONTEND_URL: https://saas-twenty.staging.veridian.site
+      NEXT_PUBLIC_TWENTY_URL: https://saas-twenty.staging.veridian.site
+      NOTIFUSE_API_URL: http://notifuse:8081
+      NOTIFUSE_API_ENDPOINT: http://notifuse:8081
+      NEXT_PUBLIC_NOTIFUSE_URL: https://saas-notifuse.staging.veridian.site
+      NOTIFUSE_ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL:-admin@staging.veridian.site}
+      NOTIFUSE_SECRET_KEY: ${NOTIFUSE_SECRET_KEY:-staging-notifuse-secret-2026}
+      CRON_SECRET: staging-cron-secret
+      PROSPECTION_API_URL: http://prospection:3000
+      PROSPECTION_TENANT_API_SECRET: ${TENANT_API_SECRET}
+      NEXT_PUBLIC_PROSPECTION_URL: https://saas-prospection.staging.veridian.site
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.staging-hub.rule=Host(`saas-hub.staging.veridian.site`)
+      - traefik.http.routers.staging-hub.entrypoints=websecure
+      - traefik.http.routers.staging-hub.tls.certresolver=letsencrypt
+      - traefik.http.services.staging-hub.loadbalancer.server.port=3000
+
+  # === PROSPECTION DB (dedicated Postgres) ===
+  prospection-db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:15432:5432"
+    networks:
+      - supabase-internal
+    volumes:
+      - staging-prospection-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    environment:
+      POSTGRES_PASSWORD: ${PROSPECTION_DB_PASSWORD:-prospection-staging-2026}
+      POSTGRES_DB: prospection
+
+  # === DASHBOARD PROSPECTION ===
+  prospection:
+    image: ghcr.io/christ-roy/prospection:staging
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+      - supabase-internal
+    depends_on:
+      prospection-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+      SUPABASE_URL: http://kong:8000
+      NEXT_PUBLIC_SUPABASE_URL: https://saas-api.staging.veridian.site
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      DATABASE_URL: postgresql://postgres:${PROSPECTION_DB_PASSWORD:-prospection-staging-2026}@prospection-db:5432/prospection?connection_limit=10
+      TENANT_API_SECRET: ${TENANT_API_SECRET}
+      APP_URL: https://saas-prospection.staging.veridian.site
+      NEXT_PUBLIC_SITE_URL: https://saas-prospection.staging.veridian.site
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.staging-prospection.rule=Host(`saas-prospection.staging.veridian.site`)
+      - traefik.http.routers.staging-prospection.entrypoints=websecure
+      - traefik.http.routers.staging-prospection.tls.certresolver=letsencrypt
+      - traefik.http.services.staging-prospection.loadbalancer.server.port=3000
+
+  # === TWENTY CRM ===
+  twenty-postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks:
+      - supabase-internal
+    environment:
+      POSTGRES_USER: twenty
+      POSTGRES_PASSWORD: ${TWENTY_DB_PASSWORD:-twenty-staging-2026}
+      POSTGRES_DB: twenty
+    volumes:
+      - staging-twenty-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twenty"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  twenty-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - supabase-internal
+    command: redis-server --save 60 1000 --appendonly yes
+    volumes:
+      - staging-twenty-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  twenty-server:
+    image: twentycrm/twenty:v1.16.7
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+      - supabase-internal
+    depends_on:
+      twenty-postgres:
+        condition: service_healthy
+      twenty-redis:
+        condition: service_healthy
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      NODE_PORT: "3000"
+      SERVER_URL: https://saas-twenty.staging.veridian.site
+      FRONTEND_URL: https://saas-twenty.staging.veridian.site
+      APP_SECRET: ${TWENTY_APP_SECRET:-staging-twenty-secret-2026}
+      IS_MULTIWORKSPACE_ENABLED: "true"
+      IS_BILLING_ENABLED: "false"
+      PG_DATABASE_URL: postgres://twenty:${TWENTY_DB_PASSWORD:-twenty-staging-2026}@twenty-postgres:5432/twenty
+      REDIS_URL: redis://twenty-redis:6379
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/.local-storage
+      EMAIL_DRIVER: smtp
+      EMAIL_SMTP_HOST: ${SMTP_HOST:-smtp-relay.brevo.com}
+      EMAIL_SMTP_PORT: ${SMTP_PORT:-587}
+      EMAIL_SMTP_USER: ${SMTP_USER}
+      EMAIL_SMTP_PASSWORD: ${SMTP_PASS}
+      EMAIL_FROM_ADDRESS: ${SMTP_ADMIN_EMAIL:-notifications@veridian.site}
+      EMAIL_FROM_NAME: ${SMTP_SENDER_NAME:-Veridian Staging}
+      LOG_LEVELS: error,warn
+    volumes:
+      - staging-twenty-storage:/app/.local-storage
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.staging-twenty.rule=Host(`saas-twenty.staging.veridian.site`) || HostRegexp(`{subdomain:[a-z0-9-]+}.saas-twenty.staging.veridian.site`)
+      - traefik.http.routers.staging-twenty.entrypoints=websecure
+      - traefik.http.routers.staging-twenty.tls.certresolver=letsencrypt
+      - traefik.http.services.staging-twenty.loadbalancer.server.port=3000
+
+  twenty-worker:
+    image: twentycrm/twenty:v1.16.7
+    restart: unless-stopped
+    networks:
+      - supabase-internal
+    depends_on:
+      twenty-postgres:
+        condition: service_healthy
+      twenty-redis:
+        condition: service_healthy
+    command: ["yarn", "worker:prod"]
+    environment:
+      NODE_ENV: production
+      PG_DATABASE_URL: postgres://twenty:${TWENTY_DB_PASSWORD:-twenty-staging-2026}@twenty-postgres:5432/twenty
+      REDIS_URL: redis://twenty-redis:6379
+      APP_SECRET: ${TWENTY_APP_SECRET:-staging-twenty-secret-2026}
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/.local-storage
+      EMAIL_DRIVER: smtp
+      EMAIL_SMTP_HOST: ${SMTP_HOST:-smtp-relay.brevo.com}
+      EMAIL_SMTP_PORT: ${SMTP_PORT:-587}
+      EMAIL_SMTP_USER: ${SMTP_USER}
+      EMAIL_SMTP_PASSWORD: ${SMTP_PASS}
+      EMAIL_FROM_ADDRESS: ${SMTP_ADMIN_EMAIL:-notifications@veridian.site}
+      EMAIL_FROM_NAME: ${SMTP_SENDER_NAME:-Veridian Staging}
+    volumes:
+      - staging-twenty-storage:/app/.local-storage
+
+  # === NOTIFUSE ===
+  notifuse-postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    networks:
+      - supabase-internal
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${NOTIFUSE_DB_PASSWORD:-notifuse-staging-2026}
+      POSTGRES_DB: notifuse_system
+    volumes:
+      - staging-notifuse-db:/var/lib/postgresql/data
+    command: postgres -c 'max_wal_size=1GB' -c 'checkpoint_timeout=10min'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  notifuse:
+    image: notifuse/notifuse:v27.0
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+      - supabase-internal
+    depends_on:
+      notifuse-postgres:
+        condition: service_healthy
+    expose:
+      - "8081"
+    environment:
+      SERVER_PORT: "8081"
+      SERVER_HOST: 0.0.0.0
+      ENVIRONMENT: production
+      DB_HOST: notifuse-postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: ${NOTIFUSE_DB_PASSWORD:-notifuse-staging-2026}
+      DB_PREFIX: notifuse
+      DB_NAME: notifuse_system
+      DB_SSLMODE: disable
+      SECRET_KEY: ${NOTIFUSE_SECRET_KEY:-staging-notifuse-secret-2026}
+      TASK_SCHEDULER_ENABLED: "true"
+      TASK_SCHEDULER_INTERVAL: 20s
+      TASK_SCHEDULER_MAX_TASKS: 100
+      ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL:-admin@staging.veridian.site}
+      TELEMETRY: "false"
+      CHECK_FOR_UPDATES: "false"
+      SMTP_HOST: ${SMTP_HOST:-smtp-relay.brevo.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASS}
+      SMTP_FROM_EMAIL: ${SMTP_ADMIN_EMAIL:-notifications@veridian.site}
+      SMTP_FROM_NAME: ${SMTP_SENDER_NAME:-Veridian Staging}
+      API_ENDPOINT: https://saas-notifuse.staging.veridian.site
+    volumes:
+      - staging-notifuse-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8081/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.staging-notifuse.rule=Host(`saas-notifuse.staging.veridian.site`)
+      - traefik.http.routers.staging-notifuse.entrypoints=websecure
+      - traefik.http.routers.staging-notifuse.tls.certresolver=letsencrypt
+      - traefik.http.services.staging-notifuse.loadbalancer.server.port=8081
+
+volumes:
+  staging-supabase-db:
+  staging-supabase-storage:
+  staging-prospection-db:
+  staging-twenty-db:
+  staging-twenty-redis:
+  staging-twenty-storage:
+  staging-notifuse-db:
+  staging-notifuse-data:
+
+networks:
+  dokploy-network:
+    external: true
+  supabase-internal:
+    driver: bridge

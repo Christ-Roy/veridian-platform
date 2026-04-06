@@ -1,0 +1,41 @@
+# Secrets & Certificates
+letsencrypt/
+*.pem
+*.key
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.prod
+.env.dev
+pre-prod\.env
+
+
+# Allow example env files to be committed
+!.env.*.example
+
+# Backups
+docker-compose.yml.backup-*
+*.backup
+
+# Logs
+logs/
+*.log
+
+# Volumes data (production data)
+volumes/supabase/db/data/
+volumes/twenty-db/data/
+volumes/notifuse-db/data/
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# IDE
+.vscode/
+.idea/
+.playwright-mcp/
+archive/
+app/

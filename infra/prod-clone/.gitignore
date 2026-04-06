@@ -1,0 +1,7 @@
+# Secrets — never commit
+*.env
+kong.yml
+
+# Dumps
+*.sql
+*.tar.gz

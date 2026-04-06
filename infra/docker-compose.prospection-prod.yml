@@ -1,0 +1,25 @@
+services:
+  prospection-fr:
+    image: ghcr.io/christ-roy/prospection:${IMAGE_TAG:-latest}
+    restart: always
+    expose:
+      - "3000"
+    environment:
+      TWENTY_API_URL: ${TWENTY_API_URL}
+      TWENTY_API_KEY: ${TWENTY_API_KEY}
+      # Telnyx WebRTC — server-side only (no NEXT_PUBLIC_ prefix)
+      TELNYX_API_KEY: ${TELNYX_API_KEY}
+      TELNYX_CONNECTION_ID: ${TELNYX_CONNECTION_ID}
+      TELNYX_CREDENTIAL_ID: ${TELNYX_CREDENTIAL_ID}
+      TELNYX_PHONE_NUMBER: ${TELNYX_PHONE_NUMBER:-+33974066175}
+    volumes:
+      - /home/ubuntu/prospection/data:/data
+    networks:
+      - dokploy-network
+
+  # NOTE: FreeSWITCH service removed — telephony now handled by Telnyx WebRTC.
+  # Old FreeSWITCH config preserved in freeswitch/ directory for reference.
+
+networks:
+  dokploy-network:
+    external: true

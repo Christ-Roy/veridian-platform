@@ -1,0 +1,980 @@
+# ============================================================================
+# GLOBAL SAAS PLATFORM - Microservices Architecture
+# ============================================================================
+# Architecture microservices avec DBs séparées :
+# - Traefik (Reverse Proxy) - Routage centralisé
+# - Supabase Stack (Auth + DB + Storage) - Pour le Web Dashboard
+# - Notifuse Stack (API + PostgreSQL 17) - Email Marketing autonome
+# - Twenty Stack (CRM + PostgreSQL 15 + Redis) - CRM autonome
+#
+# ✅ Avantages :
+# - Isolation complète entre services
+# - Chaque app utilise sa version PostgreSQL optimale
+# - Scalabilité indépendante
+# - Communication via APIs (pas de couplage DB)
+#
+# 🚀 DÉMARRAGE RAPIDE :
+#    docker-compose up -d
+#
+# Accès (localhost uniquement en dev) :
+# - Traefik Dashboard: http://localhost:8080
+# - Supabase Studio: http://studio.localhost
+# - Supabase API: http://api.localhost
+# - Notifuse: http://notifuse.localhost
+# - Twenty CRM: http://twenty.localhost
+# ============================================================================
+
+version: '3.8'
+
+# ============================================================================
+# RÉSEAUX
+# ============================================================================
+networks:
+  global-saas-network:
+    driver: bridge
+    name: global-saas-network
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+volumes:
+  supabase-db-data:
+  supabase-storage-data:
+  notifuse-db-data:
+  notifuse-data:
+  twenty-db-data:
+  twenty-storage:
+  twenty-redis-data:
+  db-config:
+  crowdsec-db:
+  crowdsec-config:
+
+# ============================================================================
+# SERVICES
+# ============================================================================
+services:
+
+  # ==========================================================================
+  # TRAEFIK - Reverse Proxy
+  # ==========================================================================
+  traefik:
+    container_name: traefik
+    image: traefik:v3.6.6
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    ports:
+      - "127.0.0.1:8080:8080"        # Dashboard localhost only
+      # HTTP/HTTPS ports are defined in environment-specific override files
+    command:
+      # API and log level are defined in environment-specific override files
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=global-saas-network"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.middlewares=crowdsec-bouncer@docker"
+
+  # ==========================================================================
+  # SUPABASE STACK - Pour le Web Dashboard
+  # https://supabase.com/docs/guides/self-hosting
+  # ==========================================================================
+  # NOTE: Cette stack est basée sur la configuration officielle de Supabase.
+  # L'API et le Studio sont exposés via un unique hostname à travers le gateway Kong.
+  # - Accès API: https://api.${DOMAIN}/<chemin_api> (ex: /rest/v1/)
+  # - Accès Studio: https://api.${DOMAIN}/
+  # Cette approche est plus sécurisée car elle place le Studio derrière l'authentification de Kong.
+
+  studio:
+    container_name: supabase-studio
+    image: supabase/studio:2025.12.29-sha-c223130
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    # Port exposure is defined in environment-specific override files
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://studio:3000/api/platform/profile').then((r) => {if (r.status !== 200) throw new Error(r.status)})"
+        ]
+      timeout: 10s
+      interval: 5s
+      retries: 3
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      # Binds nestjs listener to both IPv4 and IPv6 network interfaces
+      HOSTNAME: "::"
+
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_HOST: supabase-db
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_META_CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+
+      DEFAULT_ORGANIZATION_NAME: ${STUDIO_DEFAULT_ORGANIZATION}
+      DEFAULT_PROJECT_NAME: ${STUDIO_DEFAULT_PROJECT}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+
+  kong:
+    container_name: supabase-kong
+    image: kong:2.8.5
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    volumes:
+      - ./volumes/supabase/api/kong.yml:/home/kong/temp.yml:ro,z
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,request-termination,ip-restriction,rate-limiting
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      # Trust all private networks for real IP detection (Docker networks can be any private range)
+      KONG_TRUSTED_IPS: "0.0.0.0/8,10.0.0.0/8,127.0.0.1,172.16.0.0/12,192.168.0.0/16"
+      # Use X-Forwarded-For header to get real client IP
+      KONG_REAL_IP_HEADER: "X-Forwarded-For"
+      KONG_REAL_IP_RECURSIVE: "on"
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+    entrypoint: bash -c 'eval "echo \"$$(cat ~/temp.yml)\"" > ~/kong.yml && /docker-entrypoint.sh kong docker-start'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.supabase-api.rule=Host(`api.${DOMAIN}`)"
+      - "traefik.http.routers.supabase-api.middlewares=crowdsec-bouncer@docker"
+      - "traefik.http.services.supabase-api.loadbalancer.server.port=8000"
+
+  auth:
+    container_name: supabase-auth
+    image: supabase/gotrue:v2.184.0
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:9999/health"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: "9999"
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/${POSTGRES_DB}
+
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS}
+      GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP}
+
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: ${ENABLE_EMAIL_SIGNUP}
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: ${ENABLE_ANONYMOUS_USERS}
+
+      # Rate limiting par IP client via X-Forwarded-For
+      # GOTRUE_EXTERNAL_PROXY_HEADER n'existe pas dans GoTrue v2.184.0
+      # La variable correcte est GOTRUE_RATE_LIMIT_HEADER
+      GOTRUE_RATE_LIMIT_HEADER: "X-Forwarded-For"
+      # SMTP configuration is defined in environment-specific override files
+      # Rate limiting - can be overridden in environment-specific override files
+      GOTRUE_RATE_LIMIT_TOKEN_REFRESH: ${GOTRUE_RATE_LIMIT_TOKEN_REFRESH}
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: ${GOTRUE_RATE_LIMIT_EMAIL_SENT}
+      GOTRUE_RATE_LIMIT_SMS_SENT: ${GOTRUE_RATE_LIMIT_SMS_SENT}
+      GOTRUE_RATE_LIMIT_VERIFY: ${GOTRUE_RATE_LIMIT_VERIFY}
+
+      # ====== Templates Email ======
+      # Option 1 : Templates HTML hardcodés (nécessite volumes + fichiers HTML)
+      # GOTRUE_MAILER_TEMPLATES_CONFIRMATION: /templates/confirmation.html
+      # GOTRUE_MAILER_TEMPLATES_RECOVERY: /templates/recovery.html
+      # GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: /templates/magic-link.html
+      # GOTRUE_MAILER_TEMPLATES_INVITE: /templates/invite.html
+      # GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE: /templates/email_change.html
+
+      # Option 2 : Intégration Notifuse (webhook dynamique)
+      # Voir : https://docs.notifuse.com/integrations/supabase.md
+      # Nécessite : endpoint /api/webhooks/supabase-auth dans Web-Dashboard
+      # GOTRUE_HOOK_SEND_EMAIL_URI: ${DASHBOARD_URL}/api/webhooks/supabase-auth
+      # GOTRUE_HOOK_SEND_EMAIL_SECRETS: ${SUPABASE_AUTH_HOOK_SECRET}
+
+  rest:
+    container_name: supabase-rest
+    image: postgrest/postgrest:v14.2
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/${POSTGRES_DB}
+      PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS}
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
+    command:
+      [
+        "postgrest"
+      ]
+
+  realtime:
+    # This container name looks inconsistent but is correct because realtime constructs tenant id by parsing the subdomain
+    container_name: realtime-dev.supabase-realtime
+    image: supabase/realtime:v2.69.1
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-sSfL",
+          "--head",
+          "-o",
+          "/dev/null",
+          "-H",
+          "Authorization: Bearer ${ANON_KEY}",
+          "http://localhost:4000/api/tenants/realtime-dev/health"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    environment:
+      PORT: 4000
+      DB_HOST: supabase-db
+      DB_PORT: ${POSTGRES_PORT}
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+      DB_AFTER_CONNECT_QUERY: 'SET search_path TO _realtime'
+      DB_ENC_KEY: supabaserealtime
+      API_JWT_SECRET: ${JWT_SECRET}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      ERL_AFLAGS: -proto_dist inet_tcp
+      DNS_NODES: "''"
+      RLIMIT_NOFILE: "10000"
+      APP_NAME: realtime
+      SEED_SELF_HOST: true
+      RUN_JANITOR: true
+
+  storage:
+    container_name: supabase-storage
+    image: supabase/storage-api:v1.33.4
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    volumes:
+      - supabase-storage-data:/var/lib/storage:z
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://storage:5000/status"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+      imgproxy:
+        condition: service_started
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://rest:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/${POSTGRES_DB}
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      FILE_SIZE_LIMIT: 52428800
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: http://imgproxy:5001
+
+  imgproxy:
+    container_name: supabase-imgproxy
+    image: darthsim/imgproxy:v3.8.0
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    volumes:
+      - supabase-storage-data:/var/lib/storage:z
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "imgproxy",
+          "health"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    environment:
+      IMGPROXY_BIND: ":5001"
+      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+      IMGPROXY_USE_ETAG: "true"
+      IMGPROXY_ENABLE_WEBP_DETECTION: ${IMGPROXY_ENABLE_WEBP_DETECTION}
+
+  meta:
+    container_name: supabase-meta
+    image: supabase/postgres-meta:v0.95.1
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: ${POSTGRES_PORT}
+      PG_META_DB_NAME: ${POSTGRES_DB}
+      PG_META_DB_USER: supabase_admin
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+
+  functions:
+    container_name: supabase-edge-functions
+    image: supabase/edge-runtime:v1.69.28
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    volumes:
+      - ./volumes/supabase/functions:/home/deno/functions:Z
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_DB_URL: postgresql://postgres:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/${POSTGRES_DB}
+      VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT}"
+    command:
+      [
+        "start",
+        "--main-service",
+        "/home/deno/functions/main"
+      ]
+
+
+  supabase-db:
+    container_name: supabase-db
+    image: supabase/postgres:15.14.1.067
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    # Port exposure is defined in environment-specific override files
+    volumes:
+      - ./volumes/supabase/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:Z
+      - ./volumes/supabase/db/webhooks.sql:/docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql:Z
+      - ./volumes/supabase/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:Z
+      - ./volumes/supabase/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:Z
+      - supabase-db-data:/var/lib/postgresql/data:Z
+      - ./volumes/supabase/db/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:Z
+      - ./volumes/supabase/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:Z
+      - db-config:/etc/postgresql-custom
+      # Web Dashboard migrations (applied AFTER Supabase init scripts)
+      - ../Web-Dashboard/supabase/migrations/20251202221728_initial_schema.sql:/docker-entrypoint-initdb.d/migrations/100-initial-schema.sql:ro
+      - ../Web-Dashboard/supabase/migrations/20251202224750_add_stripe_schema.sql:/docker-entrypoint-initdb.d/migrations/101-stripe-schema.sql:ro
+      - ../Web-Dashboard/supabase/migrations/20251209180000_fix_subscriptions_stripe_columns.sql:/docker-entrypoint-initdb.d/migrations/102-fix-subscriptions.sql:ro
+      - ../Web-Dashboard/supabase/migrations/20251215_add_login_token_columns.sql:/docker-entrypoint-initdb.d/migrations/103-login-token.sql:ro
+      - ../Web-Dashboard/supabase/migrations/20260103_add_notifuse_invitation_tracking.sql:/docker-entrypoint-initdb.d/migrations/104-notifuse-invitation-tracking.sql:ro
+      - ../Web-Dashboard/supabase/migrations/20260113_add_lead_score.sql:/docker-entrypoint-initdb.d/migrations/105-lead-score.sql:ro
+      - ../Web-Dashboard/supabase/migrations/20260117_add_trial_cleanup_columns.sql:/docker-entrypoint-initdb.d/migrations/106-trial-cleanup.sql:ro
+    healthcheck:
+      test:
+        [
+        "CMD",
+        "pg_isready",
+        "-U",
+        "postgres",
+        "-h",
+        "localhost",
+        "-p",
+        "${POSTGRES_PORT}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: ${POSTGRES_PORT}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      POSTGRES_DB: ${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: ${JWT_EXPIRY}
+    # Command and log level are defined in environment-specific override files
+
+
+  # ==========================================================================
+  # NOTIFUSE STACK - Email Marketing Platform
+  # ==========================================================================
+
+  # PostgreSQL 17 - Base de données dédiée Notifuse
+  notifuse-postgres:
+    container_name: notifuse-postgres
+    image: postgres:17-alpine
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    # Port exposure is defined in environment-specific override files
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_postgres_password_change_in_production}
+      POSTGRES_DB: notifuse_system
+    volumes:
+      - notifuse-db-data:/var/lib/postgresql/data
+    command: postgres -c 'max_wal_size=1GB' -c 'checkpoint_timeout=10min'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Notifuse API
+  notifuse:
+    container_name: notifuse-api
+    image: notifuse/notifuse:v27.0
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      notifuse-postgres:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: "8081"
+      SERVER_HOST: 0.0.0.0
+      # ENVIRONMENT, API_ENDPOINT, and SMTP are defined in environment-specific override files
+      DB_HOST: notifuse-postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-dev_postgres_password_change_in_production}
+      DB_PREFIX: notifuse
+      DB_NAME: notifuse_system
+      DB_SSLMODE: disable
+      SECRET_KEY: ${NOTIFUSE_SECRET_KEY:-dev-notifuse-secret-key-change-in-production-min-32-chars}
+      TASK_SCHEDULER_ENABLED: true
+      TASK_SCHEDULER_INTERVAL: 20s
+      TASK_SCHEDULER_MAX_TASKS: 100
+      ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL:-brunon5robert@gmail.com}
+          # Privacy and Update Settings
+      TELEMETRY: ${TELEMETRY}
+      CHECK_FOR_UPDATES: ${CHECK_FOR_UPDATES}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USERNAME: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASS}
+      SMTP_FROM_EMAIL: ${SMTP_ADMIN_EMAIL}
+      SMTP_FROM_NAME: ${SMTP_SENDER_NAME}
+      API_ENDPOINT: https://notifuse.${DOMAIN}
+
+    # SMTP Relay Configuration (Optional   for receiving inbound emails)
+      SMTP_RELAY_ENABLED: ${SMTP_RELAY_ENABLED:-false}
+    volumes:
+      - notifuse-data:/app/data
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://127.0.0.1:8081/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.notifuse.rule=Host(`notifuse.${DOMAIN}`)"
+      - "traefik.http.routers.notifuse.middlewares=crowdsec-bouncer@docker"
+      - "traefik.http.services.notifuse.loadbalancer.server.port=8081"
+
+  # ==========================================================================
+  # TWENTY STACK - CRM Platform
+  # ==========================================================================
+
+  # PostgreSQL 15 - Base de données dédiée Twenty
+  twenty-postgres:
+    container_name: twenty-postgres
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    # Port exposure is defined in environment-specific override files
+    environment:
+      POSTGRES_USER: twenty
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_postgres_password_change_in_production}
+      POSTGRES_DB: twenty
+    volumes:
+      - twenty-db-data:/var/lib/postgresql/data
+      - ./volumes/twenty-db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twenty"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Cache & Queues
+  twenty-redis:
+    container_name: twenty-redis
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    command: redis-server --save 60 1000 --appendonly yes
+    volumes:
+      - twenty-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Twenty Server - Application CRM
+  twenty-server:
+    container_name: twenty-server
+    image: twentycrm/twenty:v1.16.7
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      twenty-postgres:
+        condition: service_healthy
+      twenty-redis:
+        condition: service_healthy
+    environment:
+      # NODE_ENV, SERVER_URL, FRONTEND_URL are defined in environment-specific override files
+      NODE_PORT: "3000"
+      APP_SECRET: ${TWENTY_APP_SECRET:-dev-twenty-secret-change-in-production-min-32-chars}
+      IS_MULTIWORKSPACE_ENABLED: "true"
+      IS_WORKSPACE_CREATION_LIMITED_TO_SERVER_ADMINS: "false"
+      WORKSPACE_INACTIVE_DAYS_BEFORE_NOTIFICATION: "30"
+      WORKSPACE_INACTIVE_DAYS_BEFORE_SOFT_DELETION: "60"
+      WORKSPACE_INACTIVE_DAYS_BEFORE_DELETION: "90"
+      MAX_NUMBER_OF_WORKSPACES_DELETED_PER_EXECUTION: "10"
+      IS_BILLING_ENABLED: "true"
+      IS_EMAIL_VERIFICATION_REQUIRED: "false"
+      # Billing - Stripe Configuration
+      BILLING_STRIPE_API_KEY: ${STRIPE_SECRET_KEY}
+      BILLING_STRIPE_WEBHOOK_SECRET: ${TWENTY_STRIPE_WEBHOOK_SECRET}
+      STRIPE_API_VERSION: "2024-12-18.acacia"
+      PG_DATABASE_URL: postgresql://twenty:${POSTGRES_PASSWORD:-dev_postgres_password_change_in_production}@twenty-postgres:5432/twenty
+      PG_ENABLE_POOL_SHARING: "true"
+      PG_POOL_MAX_CONNECTIONS: "50"
+      REDIS_URL: redis://twenty-redis:6379
+      REDIS_QUEUE_URL: redis://twenty-redis:6379/1
+      DISABLE_DB_MIGRATIONS: "false"
+      DISABLE_CRON_JOBS_REGISTRATION: "false"
+      AUTH_PASSWORD_ENABLED: "true"
+      # EMAIL and SMTP configuration is defined in environment-specific override files
+      EMAIL_VERIFICATION_TOKEN_EXPIRES_IN: 24h
+      PASSWORD_RESET_TOKEN_EXPIRES_IN: 15m
+      INVITATION_TOKEN_EXPIRES_IN: 7d
+      ACCESS_TOKEN_EXPIRES_IN: 30m
+      REFRESH_TOKEN_EXPIRES_IN: 90d
+      LOGIN_TOKEN_EXPIRES_IN: 15m
+      STORAGE_TYPE: LOCAL
+      STORAGE_LOCAL_PATH: .local-storage
+      TELEMETRY_ENABLED: "false"
+      LOGGER_DRIVER: CONSOLE
+      IS_IMAP_SMTP_CALDAV_ENABLED: "true"
+      CALENDAR_BOOKING_PAGE_ID: "robert.brunon/15min"
+      
+      # LOG_LEVELS is defined in environment-specific override files
+    volumes:
+      - twenty-storage:/app/packages/twenty-server/.local-storage
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    labels:
+      - "traefik.enable=true"
+
+      # Redirect Router 1: https://app.twenty.${DOMAIN}/welcome -> https://${DOMAIN}/signup
+      - "traefik.http.routers.twenty-redirect-app-welcome.rule=Host(`app.twenty.${DOMAIN}`) && Path(`/welcome`)"
+      - "traefik.http.routers.twenty-redirect-app-welcome.priority=100"
+      - "traefik.http.routers.twenty-redirect-app-welcome.middlewares=twenty-redirect-to-signup"
+      - "traefik.http.routers.twenty-redirect-app-welcome.tls=true"
+
+      # Redirect Router 2: https://twenty.${DOMAIN}/welcome -> https://${DOMAIN}/signup
+      - "traefik.http.routers.twenty-redirect-welcome.rule=Host(`twenty.${DOMAIN}`) && Path(`/welcome`)"
+      - "traefik.http.routers.twenty-redirect-welcome.priority=100"
+      - "traefik.http.routers.twenty-redirect-welcome.middlewares=twenty-redirect-to-signup"
+      - "traefik.http.routers.twenty-redirect-welcome.tls=true"
+
+      # Redirect middleware to dashboard signup
+      - "traefik.http.middlewares.twenty-redirect-to-signup.redirectregex.regex=.*"
+      - "traefik.http.middlewares.twenty-redirect-to-signup.redirectregex.replacement=https://${DOMAIN}/signup"
+      - "traefik.http.middlewares.twenty-redirect-to-signup.redirectregex.permanent=true"
+
+      # Router pour webhooks Stripe (SANS CrowdSec - priorité haute)
+      - "traefik.http.routers.twenty-webhooks.rule=Host(`twenty.${DOMAIN}`) && PathPrefix(`/webhooks/stripe`)"
+      - "traefik.http.routers.twenty-webhooks.priority=50"
+      - "traefik.http.routers.twenty-webhooks.middlewares=twenty-headers"
+      - "traefik.http.routers.twenty-webhooks.tls=true"
+      - "traefik.http.routers.twenty-webhooks.service=twenty"
+
+      # Main router for Twenty CRM (lower priority)
+      - "traefik.http.routers.twenty.rule=Host(`twenty.${DOMAIN}`) || HostRegexp(`^[a-z0-9-]+\\.twenty\\.${DOMAIN}$`) || Host(`app.twenty.${DOMAIN}`) || HostRegexp(`^[a-z0-9-]+\\.app\\.twenty\\.${DOMAIN}$`)"
+      - "traefik.http.routers.twenty.priority=10"
+      # TLS configuration is defined in environment-specific override files
+
+      # Middleware: Custom headers
+      - "traefik.http.middlewares.twenty-headers.headers.customrequestheaders.X-Forwarded-Host={host}"
+      - "traefik.http.middlewares.twenty-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+
+      # Apply headers and security middlewares to main router
+      - "traefik.http.routers.twenty.middlewares=twenty-headers,crowdsec-bouncer@docker"
+
+      # Service configuration
+      - "traefik.http.services.twenty.loadbalancer.server.port=3000"
+
+  # Twenty Worker - Jobs Asynchrones
+  twenty-worker:
+    container_name: twenty-worker
+    image: twentycrm/twenty:v1.16.7
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      twenty-server:
+        condition: service_healthy
+    command: ["yarn", "worker:prod"]
+    environment:
+      SERVER_URL: http://twenty-server:3000
+      APP_SECRET: ${TWENTY_APP_SECRET:-dev-twenty-secret-change-in-production-min-32-chars}
+      PG_DATABASE_URL: postgresql://twenty:${POSTGRES_PASSWORD:-dev_postgres_password_change_in_production}@twenty-postgres:5432/twenty
+      PG_ENABLE_POOL_SHARING: "true"
+      PG_POOL_MAX_CONNECTIONS: "50"
+      REDIS_URL: redis://twenty-redis:6379
+      REDIS_QUEUE_URL: redis://twenty-redis:6379/1
+      DISABLE_DB_MIGRATIONS: "true"
+      DISABLE_CRON_JOBS_REGISTRATION: "true"
+      STORAGE_TYPE: LOCAL
+      STORAGE_LOCAL_PATH: .local-storage
+      # Billing - Stripe Configuration
+      IS_BILLING_ENABLED: "true"
+      BILLING_STRIPE_API_KEY: ${STRIPE_SECRET_KEY}
+      BILLING_STRIPE_WEBHOOK_SECRET: ${TWENTY_STRIPE_WEBHOOK_SECRET}
+      # EMAIL and SMTP configuration is defined in environment-specific override files
+    volumes:
+      - twenty-storage:/app/packages/twenty-server/.local-storage
+
+  # ==========================================================================
+  # WEB DASHBOARD - Global SaaS Platform Orchestrator
+  # ==========================================================================
+
+  dashboard:
+    container_name: web-dashboard
+    # NOTE: Build configuration is defined in environment-specific override files
+    # - Dev (docker-compose.dev.yml): Uses node:20-alpine with volume mounts for hot reload
+    # - Prod (docker-compose.prod.yml): Builds optimized Docker image
+    image: node:20-alpine  # Default image (overridden by build: in prod)
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+      twenty-server:
+        condition: service_healthy
+      notifuse:
+        condition: service_healthy
+    environment:
+      # NODE_ENV is defined in environment-specific override files (dev/prod)
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+
+      # ====== Environment Detection ======
+      # Utilisé pour détecter l'environnement (dev vs prod) basé sur le domaine
+      # Permet de choisir les bonnes clés Stripe (TEST vs LIVE)
+      DOMAIN: ${DOMAIN}
+
+      # ====== Runtime Config (DASHBOARD_*) ======
+      # Ces variables sont lues par /api/config et renvoyées au client
+      # Permet d'avoir une seule image Docker pour tous les environnements
+      DASHBOARD_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+      DASHBOARD_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      DASHBOARD_SUPABASE_ANON_KEY: ${ANON_KEY}
+      DASHBOARD_TWENTY_URL: ${NEXT_PUBLIC_TWENTY_URL}
+      DASHBOARD_NOTIFUSE_URL: ${NEXT_PUBLIC_NOTIFUSE_URL}
+      DASHBOARD_NOTIFUSE_API_URL: ${NEXT_PUBLIC_NOTIFUSE_API_URL}
+      DASHBOARD_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+      DASHBOARD_STRIPE_PUBLISHABLE_KEY_LIVE: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE}
+      DASHBOARD_GTM_ID: ${NEXT_PUBLIC_GTM_ID}
+
+      # ====== Variables NEXT_PUBLIC_* (compatibilité code serveur) ======
+      # Ces variables sont utilisées côté serveur dans le code Next.js
+      # DASHBOARD_* ci-dessus sont pour le client via /api/config
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
+      NEXT_PUBLIC_TWENTY_URL: ${NEXT_PUBLIC_TWENTY_URL}
+      NEXT_PUBLIC_NOTIFUSE_URL: ${NEXT_PUBLIC_NOTIFUSE_URL}
+      NEXT_PUBLIC_NOTIFUSE_API_URL: ${NEXT_PUBLIC_NOTIFUSE_API_URL}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE}
+      NEXT_PUBLIC_GTM_ID: ${NEXT_PUBLIC_GTM_ID}
+
+      # Supabase - Server-side (internal Docker network)
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+
+      # Twenty CRM - Server-side (internal Docker network)
+      TWENTY_SERVER_URL: ${TWENTY_FRONTEND_URL}
+      TWENTY_FRONTEND_URL: ${TWENTY_FRONTEND_URL}
+      TWENTY_GRAPHQL_URL: ${DASHBOARD_TWENTY_GRAPHQL_URL}
+      TWENTY_METADATA_URL: ${DASHBOARD_TWENTY_METADATA_URL}
+
+      # Notifuse - Server-side (internal Docker network)
+      NOTIFUSE_API_URL: ${NOTIFUSE_API_URL}
+      NOTIFUSE_API_ENDPOINT: ${NOTIFUSE_API_URL}
+      NOTIFUSE_ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL}
+      NOTIFUSE_SECRET_KEY: ${NOTIFUSE_SECRET_KEY}
+
+      # Stripe
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_SECRET_KEY_LIVE: ${STRIPE_SECRET_KEY_LIVE}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_WEBHOOK_SECRET_LIVE: ${STRIPE_WEBHOOK_SECRET_LIVE}
+
+      # Cron Jobs
+      CRON_SECRET: ${CRON_SECRET}
+
+      # Database
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      # HTTP Router (port 80) - Redirect to HTTPS
+      - "traefik.http.routers.web-dashboard-http.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.web-dashboard-http.entrypoints=web"
+      - "traefik.http.routers.web-dashboard-http.middlewares=redirect-to-https"
+      # HTTPS Router (port 443) - Main router
+      - "traefik.http.routers.web-dashboard.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.web-dashboard.middlewares=crowdsec-bouncer@docker"
+      # Service (backend target)
+      - "traefik.http.services.web-dashboard.loadbalancer.server.port=3000"
+      # Middleware for HTTP->HTTPS redirect
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+
+  # ==========================================================================
+  # CRON SCHEDULER - Automated Tasks (Cleanup expired trials, etc.)
+  # ==========================================================================
+  cron-scheduler:
+    container_name: cron-scheduler
+    image: alpine:3.19
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      dashboard:
+        condition: service_healthy
+    environment:
+      CRON_SECRET: ${CRON_SECRET}
+      DASHBOARD_URL: http://web-dashboard:3000
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        # Install curl
+        apk add --no-cache curl
+
+        # Create cron job file
+        echo "# Cleanup expired trials - Daily at 2 AM UTC
+        0 2 * * * curl -s -X POST -H \"Authorization: Bearer \$${CRON_SECRET}\" \$${DASHBOARD_URL}/api/cron/cleanup-trials >> /var/log/cron.log 2>&1
+        " > /etc/crontabs/root
+
+        # Create log file
+        touch /var/log/cron.log
+
+        echo "[Cron] Starting scheduler..."
+        echo "[Cron] Jobs configured:"
+        cat /etc/crontabs/root
+
+        # Start crond in foreground
+        crond -f -l 2
+
+  # ==========================================================================
+  # CROWDSEC - Modern Intrusion Prevention System
+  # ==========================================================================
+  # IMPORTANT - FRESH INSTALL: Après le premier démarrage, enregistrer la clé du bouncer:
+  #
+  # Pour PROD:
+  #   docker exec crowdsec cscli bouncers add traefik-bouncer \
+  #     --key ${CROWDSEC_BOUNCER_API_KEY_PROD}
+  #
+  # Pour DEV:
+  #   docker exec crowdsec cscli bouncers add traefik-bouncer \
+  #     --key ${CROWDSEC_BOUNCER_API_KEY_DEV}
+  #
+  # Les clés sont dans .env / .env.prod
+  # Cette commande n'est nécessaire qu'une seule fois par serveur
+  # ==========================================================================
+  crowdsec:
+    container_name: crowdsec
+    image: crowdsecurity/crowdsec:v1.6.4
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    environment:
+      # Mode: Production ou Dev (défini dans les overrides)
+      COLLECTIONS: >
+        crowdsecurity/traefik
+        crowdsecurity/http-cve
+        crowdsecurity/whitelist-good-actors
+        crowdsecurity/base-http-scenarios
+        crowdsecurity/sshd
+        crowdsecurity/linux
+      # GID_CROWDSEC et DISABLE_ONLINE_API sont définis dans les overrides
+    volumes:
+      - crowdsec-db:/var/lib/crowdsec/data/
+      - crowdsec-config:/etc/crowdsec/
+      - /var/log:/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      - "traefik.enable=false"
+    healthcheck:
+      test: ["CMD", "cscli", "version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Bouncer Traefik pour CrowdSec
+  crowdsec-traefik-bouncer:
+    container_name: crowdsec-traefik-bouncer
+    image: fbonalair/traefik-crowdsec-bouncer:latest
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      crowdsec:
+        condition: service_healthy
+    environment:
+      # CROWDSEC_BOUNCER_API_KEY est défini dans les overrides (DEV/PROD)
+      CROWDSEC_AGENT_HOST: crowdsec:8080
+      # GIN_MODE est défini dans les overrides (release/debug)
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.crowdsec-bouncer.forwardauth.address=http://crowdsec-traefik-bouncer:8080/api/v1/forwardAuth"
+      - "traefik.http.middlewares.crowdsec-bouncer.forwardauth.trustForwardHeader=true"
+      - "traefik.http.services.crowdsec-traefik-bouncer.loadbalancer.server.port=8080"
+    # Healthcheck désactivé car l'image n'a pas wget/curl
+    # Le bouncer fonctionne via le middleware Traefik
+
+  # ==========================================================================
+  # FAIL2BAN - Intrusion Prevention System (DEPRECATED - Use CrowdSec)
+  # ==========================================================================
+  #fail2ban:
+  #  image: lscr.io/linuxserver/fail2ban:latest
+  #  container_name: fail2ban
+  #  hostname: fail2ban
+  #  restart: unless-stopped
+  #  networks:
+  #    - global-saas-network
+  #  privileged: true  # Required for iptables access
+  #  cap_add:
+  #    - NET_ADMIN
+  #    - NET_RAW
+  #  environment:
+  #    - PUID=1000
+  #    - PGID=1000
+  #    - TZ=Europe/Paris
+  #    - TZ=${TZ:-Europe/Paris}
+  #    # Email notifications
+  #    - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+  #    - SMTP_PORT=${SMTP_PORT:-587}
+  #    - SMTP_USER=${SMTP_USER}
+  #    - SMTP_PASSWORD=${SMTP_PASS}
+  #    - SMTP_SENDER=${SMTP_ADMIN_EMAIL}
+  #    - SMTP_TO=${SMTP_ADMIN_EMAIL}
+  #    # Fail2ban configuration from environment
+  #    - FAIL2BAN_DEFAULT_BANTIME=${FAIL2BAN_DEFAULT_BANTIME:-3600}
+  #    - FAIL2BAN_DEFAULT_FINDTIME=${FAIL2BAN_DEFAULT_FINDTIME:-600}
+  #    - FAIL2BAN_DEFAULT_MAXRETRY=${FAIL2BAN_DEFAULT_MAXRETRY:-5}
+  #    - FAIL2BAN_IPTABLES_CHAIN=${FAIL2BAN_IPTABLES_CHAIN:-INPUT}
+  #  volumes:
+  #    # Main configuration directory
+  #    - ./fail2ban/config:/config/fail2ban
+  #    # Custom filters
+  #    - ./fail2ban/filter:/config/fail2ban/filter.d
+  #    # Custom actions
+  #    - ./fail2ban/action:/config/fail2ban/action.d
+  #    # System logs (read-only)
+  #    - /var/log:/var/loghost:ro
+  #    # Docker socket for container logs
+  #    - /var/run/docker.sock:/var/run/docker.sock:ro
+  #    # Traefik logs
+  #    - ./logs/traefik:/var/log/traefik:ro
+  #    # Custom fail2ban log
+  #    - ./logs/fail2ban:/config/log
+  #  # Health check
+  #  healthcheck:
+  #    test: ["CMD", "fail2ban-client", "ping"]
+  #    interval: 30s
+  #    timeout: 10s
+  #    retries: 3
+  #    start_period: 60s
+  #  labels:
+  #    - "com.our-app.group=fail2ban"
+  #  # Depends on nothing, can start anytime

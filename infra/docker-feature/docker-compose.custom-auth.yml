@@ -1,0 +1,1049 @@
+# ============================================================================
+# GLOBAL SAAS PLATFORM - Microservices Architecture with ForwardAuth Security
+# ============================================================================
+# Architecture microservices avec DBs séparées :
+# - Traefik (Reverse Proxy) - Routage centralisé + ForwardAuth
+# - Supabase Stack (Auth + DB + Storage) - Pour le Web Dashboard
+# - Notifuse Stack (API + PostgreSQL 17) - Email Marketing autonome
+# - Twenty Stack (CRM + PostgreSQL 15 + Redis) - CRM autonome
+#
+# ✅ Avantages :
+# - Isolation complète entre services
+# - Chaque app utilise sa version PostgreSQL optimale
+# - Scalabilité indépendante
+# - Communication via APIs (pas de couplage DB)
+#
+# 🔒 SÉCURITÉ FORWARDAUTH (Nouveauté dans cette version) :
+# - Twenty et Notifuse sont protégés par authentification Supabase
+# - Toutes les requêtes passent par GoTrue pour vérification JWT
+# - Impossible d'accéder sans être authentifié via le Dashboard
+# - Inscription directe bloquée (IS_EMAIL_VERIFICATION_REQUIRED=true)
+#
+# 📋 DIFFÉRENCES avec docker-compose.yml :
+# 1. Twenty: IS_EMAIL_VERIFICATION_REQUIRED="true" (bloquer inscriptions)
+# 2. Twenty: Middleware ForwardAuth ajouté (auth obligatoire)
+# 3. Notifuse: Middleware ForwardAuth ajouté (auth obligatoire)
+# 4. Traefik: Middleware supabase-auth configuré
+#
+# 🚀 DÉMARRAGE :
+#    docker compose -f docker-compose.custom-auth.yml up -d
+#
+# ⚠️  IMPORTANT:
+# - Les utilisateurs DOIVENT passer par le Dashboard (app.${DOMAIN})
+# - Accès direct à twenty.${DOMAIN} ou notifuse.${DOMAIN} → 401 Unauthorized
+# - Le JWT Supabase doit être présent dans le header Authorization ou Cookie
+#
+# 🧪 TEST:
+# 1. Se connecter au Dashboard
+# 2. Accéder à Twenty/Notifuse depuis le Dashboard (JWT automatiquement transmis)
+# 3. Essayer d'accéder directement → Devrait être bloqué
+#
+# Accès (localhost uniquement en dev) :
+# - Traefik Dashboard: http://localhost:8080
+# - Supabase Studio: http://studio.localhost
+# - Supabase API: http://api.localhost
+# - Notifuse: http://notifuse.localhost (🔒 Auth requise)
+# - Twenty CRM: http://twenty.localhost (🔒 Auth requise)
+# ============================================================================
+
+version: '3.8'
+
+# ============================================================================
+# RÉSEAUX
+# ============================================================================
+networks:
+  global-saas-network:
+    driver: bridge
+    name: global-saas-network
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+volumes:
+  supabase-db-data:
+  supabase-storage-data:
+  notifuse-db-data:
+  notifuse-data:
+  twenty-db-data:
+  twenty-storage:
+  twenty-redis-data:
+  db-config:
+
+# ============================================================================
+# SERVICES
+# ============================================================================
+services:
+
+  # ==========================================================================
+  # TRAEFIK - Reverse Proxy with ForwardAuth Security
+  # ==========================================================================
+  # 🔒 SÉCURITÉ: Traefik avec middleware ForwardAuth
+  # Les requêtes vers Twenty/Notifuse passent par GoTrue (Supabase Auth)
+  # pour vérifier l'authentification avant d'accéder aux services
+  # ==========================================================================
+  traefik:
+    container_name: traefik
+    image: traefik:v2.10
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    ports:
+      - "0.0.0.0:80:80"              # HTTP accessible from outside (secure with firewall)
+      - "0.0.0.0:443:443"            # HTTPS accessible from outside (secure with firewall)
+      - "127.0.0.1:8080:8080"        # Dashboard localhost only
+    environment:
+      # DNS Provider credentials (choose one)
+      # For Cloudflare
+      - CLOUDFLARE_EMAIL=${CLOUDFLARE_EMAIL}
+      - CLOUDFLARE_API_KEY=${CLOUDFLARE_API_KEY}
+      - CLOUDFLARE_DNS_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+      # For DigitalOcean
+      #- DO_AUTH_TOKEN=${DO_AUTH_TOKEN}
+      # For Route53
+      #- AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      #- AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      #- AWS_REGION=${AWS_REGION}
+    command:
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      - "--log.level=INFO"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=global-saas-network"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=${DNS_PROVIDER}"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.delaybeforecheck=0"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53"
+      - "--serverstransport.insecureskipverify=false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.tls=true"
+      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+      # Certificat wildcard pour le domaine principal uniquement
+      - "traefik.http.routers.dashboard.tls.domains[0].main=${DOMAIN}"
+      - "traefik.http.routers.dashboard.tls.domains[0].sans=*.${DOMAIN}"
+      # Global HTTP to HTTPS redirect
+      - "traefik.http.routers.http-catchall.rule=hostregexp(`{host:.+}`)"
+      - "traefik.http.routers.http-catchall.entrypoints=web"
+      - "traefik.http.routers.http-catchall.middlewares=https-redirect"
+      - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
+
+      # ==========================================================================
+      # 🔒 FORWARDAUTH MIDDLEWARE - Authentification via Supabase GoTrue
+      # ==========================================================================
+      # Ce middleware vérifie les JWT Supabase avant d'autoriser l'accès
+      # aux services Twenty et Notifuse
+      # - address: Endpoint GoTrue qui vérifie le JWT
+      # - authRequestHeaders: Headers à transmettre pour vérification
+      # - authResponseHeaders: Headers à retourner avec les infos user
+      # ==========================================================================
+      - "traefik.http.middlewares.supabase-auth.forwardauth.address=http://auth:9999/user"
+      - "traefik.http.middlewares.supabase-auth.forwardauth.authRequestHeaders=Authorization,Cookie"
+      - "traefik.http.middlewares.supabase-auth.forwardauth.authResponseHeaders=X-User-Id,X-User-Email"
+      - "traefik.http.middlewares.supabase-auth.forwardauth.trustForwardHeader=true"
+
+  # ==========================================================================
+  # SUPABASE STACK - Pour le Web Dashboard
+  # https://supabase.com/docs/guides/self-hosting
+  # ==========================================================================
+  # NOTE: Cette stack est basée sur la configuration officielle de Supabase.
+  # L'API et le Studio sont exposés via un unique hostname à travers le gateway Kong.
+  # - Accès API: https://api.${DOMAIN}/<chemin_api> (ex: /rest/v1/)
+  # - Accès Studio: https://api.${DOMAIN}/
+  # Cette approche est plus sécurisée car elle place le Studio derrière l'authentification de Kong.
+
+  studio:
+    container_name: supabase-studio
+    image: supabase/studio:2025.11.26-sha-8f096b5
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3005:3000"
+    networks:
+      - global-saas-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://studio:3000/api/platform/profile').then((r) => {if (r.status !== 200) throw new Error(r.status)})"
+        ]
+      timeout: 10s
+      interval: 5s
+      retries: 3
+    depends_on:
+      analytics:
+        condition: service_healthy
+      supabase-db:
+        condition: service_healthy
+    environment:
+      # Binds nestjs listener to both IPv4 and IPv6 network interfaces
+      HOSTNAME: "::"
+
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_HOST: supabase-db
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_META_CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+
+      DEFAULT_ORGANIZATION_NAME: ${STUDIO_DEFAULT_ORGANIZATION}
+      DEFAULT_PROJECT_NAME: ${STUDIO_DEFAULT_PROJECT}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+
+      # LOGFLARE_API_KEY is deprecated
+      LOGFLARE_API_KEY: ${LOGFLARE_PUBLIC_ACCESS_TOKEN}
+      LOGFLARE_PUBLIC_ACCESS_TOKEN: ${LOGFLARE_PUBLIC_ACCESS_TOKEN}
+      LOGFLARE_PRIVATE_ACCESS_TOKEN: ${LOGFLARE_PRIVATE_ACCESS_TOKEN}
+
+      LOGFLARE_URL: http://analytics:4000
+      NEXT_PUBLIC_ENABLE_LOGS: true
+      # Comment to use Big Query backend for analytics
+      NEXT_ANALYTICS_BACKEND_PROVIDER: postgres
+      # Uncomment to use Big Query backend for analytics
+      # NEXT_ANALYTICS_BACKEND_PROVIDER: bigquery
+
+  kong:
+    container_name: supabase-kong
+    image: kong:2.8.1
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    volumes:
+      - ./volumes/supabase/api/kong.yml:/home/kong/temp.yml:ro,z
+    depends_on:
+      analytics:
+        condition: service_healthy
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,request-termination,ip-restriction,rate-limiting
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+    entrypoint: bash -c 'eval "echo \"$$(cat ~/temp.yml)\"" > ~/kong.yml && /docker-entrypoint.sh kong docker-start'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.supabase-api.rule=Host(`api.${DOMAIN}`)"
+      - "traefik.http.routers.supabase-api.tls=true"
+      - "traefik.http.routers.supabase-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.supabase-api.loadbalancer.server.port=8000"
+
+  auth:
+    container_name: supabase-auth
+    image: supabase/gotrue:v2.183.0
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:9999/health"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      analytics:
+        condition: service_healthy
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/${POSTGRES_DB}
+
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS}
+      GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP}
+
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: ${ENABLE_EMAIL_SIGNUP}
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: ${ENABLE_ANONYMOUS_USERS}
+      GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT}
+      GOTRUE_SMTP_USER: ${SMTP_USER}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS}
+      GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME}
+      GOTRUE_MAILER_URLPATHS_INVITE: ${MAILER_URLPATHS_INVITE}
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: ${MAILER_URLPATHS_CONFIRMATION}
+      GOTRUE_MAILER_URLPATHS_RECOVERY: ${MAILER_URLPATHS_RECOVERY}
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: ${MAILER_URLPATHS_EMAIL_CHANGE}
+      GOTRUE_MAILER_EXTERNAL_HOSTS: ${MAILER_EXTERNAL_HOSTS}
+
+      GOTRUE_EXTERNAL_PHONE_ENABLED: ${ENABLE_PHONE_SIGNUP}
+      GOTRUE_SMS_AUTOCONFIRM: ${ENABLE_PHONE_AUTOCONFIRM}
+
+      # Rate Limiting (Anti-DDoS)
+      GOTRUE_RATE_LIMIT_TOKEN_REFRESH: ${GOTRUE_RATE_LIMIT_TOKEN_REFRESH}
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: ${GOTRUE_RATE_LIMIT_EMAIL_SENT}
+      GOTRUE_RATE_LIMIT_SMS_SENT: ${GOTRUE_RATE_LIMIT_SMS_SENT}
+      GOTRUE_RATE_LIMIT_VERIFY: ${GOTRUE_RATE_LIMIT_VERIFY}
+
+      # email tamplaiting todo:
+      # GOTRUE_MAILER_TEMPLATES_CONFIRMATION: /templates/confirmation.html                 
+      # GOTRUE_MAILER_TEMPLATES_RECOVERY: /templates/recovery.html                         
+      # GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: /templates/magic-link.html                     
+      # GOTRUE_MAILER_TEMPLATES_INVITE: /templates/invite.html                             
+      # GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE: /templates/email_change.html 
+
+  rest:
+    container_name: supabase-rest
+    image: postgrest/postgrest:v13.0.7
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      analytics:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/${POSTGRES_DB}
+      PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS}
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
+    command:
+      [
+        "postgrest"
+      ]
+
+  realtime:
+    # This container name looks inconsistent but is correct because realtime constructs tenant id by parsing the subdomain
+    container_name: realtime-dev.supabase-realtime
+    image: supabase/realtime:v2.65.3
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      analytics:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-sSfL",
+          "--head",
+          "-o",
+          "/dev/null",
+          "-H",
+          "Authorization: Bearer ${ANON_KEY}",
+          "http://localhost:4000/api/tenants/realtime-dev/health"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    environment:
+      PORT: 4000
+      DB_HOST: supabase-db
+      DB_PORT: ${POSTGRES_PORT}
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+      DB_AFTER_CONNECT_QUERY: 'SET search_path TO _realtime'
+      DB_ENC_KEY: supabaserealtime
+      API_JWT_SECRET: ${JWT_SECRET}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      ERL_AFLAGS: -proto_dist inet_tcp
+      DNS_NODES: "''"
+      RLIMIT_NOFILE: "10000"
+      APP_NAME: realtime
+      SEED_SELF_HOST: true
+      RUN_JANITOR: true
+
+  storage:
+    container_name: supabase-storage
+    image: supabase/storage-api:v1.32.0
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    volumes:
+      - supabase-storage-data:/var/lib/storage:z
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://storage:5000/status"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+      imgproxy:
+        condition: service_started
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://rest:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/${POSTGRES_DB}
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      FILE_SIZE_LIMIT: 52428800
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: http://imgproxy:5001
+
+  imgproxy:
+    container_name: supabase-imgproxy
+    image: darthsim/imgproxy:v3.8.0
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    volumes:
+      - supabase-storage-data:/var/lib/storage:z
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "imgproxy",
+          "health"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    environment:
+      IMGPROXY_BIND: ":5001"
+      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+      IMGPROXY_USE_ETAG: "true"
+      IMGPROXY_ENABLE_WEBP_DETECTION: ${IMGPROXY_ENABLE_WEBP_DETECTION}
+
+  meta:
+    container_name: supabase-meta
+    image: supabase/postgres-meta:v0.93.1
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      analytics:
+        condition: service_healthy
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: ${POSTGRES_PORT}
+      PG_META_DB_NAME: ${POSTGRES_DB}
+      PG_META_DB_USER: supabase_admin
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+
+  functions:
+    container_name: supabase-edge-functions
+    image: supabase/edge-runtime:v1.69.25
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    volumes:
+      - ./volumes/supabase/functions:/home/deno/functions:Z
+    depends_on:
+      analytics:
+        condition: service_healthy
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_DB_URL: postgresql://postgres:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/${POSTGRES_DB}
+      VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT}"
+    command:
+      [
+        "start",
+        "--main-service",
+        "/home/deno/functions/main"
+      ]
+
+  analytics:
+    container_name: supabase-analytics
+    image: supabase/logflare:1.26.13
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "http://localhost:4000/health"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 10
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      LOGFLARE_NODE_HOST: 127.0.0.1
+      DB_USERNAME: supabase_admin
+      DB_DATABASE: _supabase
+      DB_HOSTNAME: supabase-db
+      DB_PORT: ${POSTGRES_PORT}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_SCHEMA: _analytics
+      LOGFLARE_PUBLIC_ACCESS_TOKEN: ${LOGFLARE_PUBLIC_ACCESS_TOKEN}
+      LOGFLARE_PRIVATE_ACCESS_TOKEN: ${LOGFLARE_PRIVATE_ACCESS_TOKEN}
+      LOGFLARE_SINGLE_TENANT: true
+      LOGFLARE_SUPABASE_MODE: true
+      POSTGRES_BACKEND_URL: postgresql://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/_supabase
+      POSTGRES_BACKEND_SCHEMA: _analytics
+      LOGFLARE_FEATURE_FLAG_OVERRIDE: multibackend=true
+
+  supabase-db:
+    container_name: supabase-db
+    image: supabase/postgres:15.8.1.085
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    ports:
+      - "127.0.0.1:5435:5432"  # Expose Supabase DB on localhost for CLI access
+    volumes:
+      - ./volumes/supabase/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:Z
+      - ./volumes/supabase/db/webhooks.sql:/docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql:Z
+      - ./volumes/supabase/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:Z
+      - ./volumes/supabase/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:Z
+      - supabase-db-data:/var/lib/postgresql/data:Z
+      - ./volumes/supabase/db/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:Z
+      - ./volumes/supabase/db/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:Z
+      - ./volumes/supabase/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:Z
+      - db-config:/etc/postgresql-custom
+      # Web Dashboard migrations (only applied on fresh DB init)
+      - ../Web-Dashboard/supabase/migrations:/docker-entrypoint-initdb.d/app-migrations:ro
+    healthcheck:
+      test:
+        [
+        "CMD",
+        "pg_isready",
+        "-U",
+        "postgres",
+        "-h",
+        "localhost",
+        "-p",
+        "${POSTGRES_PORT}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      vector:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: ${POSTGRES_PORT}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      POSTGRES_DB: ${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: ${JWT_EXPIRY}
+    command:
+      [
+        "postgres",
+        "-c",
+        "config_file=/etc/postgresql/postgresql.conf",
+        "-c",
+        "log_min_messages=fatal"
+      ]
+
+  vector:
+    container_name: supabase-vector
+    image: timberio/vector:0.28.1-alpine
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    volumes:
+      - ./volumes/supabase/logs/vector.yml:/etc/vector/vector.yml:ro,z
+      - ${DOCKER_SOCKET_LOCATION}:/var/run/docker.sock:ro,z
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://vector:9001/health"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    environment:
+      LOGFLARE_PUBLIC_ACCESS_TOKEN: ${LOGFLARE_PUBLIC_ACCESS_TOKEN}
+    command:
+      [
+        "--config",
+        "/etc/vector/vector.yml"
+      ]
+    security_opt:
+      - "label=disable"
+
+  # POOLER DÉSACTIVÉ - Problème de clé VAULT_ENC_KEY avec AES-256-GCM
+  # Le Web-Dashboard se connecte directement à supabase-db:5432
+  #supavisor:
+  #  container_name: supabase-pooler
+  #  image: supabase/supavisor:2.7.4
+  #  restart: unless-stopped
+  #  networks:
+  #    - global-saas-network
+  #  ports:
+  #    # Le pooler devient le point d'entrée de la base de données depuis l'extérieur
+  #    - "127.0.0.1:${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}"
+  #    - "127.0.0.1:${POOLER_PROXY_PORT_TRANSACTION:-6543}:6543"
+  #  volumes:
+  #    - ./volumes/supabase/pooler/pooler.exs:/etc/pooler/pooler.exs:ro,z
+  #  healthcheck:
+  #    test:
+  #      [
+  #        "CMD",
+  #        "curl",
+  #        "-sSfL",
+  #        "--head",
+  #        "-o",
+  #        "/dev/null",
+  #        "http://127.0.0.1:4000/api/health"
+  #      ]
+  #    interval: 10s
+  #    timeout: 5s
+  #    retries: 5
+  #  depends_on:
+  #    supabase-db:
+  #      condition: service_healthy
+  #    analytics:
+  #      condition: service_healthy
+  #  environment:
+  #    PORT: 4000
+  #    POSTGRES_PORT: ${POSTGRES_PORT}
+  #    POSTGRES_DB: ${POSTGRES_DB}
+  #    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #    DATABASE_URL: ecto://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/_supabase
+  #    CLUSTER_POSTGRES: true
+  #    SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+  #    VAULT_ENC_KEY: ${VAULT_ENC_KEY}
+  #    API_JWT_SECRET: ${JWT_SECRET}
+  #    METRICS_JWT_SECRET: ${JWT_SECRET}
+  #    REGION: local
+  #    ERL_AFLAGS: -proto_dist inet_tcp
+  #    POOLER_TENANT_ID: ${POOLER_TENANT_ID}
+  #    POOLER_DEFAULT_POOL_SIZE: ${POOLER_DEFAULT_POOL_SIZE}
+  #    POOLER_MAX_CLIENT_CONN: ${POOLER_MAX_CLIENT_CONN}
+  #    POOLER_POOL_MODE: transaction
+  #    DB_POOL_SIZE: ${POOLER_DB_POOL_SIZE}
+  #  command:
+  #    [
+  #      "/bin/sh",
+  #      "-c",
+  #      "/app/bin/migrate && /app/bin/supavisor eval \"$$(cat /etc/pooler/pooler.exs)\" && /app/bin/server"
+  #    ]
+
+  # ==========================================================================
+  # NOTIFUSE STACK - Email Marketing Platform
+  # ==========================================================================
+
+  # PostgreSQL 17 - Base de données dédiée Notifuse
+  notifuse-postgres:
+    container_name: notifuse-postgres
+    image: postgres:17-alpine
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_postgres_password_change_in_production}
+      POSTGRES_DB: notifuse_system
+    volumes:
+      - notifuse-db-data:/var/lib/postgresql/data
+    command: postgres -c 'max_wal_size=1GB' -c 'checkpoint_timeout=10min'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Notifuse API
+  notifuse:
+    container_name: notifuse-api
+    build:
+      context: ./app/Notifuse/notifuse
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      notifuse-postgres:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8081
+      SERVER_HOST: 0.0.0.0
+      ENVIRONMENT: development
+      API_ENDPOINT: https://notifuse.${DOMAIN}
+      DB_HOST: notifuse-postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-dev_postgres_password_change_in_production}
+      DB_PREFIX: notifuse
+      DB_NAME: notifuse_system
+      DB_SSLMODE: disable
+      SECRET_KEY: ${NOTIFUSE_SECRET_KEY:-dev-notifuse-secret-key-change-in-production-min-32-chars}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASS:-}
+      SMTP_FROM_EMAIL: ${SMTP_ADMIN_EMAIL:-noreply@localhost}
+      SMTP_FROM_NAME: ${SMTP_SENDER_NAME:-Global SaaS Platform}
+      TASK_SCHEDULER_ENABLED: true
+      TASK_SCHEDULER_INTERVAL: 20s
+      TASK_SCHEDULER_MAX_TASKS: 100
+      ROOT_EMAIL: brunon5robert@gmail.com
+    volumes:
+      - notifuse-data:/app/data
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://127.0.0.1:8081/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.notifuse.rule=Host(`notifuse.${DOMAIN}`)"
+      - "traefik.http.routers.notifuse.tls=true"
+      - "traefik.http.routers.notifuse.tls.certresolver=letsencrypt"
+      - "traefik.http.services.notifuse.loadbalancer.server.port=8081"
+
+      # ==========================================================================
+      # 🔒 FORWARDAUTH: Authentification obligatoire via Supabase
+      # ==========================================================================
+      # Toutes les requêtes vers Notifuse passent d'abord par GoTrue
+      # pour vérifier le JWT Supabase. Si invalide → 401 Unauthorized
+      # ==========================================================================
+      - "traefik.http.routers.notifuse.middlewares=supabase-auth@docker"
+
+  # ==========================================================================
+  # TWENTY STACK - CRM Platform
+  # ==========================================================================
+
+  # PostgreSQL 15 - Base de données dédiée Twenty
+  twenty-postgres:
+    container_name: twenty-postgres
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    ports:
+      - "127.0.0.1:5434:5432"
+    environment:
+      POSTGRES_USER: twenty
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_postgres_password_change_in_production}
+      POSTGRES_DB: twenty
+    volumes:
+      - twenty-db-data:/var/lib/postgresql/data
+      - ./volumes/twenty-db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twenty"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Cache & Queues
+  twenty-redis:
+    container_name: twenty-redis
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    command: redis-server --save 60 1000 --appendonly yes
+    volumes:
+      - twenty-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Twenty Server - Application CRM
+  twenty-server:
+    container_name: twenty-server
+    image: twentycrm/twenty:latest
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      twenty-postgres:
+        condition: service_healthy
+      twenty-redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      NODE_PORT: 3000
+      SERVER_URL: ${TWENTY_SERVER_URL:-https://twenty.${DOMAIN}}
+      FRONTEND_URL: ${TWENTY_FRONTEND_URL:-https://twenty.${DOMAIN}}
+      APP_SECRET: ${TWENTY_APP_SECRET:-dev-twenty-secret-change-in-production-min-32-chars}
+      IS_MULTIWORKSPACE_ENABLED: "true"
+      IS_WORKSPACE_CREATION_LIMITED_TO_SERVER_ADMINS: "true"
+      WORKSPACE_INACTIVE_DAYS_BEFORE_NOTIFICATION: "30"
+      WORKSPACE_INACTIVE_DAYS_BEFORE_SOFT_DELETION: "60"
+      WORKSPACE_INACTIVE_DAYS_BEFORE_DELETION: "90"
+      MAX_NUMBER_OF_WORKSPACES_DELETED_PER_EXECUTION: "10"
+      IS_BILLING_ENABLED: "false"
+      # 🔒 SÉCURITÉ: Vérification email activée pour bloquer inscriptions directes
+      # Les emails ne seront PAS envoyés car EMAIL_DRIVER=logger
+      # Seul le Dashboard peut créer des comptes (via provisioning)
+      IS_EMAIL_VERIFICATION_REQUIRED: "true"
+      PG_DATABASE_URL: postgresql://twenty:${POSTGRES_PASSWORD:-dev_postgres_password_change_in_production}@twenty-postgres:5432/twenty
+      PG_ENABLE_POOL_SHARING: "true"
+      PG_POOL_MAX_CONNECTIONS: "50"
+      REDIS_URL: redis://twenty-redis:6379
+      REDIS_QUEUE_URL: redis://twenty-redis:6379/1
+      DISABLE_DB_MIGRATIONS: "false"
+      DISABLE_CRON_JOBS_REGISTRATION: "false"
+      AUTH_PASSWORD_ENABLED: "true"
+      EMAIL_DRIVER: ${EMAIL_DRIVER:-logger}
+      EMAIL_SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      EMAIL_SMTP_PORT: ${SMTP_PORT:-587}
+      EMAIL_SMTP_USER: ${SMTP_USER:-}
+      EMAIL_SMTP_PASSWORD: ${SMTP_PASS:-}
+      EMAIL_SMTP_NO_TLS: "false"
+      EMAIL_FROM_ADDRESS: ${SMTP_ADMIN_EMAIL:-noreply@localhost}
+      EMAIL_FROM_NAME: ${SMTP_SENDER_NAME:-Global SaaS Platform}
+      EMAIL_SYSTEM_ADDRESS: ${SMTP_ADMIN_EMAIL:-admin@localhost}
+      EMAIL_VERIFICATION_TOKEN_EXPIRES_IN: 24h
+      PASSWORD_RESET_TOKEN_EXPIRES_IN: 15m
+      INVITATION_TOKEN_EXPIRES_IN: 7d
+      ACCESS_TOKEN_EXPIRES_IN: 30m
+      REFRESH_TOKEN_EXPIRES_IN: 90d
+      LOGIN_TOKEN_EXPIRES_IN: 15m
+      STORAGE_TYPE: LOCAL
+      STORAGE_LOCAL_PATH: .local-storage
+      TELEMETRY_ENABLED: "false"
+      LOGGER_DRIVER: CONSOLE
+      LOG_LEVELS: log,error,warn
+    volumes:
+      - twenty-storage:/app/packages/twenty-server/.local-storage
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.twenty.rule=HostRegexp(`{subdomain:[a-z0-9-]+}.twenty.${DOMAIN}`) || Host(`twenty.${DOMAIN}`)"
+      - "traefik.http.routers.twenty.tls=true"
+      - "traefik.http.routers.twenty.tls.certresolver=letsencrypt"
+      # Certificat wildcard pour Twenty : domaine principal + sous-domaines
+      - "traefik.http.routers.twenty.tls.domains[0].main=twenty.${DOMAIN}"
+      - "traefik.http.routers.twenty.tls.domains[0].sans=*.twenty.${DOMAIN}"
+      - "traefik.http.services.twenty.loadbalancer.server.port=3000"
+
+      # ==========================================================================
+      # 🔒 FORWARDAUTH: Authentification obligatoire via Supabase
+      # ==========================================================================
+      # Toutes les requêtes vers Twenty passent d'abord par GoTrue
+      # pour vérifier le JWT Supabase. Si invalide → 401 Unauthorized
+      # ==========================================================================
+      - "traefik.http.routers.twenty.middlewares=supabase-auth@docker"
+
+  # Twenty Worker - Jobs Asynchrones
+  twenty-worker:
+    container_name: twenty-worker
+    image: twentycrm/twenty:latest
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      twenty-server:
+        condition: service_healthy
+    command: ["yarn", "worker:prod"]
+    environment:
+      SERVER_URL: http://twenty-server:3000
+      APP_SECRET: ${TWENTY_APP_SECRET:-dev-twenty-secret-change-in-production-min-32-chars}
+      PG_DATABASE_URL: postgresql://twenty:${POSTGRES_PASSWORD:-dev_postgres_password_change_in_production}@twenty-postgres:5432/twenty
+      PG_ENABLE_POOL_SHARING: "true"
+      PG_POOL_MAX_CONNECTIONS: "50"
+      REDIS_URL: redis://twenty-redis:6379
+      REDIS_QUEUE_URL: redis://twenty-redis:6379/1
+      DISABLE_DB_MIGRATIONS: "true"
+      DISABLE_CRON_JOBS_REGISTRATION: "true"
+      STORAGE_TYPE: LOCAL
+      STORAGE_LOCAL_PATH: .local-storage
+      EMAIL_DRIVER: ${EMAIL_DRIVER:-logger}
+      EMAIL_SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      EMAIL_SMTP_PORT: ${SMTP_PORT:-587}
+      EMAIL_SMTP_USER: ${SMTP_USER:-}
+      EMAIL_SMTP_PASSWORD: ${SMTP_PASS:-}
+      EMAIL_FROM_ADDRESS: ${SMTP_ADMIN_EMAIL:-noreply@localhost}
+      EMAIL_FROM_NAME: ${SMTP_SENDER_NAME:-Global SaaS Platform}
+    volumes:
+      - twenty-storage:/app/packages/twenty-server/.local-storage
+
+  # ==========================================================================
+  # WEB DASHBOARD - Global SaaS Platform Orchestrator
+  # ==========================================================================
+
+  dashboard:
+    container_name: web-dashboard
+    build:
+      context: ../Web-Dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    environment:
+      # Next.js
+      NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
+      PORT: 3000
+
+      # Supabase
+      NEXT_PUBLIC_SUPABASE_URL: https://api.${DOMAIN}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+
+      # Stripe
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+
+      # Domain & URLs (inherited from .env)
+      DOMAIN: ${DOMAIN}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+
+      # Services URLs (inherited from .env)
+      TWENTY_GRAPHQL_URL: ${TWENTY_GRAPHQL_URL}
+      TWENTY_FRONTEND_URL: ${TWENTY_FRONTEND_URL}
+      TWENTY_METADATA_URL: ${TWENTY_METADATA_URL}
+      NEXT_PUBLIC_TWENTY_URL: ${NEXT_PUBLIC_TWENTY_URL}
+
+      NOTIFUSE_API_URL: ${NOTIFUSE_API_URL}
+      NEXT_PUBLIC_NOTIFUSE_API_URL: ${NEXT_PUBLIC_NOTIFUSE_API_URL}
+      NEXT_PUBLIC_NOTIFUSE_URL: ${NEXT_PUBLIC_NOTIFUSE_URL}
+      NOTIFUSE_ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL}
+
+      # Database
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web-dashboard.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.web-dashboard.tls=true"
+      - "traefik.http.routers.web-dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.services.web-dashboard.loadbalancer.server.port=3000"
+
+  # ==========================================================================
+  # FAIL2BAN - Intrusion Prevention System
+  # ==========================================================================
+  #fail2ban:
+  #  image: lscr.io/linuxserver/fail2ban:latest
+  #  container_name: fail2ban
+  #  hostname: fail2ban
+  #  restart: unless-stopped
+  #  networks:
+  #    - global-saas-network
+  #  privileged: true  # Required for iptables access
+  #  cap_add:
+  #    - NET_ADMIN
+  #    - NET_RAW
+  #  environment:
+  #    - PUID=1000
+  #    - PGID=1000
+  #    - TZ=Europe/Paris
+  #    - TZ=${TZ:-Europe/Paris}
+  #    # Email notifications
+  #    - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+  #    - SMTP_PORT=${SMTP_PORT:-587}
+  #    - SMTP_USER=${SMTP_USER}
+  #    - SMTP_PASSWORD=${SMTP_PASS}
+  #    - SMTP_SENDER=${SMTP_ADMIN_EMAIL}
+  #    - SMTP_TO=${SMTP_ADMIN_EMAIL}
+  #    # Fail2ban configuration from environment
+  #    - FAIL2BAN_DEFAULT_BANTIME=${FAIL2BAN_DEFAULT_BANTIME:-3600}
+  #    - FAIL2BAN_DEFAULT_FINDTIME=${FAIL2BAN_DEFAULT_FINDTIME:-600}
+  #    - FAIL2BAN_DEFAULT_MAXRETRY=${FAIL2BAN_DEFAULT_MAXRETRY:-5}
+  #    - FAIL2BAN_IPTABLES_CHAIN=${FAIL2BAN_IPTABLES_CHAIN:-INPUT}
+  #  volumes:
+  #    # Main configuration directory
+  #    - ./fail2ban/config:/config/fail2ban
+  #    # Custom filters
+  #    - ./fail2ban/filter:/config/fail2ban/filter.d
+  #    # Custom actions
+  #    - ./fail2ban/action:/config/fail2ban/action.d
+  #    # System logs (read-only)
+  #    - /var/log:/var/loghost:ro
+  #    # Docker socket for container logs
+  #    - /var/run/docker.sock:/var/run/docker.sock:ro
+  #    # Traefik logs
+  #    - ./logs/traefik:/var/log/traefik:ro
+  #    # Custom fail2ban log
+  #    - ./logs/fail2ban:/config/log
+  #  # Health check
+  #  healthcheck:
+  #    test: ["CMD", "fail2ban-client", "ping"]
+  #    interval: 30s
+  #    timeout: 10s
+  #    retries: 3
+  #    start_period: 60s
+  #  labels:
+  #    - "com.our-app.group=fail2ban"
+  #  # Depends on nothing, can start anytime

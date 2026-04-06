@@ -1,0 +1,23 @@
+############################################################################
+# TRAEFIK - Configuration Dynamique
+############################################################################
+# Ce fichier permet de router des services NON-Docker vers Traefik
+# Cas d'usage : Dashboard en npm run dev (localhost:3000) → dashboard.lvh.me:8000
+############################################################################
+
+http:
+  routers:
+    # Router pour le Dashboard en local (npm run dev)
+    dashboard-local:
+      rule: "Host(`app.veridian.site`)"
+      entryPoints:
+        - web
+      service: dashboard-local-service
+      priority: 100  # Priorité haute pour override le container Docker si présent
+
+  services:
+    # Service pointant vers localhost:3008 (npm run dev)
+    dashboard-local-service:
+      loadBalancer:
+        servers:
+          - url: "http://172.23.0.1:3008"  # Linux: Gateway du réseau global-saas-network

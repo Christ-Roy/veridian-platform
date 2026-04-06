@@ -1,0 +1,357 @@
+# ============================================================================
+# PRODUCTION OVERRIDES - HTTPS/TLS Configuration
+# ============================================================================
+# Ce fichier contient les configurations spécifiques à la production :
+# - Activation HTTPS/TLS sur tous les services
+# - Configuration Let's Encrypt (DNS Challenge)
+# - Certificats wildcard pour Twenty subdomains
+# - Limites de ressources (via docker-compose.resources.yml)
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.resources.yml up -d
+# ============================================================================
+
+services:
+
+  # ==========================================================================
+  # CROWDSEC - Production Configuration
+  # ==========================================================================
+  crowdsec:
+    environment:
+      GID_CROWDSEC: "1000"
+      DISABLE_ONLINE_API: "false"  # Enable API for better protection
+      ENROLL_KEY: ${CROWDSEC_ENROLL_KEY:-}  # Optional: enroll to CrowdSec console
+      ENROLL_INSTANCE_NAME: ${DOMAIN}
+      ENROLL_TAGS: "production"
+
+  crowdsec-traefik-bouncer:
+    environment:
+      CROWDSEC_BOUNCER_API_KEY: ${CROWDSEC_BOUNCER_API_KEY_PROD}
+      GIN_MODE: release  # Production mode
+
+  # ==========================================================================
+  # TRAEFIK - Production Configuration
+  # ==========================================================================
+  traefik:
+    ports:
+      - "0.0.0.0:80:80"    # HTTP (with redirect to HTTPS)
+      - "0.0.0.0:443:443"  # HTTPS/TLS
+    environment:
+      # DNS Provider credentials for Let's Encrypt DNS Challenge
+      - CLOUDFLARE_EMAIL=${CLOUDFLARE_EMAIL}
+      - CLOUDFLARE_API_KEY=${CLOUDFLARE_API_KEY:-}
+      - CLOUDFLARE_DNS_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+    command:
+      - "--api.insecure=false"  # Secure API access in production
+      - "--api.dashboard=true"
+      - "--log.level=WARN"  # Only warnings and errors in production
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=global-saas-network"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # Let's Encrypt configuration for production
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=${DNS_PROVIDER:-cloudflare}"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.delaybeforecheck=0"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53"
+      - "--serverstransport.insecureskipverify=false"
+    volumes:
+      - ./letsencrypt:/letsencrypt
+    labels:
+      # TLS configuration for Traefik Dashboard
+      - "traefik.http.routers.dashboard.tls=true"
+      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.dashboard.tls.domains[0].main=${DOMAIN}"
+      - "traefik.http.routers.dashboard.tls.domains[0].sans=*.${DOMAIN}"
+
+  # ==========================================================================
+  # SUPABASE - Production Configuration
+  # ==========================================================================
+  studio:
+    ports:
+      - "127.0.0.1:3006:3000"  # Localhost only, requires SSH tunnel
+    environment:
+      NEXT_PUBLIC_ENABLE_LOGS: false  # Disable verbose logs in production
+
+  kong:
+    labels:
+      - "traefik.http.routers.supabase-api.tls=true"
+      - "traefik.http.routers.supabase-api.tls.certresolver=letsencrypt"
+
+  auth:
+    environment:
+      # Email confirmation required in production
+      GOTRUE_MAILER_AUTOCONFIRM: "false"
+
+      # SMTP Configuration - Real email sending
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT}
+      GOTRUE_SMTP_USER: ${SMTP_USER}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS}
+      GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME}
+
+      # Mailer URL paths (for emails)
+      GOTRUE_MAILER_URLPATHS_INVITE: ${MAILER_URLPATHS_INVITE}
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: ${MAILER_URLPATHS_CONFIRMATION}
+      GOTRUE_MAILER_URLPATHS_RECOVERY: ${MAILER_URLPATHS_RECOVERY}
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: ${MAILER_URLPATHS_EMAIL_CHANGE}
+      GOTRUE_MAILER_EXTERNAL_HOSTS: ${MAILER_EXTERNAL_HOSTS}
+
+      # Phone/SMS Configuration
+      GOTRUE_EXTERNAL_PHONE_ENABLED: ${ENABLE_PHONE_SIGNUP}
+      GOTRUE_SMS_AUTOCONFIRM: ${ENABLE_PHONE_AUTOCONFIRM}
+
+      # Rate Limiting - LIMITES TRÈS HAUTES (workaround Kong IP forwarding)
+      # Problème: Kong écrase X-Forwarded-For, GoTrue voit IP Kong (172.23.0.15)
+      # Burst hard-codé à 30 dans GoTrue → augmenter les limites pour éviter rate limit
+      # TODO: Fix Kong preserve_host + X-Forwarded-For transmission
+      GOTRUE_RATE_LIMIT_TOKEN_REFRESH: "10000"  # 10k/h = burst 30 jamais atteint
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: "5000"
+      GOTRUE_RATE_LIMIT_SMS_SENT: "5000"
+      GOTRUE_RATE_LIMIT_VERIFY: "5000"
+
+
+  supabase-db:
+    ports:
+      - "127.0.0.1:5435:5432"  # Localhost only for SSH tunnel access
+    command:
+      - "postgres"
+      - "-c"
+      - "config_file=/etc/postgresql/postgresql.conf"
+      - "-c"
+      - "log_min_messages=warning"  # Only warnings and errors
+
+  # POOLER - À activer en production pour le pooling de connexions
+  # TODO: Résoudre le problème VAULT_ENC_KEY (AES-256-GCM) avant activation
+  #supavisor:
+  #  container_name: supabase-pooler
+  #  image: supabase/supavisor:2.7.4
+  #  restart: unless-stopped
+  #  networks:
+  #    - global-saas-network
+  #  ports:
+  #    - "127.0.0.1:${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}"
+  #    - "127.0.0.1:${POOLER_PROXY_PORT_TRANSACTION:-6543}:6543"
+  #  volumes:
+  #    - ./volumes/supabase/pooler/pooler.exs:/etc/pooler/pooler.exs:ro,z
+  #  healthcheck:
+  #    test: ["CMD", "curl", "-sSfL", "--head", "-o", "/dev/null", "http://127.0.0.1:4000/api/health"]
+  #    interval: 10s
+  #    timeout: 5s
+  #    retries: 5
+  #  depends_on:
+  #    supabase-db:
+  #      condition: service_healthy
+  #  environment:
+  #    PORT: 4000
+  #    POSTGRES_PORT: ${POSTGRES_PORT}
+  #    POSTGRES_DB: ${POSTGRES_DB}
+  #    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #    DATABASE_URL: ecto://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT}/_supabase
+  #    CLUSTER_POSTGRES: true
+  #    SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+  #    VAULT_ENC_KEY: ${VAULT_ENC_KEY}
+  #    API_JWT_SECRET: ${JWT_SECRET}
+  #    METRICS_JWT_SECRET: ${JWT_SECRET}
+  #    REGION: local
+  #    ERL_AFLAGS: -proto_dist inet_tcp
+  #    POOLER_TENANT_ID: ${POOLER_TENANT_ID}
+  #    POOLER_DEFAULT_POOL_SIZE: ${POOLER_DEFAULT_POOL_SIZE}
+  #    POOLER_MAX_CLIENT_CONN: ${POOLER_MAX_CLIENT_CONN}
+  #    POOLER_POOL_MODE: transaction
+  #    DB_POOL_SIZE: ${POOLER_DB_POOL_SIZE}
+  #  command:
+  #    - "/bin/sh"
+  #    - "-c"
+  #    - "/app/bin/migrate && /app/bin/supavisor eval \"$$(cat /etc/pooler/pooler.exs)\" && /app/bin/server"
+
+  # ==========================================================================
+  # NOTIFUSE - Production Configuration
+  # ==========================================================================
+  notifuse-postgres:
+    ports:
+      - "127.0.0.1:5433:5432"  # Localhost only for SSH tunnel access
+
+  notifuse:
+    environment:
+      ENVIRONMENT: production
+      API_ENDPOINT: https://notifuse.${DOMAIN}
+
+      # SMTP Configuration - Real email sending
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USERNAME: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASS}
+      SMTP_FROM_EMAIL: ${SMTP_ADMIN_EMAIL}
+      SMTP_FROM_NAME: ${SMTP_SENDER_NAME}
+    labels:
+      - "traefik.http.routers.notifuse.tls=true"
+      - "traefik.http.routers.notifuse.tls.certresolver=letsencrypt"
+
+  # ==========================================================================
+  # TWENTY - Production Configuration
+  # ==========================================================================
+  twenty-postgres:
+    ports:
+      - "127.0.0.1:5434:5432"  # Localhost only for SSH tunnel access
+
+  twenty-server:
+    environment:
+      NODE_ENV: production
+      SERVER_URL: https://twenty.${DOMAIN}
+      FRONTEND_URL: https://twenty.${DOMAIN}
+
+      # Billing - Stripe LIVE key for production
+      BILLING_STRIPE_API_KEY: ${STRIPE_SECRET_KEY_LIVE}
+      BILLING_STRIPE_WEBHOOK_SECRET: ${TWENTY_STRIPE_WEBHOOK_SECRET_LIVE}
+
+      # Email Configuration - Real email sending
+      EMAIL_DRIVER: smtp
+      EMAIL_SMTP_HOST: ${SMTP_HOST}
+      EMAIL_SMTP_PORT: ${SMTP_PORT}
+      EMAIL_SMTP_USER: ${SMTP_USER}
+      EMAIL_SMTP_PASSWORD: ${SMTP_PASS}
+      EMAIL_SMTP_NO_TLS: "false"
+      EMAIL_FROM_ADDRESS: ${SMTP_ADMIN_EMAIL}
+      EMAIL_FROM_NAME: ${SMTP_SENDER_NAME}
+      EMAIL_SYSTEM_ADDRESS: ${SMTP_ADMIN_EMAIL}
+
+      # Only errors and warnings in production
+      LOG_LEVELS: error,warn
+    labels:
+      - "traefik.http.routers.twenty.tls=true"
+      - "traefik.http.routers.twenty.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.twenty.tls.domains[0].main=twenty.${DOMAIN}"
+      - "traefik.http.routers.twenty.tls.domains[0].sans=*.twenty.${DOMAIN}"
+ 
+  twenty-worker:
+    environment:
+      # Billing - Stripe LIVE key for production (MUST match twenty-server)
+      BILLING_STRIPE_API_KEY: ${STRIPE_SECRET_KEY_LIVE}
+      BILLING_STRIPE_WEBHOOK_SECRET: ${TWENTY_STRIPE_WEBHOOK_SECRET_LIVE}
+
+      # Email Configuration - Real email sending
+      EMAIL_DRIVER: smtp
+      EMAIL_SMTP_HOST: ${SMTP_HOST}
+      EMAIL_SMTP_PORT: ${SMTP_PORT}
+      EMAIL_SMTP_USER: ${SMTP_USER}
+      EMAIL_SMTP_PASSWORD: ${SMTP_PASS}
+      EMAIL_FROM_ADDRESS: ${SMTP_ADMIN_EMAIL}
+      EMAIL_FROM_NAME: ${SMTP_SENDER_NAME}
+
+  # ==========================================================================
+  # WEB DASHBOARD - Production Configuration
+  # ==========================================================================
+  dashboard:
+    # Pull l'image depuis GitHub Container Registry
+    image: ghcr.io/christ-roy/veridian-dashboard:latest
+    pull_policy: always
+
+    environment:
+      NODE_ENV: production
+      CI: "true"
+
+      # ====== Variables publiques (exposées au client via /api/config) ======
+      # Préfixe DASHBOARD_ pour le runtime, mappées vers NEXT_PUBLIC_* côté client
+      DASHBOARD_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+      DASHBOARD_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      DASHBOARD_SUPABASE_ANON_KEY: ${ANON_KEY}
+      DASHBOARD_TWENTY_URL: ${NEXT_PUBLIC_TWENTY_URL}
+      DASHBOARD_NOTIFUSE_URL: ${NEXT_PUBLIC_NOTIFUSE_URL}
+      DASHBOARD_NOTIFUSE_API_URL: ${NEXT_PUBLIC_NOTIFUSE_API_URL}
+      DASHBOARD_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+      DASHBOARD_STRIPE_PUBLISHABLE_KEY_LIVE: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE}
+      DASHBOARD_GTM_ID: ${NEXT_PUBLIC_GTM_ID}
+
+      # ====== Secrets serveur (jamais exposés au client) ======
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_SECRET_KEY_LIVE: ${STRIPE_SECRET_KEY_LIVE}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_WEBHOOK_SECRET_LIVE: ${STRIPE_WEBHOOK_SECRET_LIVE}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      NOTIFUSE_SECRET_KEY: ${NOTIFUSE_SECRET_KEY}
+      NOTIFUSE_ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL}
+      NOTIFUSE_API_URL: ${NOTIFUSE_API_URL}
+      TWENTY_GRAPHQL_URL: ${TWENTY_GRAPHQL_URL}
+      TWENTY_METADATA_URL: ${TWENTY_METADATA_URL}
+      TWENTY_FRONTEND_URL: ${TWENTY_FRONTEND_URL}
+    labels:
+      # Enable HTTPS/TLS with Let's Encrypt
+      - "traefik.http.routers.web-dashboard.tls=true"
+      - "traefik.http.routers.web-dashboard.tls.certresolver=letsencrypt"
+
+  # ==========================================================================
+  # BACKUP - Automated Production Backups (DB + Volumes)
+  # ==========================================================================
+  backup:
+    image: offen/docker-volume-backup:v2
+    container_name: backup-prod
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    environment:
+      # 1. Planification (Tous les jours à 3h du matin)
+      BACKUP_CRON: "0 3 * * *"
+      BACKUP_FILENAME: "veridian-prod-%Y%m%d-%H%M%S.tar.gz"
+      BACKUP_RETENTION_DAYS: 14
+      BACKUP_PRUNING_LEEWAY: "1m"  # Temps de grâce avant suppression
+
+      # 2. Sécurité & Compression
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY}
+      BACKUP_COMPRESSION: "gz"
+
+      # 3. Dumps de base de données à chaud (sans coupure)
+      EXEC_BEFORE: >
+        docker exec supabase-db pg_dump -U postgres postgres > /var/lib/postgresql/data/supabase_dump.sql;
+        docker exec twenty-postgres pg_dump -U twenty twenty > /var/lib/postgresql/data/twenty_dump.sql;
+        docker exec notifuse-postgres pg_dump -U postgres notifuse_system > /var/lib/postgresql/data/notifuse_dump.sql
+
+      # 4. Nettoyage après backup
+      EXEC_AFTER: >
+        docker exec supabase-db rm -f /var/lib/postgresql/data/supabase_dump.sql;
+        docker exec twenty-postgres rm -f /var/lib/postgresql/data/twenty_dump.sql;
+        docker exec notifuse-postgres rm -f /var/lib/postgresql/data/notifuse_dump.sql
+
+      # 5. Configuration SSH/SFTP vers serveur de DEV (ovhh - 37.187.199.185)
+      SSH_HOST_NAME: "37.187.199.185"
+      SSH_PORT: "22"
+      SSH_USER: "ubuntu"
+      SSH_REMOTE_PATH: "/home/ubuntu/backups/veridian"
+
+      # 6. Notifications Telegram
+      NOTIFICATION_URLS: "telegram://8472236708:AAGhjyvILKjjofuY_hRkSoyVfoIuS-bLCJk@telegram?chats=8508359671"
+      NOTIFICATION_LEVEL: "error"  # 'all' pour succès+erreurs, 'error' pour erreurs uniquement
+
+      # 7. S3/Object Storage (optionnel - décommenter si configuré)
+      # AWS_S3_BUCKET_NAME: ${BACKUP_S3_BUCKET}
+      # AWS_ACCESS_KEY_ID: ${BACKUP_S3_KEY}
+      # AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET}
+      # AWS_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}  # Pour Scaleway/MinIO/etc.
+      # AWS_ENDPOINT_PROTO: https
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./backups:/archive  # Copie locale sur le serveur de prod
+      - ~/.ssh/id_rsa_ovh:/root/.ssh/id_rsa:ro  # Clé SSH pour ovhh (37.187.199.185)
+
+      # Volumes à sauvegarder
+      - supabase-db-data:/backup/supabase-db:ro
+      - supabase-storage-data:/backup/supabase-storage:ro
+      - twenty-db-data:/backup/twenty-db:ro
+      - twenty-storage:/backup/twenty-files:ro
+      - twenty-redis-data:/backup/twenty-redis:ro
+      - notifuse-db-data:/backup/notifuse-db:ro
+      - notifuse-data:/backup/notifuse-files:ro
+      - crowdsec-db:/backup/crowdsec-db:ro
+      - crowdsec-config:/backup/crowdsec-config:ro
+      - ./letsencrypt:/backup/letsencrypt:ro  # Certificats SSL
+
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -f /archive/$(ls -t /archive | head -1) || exit 1"]
+      interval: 12h
+      timeout: 10s
+      retries: 1

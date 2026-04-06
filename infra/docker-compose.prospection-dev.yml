@@ -1,0 +1,23 @@
+# Local dev compose — Postgres + Prospection
+# Usage: docker compose -f docker-compose.dev.yml up -d
+# Then: cd dashboard && npm run dev
+
+services:
+  prospection-db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_PASSWORD: devpass
+      POSTGRES_DB: prospection
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

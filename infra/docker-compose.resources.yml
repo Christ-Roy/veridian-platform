@@ -1,0 +1,238 @@
+# ============================================================================
+# RESOURCE LIMITS - Fusibles de Sécurité
+# ============================================================================
+# Limites MAX pour éviter qu'un service qui s'emballe OOM le serveur
+# Serveur prod: 11 GB RAM, 6 CPUs
+# 60% = 6.6 GB RAM, 3.6 CPUs par service critique (fusible)
+# ============================================================================
+
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # SERVICES CRITIQUES - Fusible 60% (6.6 GB RAM, 3.6 CPUs)
+  # ==========================================================================
+
+  supabase-db:
+    deploy:
+      resources:
+        limits:
+          cpus: '3.6'
+          memory: 6656M
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+
+  twenty-postgres:
+    deploy:
+      resources:
+        limits:
+          cpus: '3.6'
+          memory: 6656M
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+
+  twenty-server:
+    deploy:
+      resources:
+        limits:
+          cpus: '3.6'
+          memory: 6656M
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+
+  twenty-worker:
+    deploy:
+      resources:
+        limits:
+          cpus: '3.6'
+          memory: 6656M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
+
+  notifuse-postgres:
+    deploy:
+      resources:
+        limits:
+          cpus: '3.6'
+          memory: 6656M
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+
+  notifuse:
+    deploy:
+      resources:
+        limits:
+          cpus: '3.6'
+          memory: 6656M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
+
+  dashboard:
+    deploy:
+      resources:
+        limits:
+          cpus: '3.6'
+          memory: 6656M
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+
+  # ==========================================================================
+  # INFRASTRUCTURE - Fusible plus bas (2 GB RAM, 1 CPU)
+  # ==========================================================================
+
+  traefik:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  kong:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
+
+  auth:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  rest:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  realtime:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  storage:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  meta:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.05'
+          memory: 64M
+
+  studio:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.05'
+          memory: 128M
+
+  imgproxy:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  functions:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.05'
+          memory: 64M
+
+  cron-scheduler:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.05'
+          memory: 64M
+
+  twenty-redis:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  crowdsec:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  crowdsec-traefik-bouncer:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.05'
+          memory: 64M
+
+  backup:
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
+          cpus: '0.1'
+          memory: 256M

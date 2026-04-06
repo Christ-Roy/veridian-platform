@@ -1,0 +1,403 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "price_1SpyCURd7CeMgvtBWYwQOJXE",
+      "object": "price",
+      "active": true,
+      "billing_scheme": "per_unit",
+      "created": 1768512930,
+      "currency": "usd",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {},
+      "nickname": null,
+      "product": "prod_TnZLAPRr7kDiNj",
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": null,
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": 1500,
+      "unit_amount_decimal": "1500"
+    },
+    {
+      "id": "price_1Spy8mRd7CeMgvtBBfsswecQ",
+      "object": "price",
+      "active": true,
+      "billing_scheme": "per_unit",
+      "created": 1768512700,
+      "currency": "usd",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {},
+      "nickname": null,
+      "product": "prod_TnZH3EEq6lkQEJ",
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": null,
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": 1500,
+      "unit_amount_decimal": "1500"
+    },
+    {
+      "id": "price_1SoD07Rd7CeMgvtBcvyuL1QB",
+      "object": "price",
+      "active": true,
+      "billing_scheme": "tiered",
+      "created": 1768093167,
+      "currency": "eur",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {
+        "synced": "true"
+      },
+      "nickname": "Workflow Credits Included",
+      "product": "prod_TlkDyJrqKmnoDG",
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": "mtr_test_61TxaqLGpk73clp3y41Rd7CeMgvtBOMa",
+        "trial_period_days": null,
+        "usage_type": "metered"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": "volume",
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": null,
+      "unit_amount_decimal": null
+    },
+    {
+      "id": "price_1SoCtnRd7CeMgvtBbG7jT6pQ",
+      "object": "price",
+      "active": false,
+      "billing_scheme": "tiered",
+      "created": 1768092775,
+      "currency": "eur",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {
+        "synced": "true"
+      },
+      "nickname": "Workflow Credits Included",
+      "product": "prod_TlkDy0RNS901sV",
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": "mtr_test_61TxaqywuQbGPIGEv41Rd7CeMgvtBGdM",
+        "trial_period_days": null,
+        "usage_type": "metered"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": "volume",
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": null,
+      "unit_amount_decimal": null
+    },
+    {
+      "id": "price_1SoCtSRd7CeMgvtBlxsaxVZU",
+      "object": "price",
+      "active": false,
+      "billing_scheme": "tiered",
+      "created": 1768092754,
+      "currency": "eur",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {
+        "synced": "true"
+      },
+      "nickname": "Workflow Credits Included",
+      "product": "prod_TlkDyJrqKmnoDG",
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": "mtr_test_61TxaqLGpk73clp3y41Rd7CeMgvtBOMa",
+        "trial_period_days": null,
+        "usage_type": "metered"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": "volume",
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": null,
+      "unit_amount_decimal": null
+    },
+    {
+      "id": "price_1ScvFURd7CeMgvtBlqQslG6X",
+      "object": "price",
+      "active": true,
+      "billing_scheme": "per_unit",
+      "created": 1765403320,
+      "currency": "eur",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {},
+      "nickname": null,
+      "product": "prod_Ta5QW3l1WeXlz2",
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": null,
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": 4900,
+      "unit_amount_decimal": "4900"
+    },
+    {
+      "id": "price_1ScvF6Rd7CeMgvtBcxQ1pAqd",
+      "object": "price",
+      "active": true,
+      "billing_scheme": "per_unit",
+      "created": 1765403296,
+      "currency": "eur",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {},
+      "nickname": null,
+      "product": "prod_Ta5P1ug5gxKyE4",
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": null,
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": 1900,
+      "unit_amount_decimal": "1900"
+    },
+    {
+      "id": "price_1ScZ1dRd7CeMgvtBbS96Ip64",
+      "object": "price",
+      "active": true,
+      "billing_scheme": "per_unit",
+      "created": 1765317893,
+      "currency": "usd",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {},
+      "nickname": null,
+      "product": "prod_TZiSLqLWBmxnPz",
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": null,
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": 1500,
+      "unit_amount_decimal": "1500"
+    },
+    {
+      "id": "price_1SboaMRd7CeMgvtB0uzLUlYQ",
+      "object": "price",
+      "active": true,
+      "billing_scheme": "per_unit",
+      "created": 1765139378,
+      "currency": "eur",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {
+        "synced": "true"
+      },
+      "nickname": null,
+      "product": "prod_TYwSo0sTy9bd2V",
+      "recurring": {
+        "interval": "year",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": null,
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": 99000,
+      "unit_amount_decimal": "99000"
+    },
+    {
+      "id": "price_1SboaMRd7CeMgvtByRtalErA",
+      "object": "price",
+      "active": true,
+      "billing_scheme": "per_unit",
+      "created": 1765139378,
+      "currency": "eur",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {
+        "synced": "true"
+      },
+      "nickname": null,
+      "product": "prod_TYwSo0sTy9bd2V",
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "tax_behavior": "exclusive",
+      "tiers_mode": null,
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": 3500,
+      "unit_amount_decimal": "3500"
+    },
+    {
+      "id": "price_1SboaLRd7CeMgvtBmKGjRQcG",
+      "object": "price",
+      "active": true,
+      "billing_scheme": "per_unit",
+      "created": 1765139377,
+      "currency": "eur",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {
+        "synced": "true"
+      },
+      "nickname": null,
+      "product": "prod_TYwSaRFGw6FGGM",
+      "recurring": {
+        "interval": "year",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": null,
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": 29000,
+      "unit_amount_decimal": "29000"
+    },
+    {
+      "id": "price_1SboaKRd7CeMgvtBzYP0Fpt0",
+      "object": "price",
+      "active": true,
+      "billing_scheme": "per_unit",
+      "created": 1765139376,
+      "currency": "eur",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {
+        "synced": "true"
+      },
+      "nickname": null,
+      "product": "prod_TYwSaRFGw6FGGM",
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": null,
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": 2900,
+      "unit_amount_decimal": "2900"
+    },
+    {
+      "id": "price_1SboaJRd7CeMgvtBDi1yTfAj",
+      "object": "price",
+      "active": true,
+      "billing_scheme": "per_unit",
+      "created": 1765139375,
+      "currency": "eur",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {
+        "synced": "true"
+      },
+      "nickname": null,
+      "product": "prod_TYwSEruMtSSo8p",
+      "recurring": {
+        "interval": "year",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": null,
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": 9000,
+      "unit_amount_decimal": "9000"
+    },
+    {
+      "id": "price_1SboaJRd7CeMgvtBSPerVWDZ",
+      "object": "price",
+      "active": true,
+      "billing_scheme": "per_unit",
+      "created": 1765139375,
+      "currency": "eur",
+      "custom_unit_amount": null,
+      "livemode": false,
+      "lookup_key": null,
+      "metadata": {
+        "synced": "true"
+      },
+      "nickname": null,
+      "product": "prod_TYwSEruMtSSo8p",
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "tax_behavior": "unspecified",
+      "tiers_mode": null,
+      "transform_quantity": null,
+      "type": "recurring",
+      "unit_amount": 900,
+      "unit_amount_decimal": "900"
+    }
+  ],
+  "has_more": false,
+  "url": "/v1/prices"
+}

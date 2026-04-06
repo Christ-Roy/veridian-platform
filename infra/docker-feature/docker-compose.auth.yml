@@ -1,0 +1,53 @@
+# ============================================================================
+# FORWARDAUTH SECURITY LAYER - Optional Authentication via Supabase
+# ============================================================================
+# Ce fichier ajoute l'authentification ForwardAuth à Twenty et Notifuse.
+# Utilise-le en combinaison avec dev ou prod :
+#
+# DEV + Auth:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.auth.yml up -d
+#
+# PROD + Auth:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.auth.yml up -d
+#
+# 🔒 Ce que fait ce fichier :
+# - Configure le middleware ForwardAuth dans Traefik
+# - Ajoute le middleware aux routers Twenty et Notifuse
+# - Active IS_EMAIL_VERIFICATION_REQUIRED sur Twenty (bloquer inscriptions)
+#
+# ⚠️  IMPORTANT:
+# - Les utilisateurs DOIVENT passer par le Dashboard (auth Supabase)
+# - Accès direct à twenty/notifuse → 401 Unauthorized
+# ============================================================================
+
+version: '3.8'
+
+services:
+
+  # ==========================================================================
+  # TRAEFIK - Add ForwardAuth Middleware
+  # ==========================================================================
+  traefik:
+    labels:
+      # ForwardAuth Middleware - Authentification via Supabase GoTrue
+      - "traefik.http.middlewares.supabase-auth.forwardauth.address=http://auth:9999/user"
+      - "traefik.http.middlewares.supabase-auth.forwardauth.authRequestHeaders=Authorization,Cookie"
+      - "traefik.http.middlewares.supabase-auth.forwardauth.authResponseHeaders=X-User-Id,X-User-Email"
+      - "traefik.http.middlewares.supabase-auth.forwardauth.trustForwardHeader=true"
+
+  # ==========================================================================
+  # NOTIFUSE - Add ForwardAuth Protection
+  # ==========================================================================
+  notifuse:
+    labels:
+      - "traefik.http.routers.notifuse.middlewares=supabase-auth@docker"
+
+  # ==========================================================================
+  # TWENTY - Add ForwardAuth Protection + Block Direct Signup
+  # ==========================================================================
+  twenty-server:
+    environment:
+      # Block direct signups - users must go through Dashboard
+      IS_EMAIL_VERIFICATION_REQUIRED: "true"
+    labels:
+      - "traefik.http.routers.twenty.middlewares=supabase-auth@docker"

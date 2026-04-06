@@ -1,0 +1,76 @@
+# ==============================================================================
+# Crontab Example - Veridian Infrastructure
+# ==============================================================================
+# Installation: crontab -e (puis copier les lignes souhaitées)
+#
+# Format: MIN HOUR DAY MONTH WEEKDAY COMMAND
+# ==============================================================================
+
+# Backups automatiques (déjà géré par le container backup)
+# Les backups quotidiens sont gérés par docker-compose.prod.yml
+# Cron: 0 3 * * * (tous les jours à 3h du matin)
+
+# ------------------------------------------------------------------------------
+# Test de restauration hebdomadaire (recommandé)
+# ------------------------------------------------------------------------------
+# Tous les dimanches à 4h du matin
+# 0 4 * * 0 cd /home/ubuntu/app.veridian/infra && ./scripts/test-restore.sh >> ./logs/restore-test.log 2>&1
+
+# ------------------------------------------------------------------------------
+# Backup du fichier .env (recommandé si GPG configuré)
+# ------------------------------------------------------------------------------
+# Tous les jours à 2h du matin (avant le backup principal)
+# 0 2 * * * cd /home/ubuntu/app.veridian/infra && ./scripts/backup-secrets.sh >> ./logs/backup-secrets.log 2>&1
+
+# ------------------------------------------------------------------------------
+# Nettoyage des logs anciens
+# ------------------------------------------------------------------------------
+# Tous les lundis à 5h du matin (garder 30 jours)
+# 0 5 * * 1 find /home/ubuntu/app.veridian/infra/logs -name "*.log" -mtime +30 -delete
+
+# ------------------------------------------------------------------------------
+# Vérification de l'espace disque
+# ------------------------------------------------------------------------------
+# Tous les jours à 6h du matin (alerte si < 20% libre)
+# 0 6 * * * df -h / | awk '$5+0 > 80 {system("curl -X POST https://notifuse.app.veridian.site/api/webhooks/disk-alert")}'
+
+# ------------------------------------------------------------------------------
+# Rotation des backups locaux (si pas géré par le container backup)
+# ------------------------------------------------------------------------------
+# Tous les jours à 7h du matin (garder 14 jours)
+# 0 7 * * * find /home/ubuntu/app.veridian/infra/backups -name "*.tar.gz" -mtime +14 -delete
+
+# ------------------------------------------------------------------------------
+# Renouvellement certificats Let's Encrypt (déjà automatique via Traefik)
+# ------------------------------------------------------------------------------
+# Traefik gère automatiquement le renouvellement 30 jours avant expiration
+# Pas besoin de cron manuel
+
+# ------------------------------------------------------------------------------
+# Health check hebdomadaire de tous les services
+# ------------------------------------------------------------------------------
+# Tous les lundis à 8h du matin
+# 0 8 * * 1 cd /home/ubuntu/app.veridian/infra && docker compose ps | grep -v "Up" && curl -X POST https://hooks.slack.com/services/...
+
+# ------------------------------------------------------------------------------
+# Statistiques d'utilisation (optionnel)
+# ------------------------------------------------------------------------------
+# Tous les 1er du mois à 9h
+# 0 9 1 * * cd /home/ubuntu/app.veridian/infra && docker stats --no-stream > ./logs/docker-stats-$(date +\%Y\%m).log
+
+# ==============================================================================
+# Notes
+# ==============================================================================
+#
+# 1. Activer les logs pour toutes les tâches cron importantes
+# 2. Configurer des notifications (email, Slack, Notifuse) pour les échecs
+# 3. Tester chaque commande manuellement avant de l'ajouter au cron
+# 4. Utiliser des chemins absolus dans les commandes cron
+# 5. Rediriger stdout et stderr vers des fichiers de log
+#
+# Exemples de redirections:
+# >> /path/to/log.log 2>&1  # Append stdout et stderr
+# > /path/to/log.log 2>&1   # Overwrite stdout et stderr
+# 2>&1 | tee /path/to/log.log  # Afficher ET sauvegarder
+#
+# ==============================================================================
