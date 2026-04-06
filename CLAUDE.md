@@ -83,19 +83,28 @@ veridian-platform/
 └── docs/                   # Architecture, deploy, testing
 ```
 
+## CI/CD — Ship fast, break nothing
+
+La CI est le seul filet de securite. Si elle passe, le code va en prod.
+Si elle est cassee ou incomplete, on ne ship plus rien tant que c'est pas fixe.
+
+**Flow** : push main → lint/test (cloud 30s) → docker build + e2e (self-hosted 3min) → deploy prod (1min)
+**Self-hosted runner** : dev server (37.187.199.185), cache Docker local, builds en 25s.
+**Rollback auto** : si health check prod fail, retour a l'image precedente en 30s.
+
+Voir `ci/README.md` pour les details.
+
 ## Branches
 
 | Branche | Role |
 |---------|------|
-| `main` | Production. Recoit du code uniquement via CI (merge auto apres tests verts) |
-| `staging` | Dev actif prospection. Auto-deploy sur dev server |
-| `dev` | Dev actif hub. Auto-merge vers main apres tests |
+| `main` | Production. Push = test = deploy prod (si CI verte) |
+| `staging` | Tests staging (transition vers trunk-based, a terme tout sur main) |
 
 ## Deploiement
 
 - **Prod OVH** (`ssh prod-pub`) : hub + prospection + Supabase + Twenty + Notifuse
-- **Staging** (`ssh dev-pub`) : stack complete clonee de la prod
-- CI : push sur staging/dev → build → test → docker → deploy → e2e → promote
+- CI : push main → build → test → docker → deploy prod → health check → rollback si fail
 
 ## URLs
 
@@ -109,7 +118,7 @@ veridian-platform/
 
 ## Regles absolues
 
-- **JAMAIS push direct sur `main`** — passe par staging/dev + CI
+- **La CI est sacree** — si un test fail, on fixe le test ou le code. Pas de skip, pas de contournement
 - **JAMAIS modifier la prod** sans accord de Robert
 - **JAMAIS d'appel Supabase admin API dans un hot path** — cache obligatoire
 - **JAMAIS `git push --force`** sur une branche partagee
