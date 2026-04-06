@@ -22,10 +22,12 @@
 - [x] `npm install next@15.5.14` — fait le 7 avril
 - [ ] Verifier que le build CI passe avec la nouvelle version
 
-### P0.6 — CI : version check services OSS
-- [ ] Job CI qui check les dernières versions de Twenty + Notifuse (Docker Hub tags)
-- [ ] Log en warning si une nouvelle version est disponible
-- [ ] Pour Notifuse : quand on modifie son code, structurer les patches pour être rebase-friendly (pas de fork lourd)
+### P0.6 — Stratégie OSS : Notifuse fork + Twenty hands-off
+- [x] Script `ci/check-oss-versions.sh` pour détecter les mises à jour
+- [ ] **Notifuse** : fork léger `Christ-Roy/notifuse`, branche `veridian` pour nos modifs.
+  Image custom `ghcr.io/christ-roy/notifuse-veridian`. Merge upstream pour les updates.
+- [ ] **Twenty** : NE PAS forker. Utiliser via API GraphQL comme boîte noire.
+  Updates = simple bump d'image dans docker-compose. Custom features dans le Hub.
 
 ### P0.2 — checkTrialExpired = return false en prod
 - [ ] Hack temporaire depuis le sprint du 6 avril. Le trial ne bloque plus personne.
