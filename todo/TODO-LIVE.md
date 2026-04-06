@@ -19,9 +19,13 @@
 - [ ] Test core : spec qui verifie qu'un abus depuis 1 IP ne bloque pas les autres
 
 ### P0.1 — CVE next@15.3.3 (prospection)
-- [ ] `cd prospection && npm install next@15.5.14` — 2 CVEs image-optimization
-- [ ] Verifier que le build passe apres upgrade
-- [ ] Si ca casse → revert, documenter dans SECURITY-DEBT.md
+- [x] `npm install next@15.5.14` — fait le 7 avril
+- [ ] Verifier que le build CI passe avec la nouvelle version
+
+### P0.6 — CI : version check services OSS
+- [ ] Job CI qui check les dernières versions de Twenty + Notifuse (Docker Hub tags)
+- [ ] Log en warning si une nouvelle version est disponible
+- [ ] Pour Notifuse : quand on modifie son code, structurer les patches pour être rebase-friendly (pas de fork lourd)
 
 ### P0.2 — checkTrialExpired = return false en prod
 - [ ] Hack temporaire depuis le sprint du 6 avril. Le trial ne bloque plus personne.
