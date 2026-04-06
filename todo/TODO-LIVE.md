@@ -42,13 +42,20 @@
 
 ## P1 — Prochaine session
 
-### P1.1 — CI optimisations
-- [x] Self-hosted runner installe sur dev server (systemd, labels: self-hosted, veridian)
-- [x] docker-staging, deploy-staging, e2e-staging sur self-hosted
-- [x] docker prod sur self-hosted (cache Docker local)
-- [ ] Cache node_modules + .next/cache + playwright sur le runner
-- [ ] Pre-push hook local (tsc + vitest < 2s)
-- [ ] hub-ci.yml : ajouter deploy-staging + deploy-prod sur self-hosted
+### P1.1 — CI → trunk-based + tests core
+- [x] Self-hosted runner installe sur dev server
+- [x] docker/deploy/e2e sur self-hosted (docker build 25s, deploy 11s)
+- [x] Integration test fix (FK constraint cleanup)
+- [ ] **Separer tests core vs extended** :
+  - core/ (5 specs, ~2min, BLOQUANT) : auth-login, prospects-crud, pipeline-flow, health, tenant-isolation
+  - extended/ (15 specs, NON-BLOQUANT) : admin, search, export, mobile, etc.
+- [ ] **Core sur self-hosted** (rapide, gate bloquant)
+- [ ] **Extended sur cloud** en parallele, sharde sur 3 browsers (chromium/firefox/webkit)
+- [ ] **Tests lourds en batch** : toutes les 3h ou tous les 5 commits, clone DB prod + migrations + e2e complet
+- [ ] **Health check prod post-deploy** : 1 spec login-only, pas de signup (pas de rate limit)
+- [ ] Trunk-based : supprimer staging, tout sur main, chaque push = test = prod
+- [ ] hub-ci.yml : memes principes (test cloud + docker self-hosted)
+- [ ] Lier package GHCR `veridian-dashboard` au repo monorepo (Robert: settings package)
 
 ### P1.2 — Polish UI invitations
 - [ ] Loader bouton "Accepter l'invitation" (anti double-clic)
