@@ -46,9 +46,11 @@ services:
       - name: cors
       - name: rate-limiting
         config:
-          minute: 20
-          hour: 100
+          minute: 100
+          hour: 2000
           policy: local
+          limit_by: header
+          header_name: X-Real-IP
   - name: auth-v1-open-callback
     url: http://auth:9999/callback
     routes:
@@ -60,9 +62,11 @@ services:
       - name: cors
       - name: rate-limiting
         config:
-          minute: 20
-          hour: 100
+          minute: 100
+          hour: 2000
           policy: local
+          limit_by: header
+          header_name: X-Real-IP
   - name: auth-v1-open-authorize
     url: http://auth:9999/authorize
     routes:
@@ -74,9 +78,11 @@ services:
       - name: cors
       - name: rate-limiting
         config:
-          minute: 20
-          hour: 100
+          minute: 100
+          hour: 2000
           policy: local
+          limit_by: header
+          header_name: X-Real-IP
 
   ## Secure Auth routes
   - name: auth-v1
@@ -100,9 +106,11 @@ services:
             - anon
       - name: rate-limiting
         config:
-          minute: 60
-          hour: 1000
+          minute: 200
+          hour: 5000
           policy: local
+          limit_by: header
+          header_name: X-Real-IP
 
   ## Secure REST routes
   - name: rest-v1
