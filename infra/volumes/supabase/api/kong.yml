@@ -49,8 +49,7 @@ services:
           minute: 100
           hour: 2000
           policy: local
-          limit_by: header
-          header_name: X-Real-IP
+          limit_by: ip
   - name: auth-v1-open-callback
     url: http://auth:9999/callback
     routes:
@@ -65,8 +64,7 @@ services:
           minute: 100
           hour: 2000
           policy: local
-          limit_by: header
-          header_name: X-Real-IP
+          limit_by: ip
   - name: auth-v1-open-authorize
     url: http://auth:9999/authorize
     routes:
@@ -81,8 +79,7 @@ services:
           minute: 100
           hour: 2000
           policy: local
-          limit_by: header
-          header_name: X-Real-IP
+          limit_by: ip
 
   ## Secure Auth routes
   - name: auth-v1
@@ -109,8 +106,7 @@ services:
           minute: 200
           hour: 5000
           policy: local
-          limit_by: header
-          header_name: X-Real-IP
+          limit_by: ip
 
   ## Secure REST routes
   - name: rest-v1
