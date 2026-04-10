@@ -132,4 +132,20 @@ Tout dans `~/credentials/.all-creds.env` (local). Ne JAMAIS commit de secrets.
 
 ## TODO
 
-Backlog priorise : `todo/TODO-LIVE.md`
+- **Backlog strategique global** : `todo/TODO-LIVE.md` (source de verite, ordre des sprints,
+  arbitrages, chantiers douloureux en bas a ne PAS commencer sans accord)
+- **TODO detaillee par app** : `todo/apps/<app>/TODO.md` (sous-taches, etat d'avancement,
+  bugs connus, decisions techniques, notes agents au fil de l'eau)
+- **UI polish solo** : `todo/apps/<app>/UI-REVIEW.md` (file d'attente de review pour Robert
+  en session standalone, hors sprint, avec Next dev)
+
+**Workflow agent obligatoire** :
+1. Avant de bosser sur une app → lire `todo/apps/<app>/TODO.md`
+2. Pendant le sprint → cocher les sous-taches, noter decisions/blockers dans ce fichier
+3. A la livraison d'une page ou composant UI → creer une entree dans `todo/apps/<app>/UI-REVIEW.md`
+   avec URL dev, fichiers modifies, points a polish suspectes
+4. A la fin → mettre a jour l'etat actuel (version, sante, recently shipped)
+
+Les entrees UI-REVIEW sont traitees par Robert en solo, tranquillement, sans bloquer les
+sprints en cours. Les agents ne polishent pas l'UI eux-memes — ils livrent fonctionnel,
+Robert polish ensuite.
