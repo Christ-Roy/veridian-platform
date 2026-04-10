@@ -1,0 +1,55 @@
+# TODO (sprint P1.3) : completer ce workflow
+# Scaffold cree le 2026-04-10 par le lead agent.
+# Pour l'instant ce pipeline est un placeholder qui verifie juste que le
+# dossier notifuse/ est present et que la version upstream est trackee.
+#
+# A brancher plus tard :
+#   - build image custom ghcr.io/christ-roy/notifuse-veridian:latest
+#     (sur le self-hosted runner, cache local)
+#   - tests upstream Notifuse (Go) reutilises tels quels
+#   - nos specs Veridian par-dessus (provisioning, paywall, limites plan)
+#   - deploy staging + prod via Dokploy, health check + rollback auto
+#
+# Voir notifuse/README.md et todo/apps/notifuse/TODO.md pour le contexte.
+
+name: Notifuse CI/CD (placeholder)
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - 'notifuse/**'
+      - '.github/workflows/notifuse-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'notifuse/**'
+  workflow_dispatch:
+
+concurrency:
+  group: notifuse-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scaffold-check:
+    name: Scaffold check (placeholder)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify notifuse/ scaffold
+        run: |
+          set -euo pipefail
+          test -f notifuse/README.md || { echo "Missing notifuse/README.md"; exit 1; }
+          test -f notifuse/MERGING-UPSTREAM.md || { echo "Missing notifuse/MERGING-UPSTREAM.md"; exit 1; }
+          test -f notifuse/.upstream-version || { echo "Missing notifuse/.upstream-version"; exit 1; }
+          UPSTREAM_VERSION="$(cat notifuse/.upstream-version | tr -d '[:space:]')"
+          echo "Tracked upstream version: ${UPSTREAM_VERSION}"
+          if [ -z "${UPSTREAM_VERSION}" ]; then
+            echo "ERROR: .upstream-version is empty"
+            exit 1
+          fi
+
+      - name: Placeholder reminder
+        run: |
+          echo "::notice title=TODO P1.3::Notifuse CI workflow is a placeholder. Complete during sprint P1.3."
