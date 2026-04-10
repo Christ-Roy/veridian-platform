@@ -1,0 +1,61 @@
+# ============================================================================
+# VERIDIAN CORE DB — Compose isole Dokploy (environnement-agnostique)
+# ============================================================================
+# Ce fichier est le point d'entree Dokploy pour le service veridian-core-db
+# en mode sourceType: git. Le MEME fichier est utilise pour staging ET prod.
+# La seule difference entre environnements = les env vars injectees par
+# Dokploy (VERIDIAN_CORE_DB_PASSWORD). Tout le reste (image, volume, reseau,
+# healthcheck) est identique pour garantir reproductibilite et eviter la
+# derive config entre environnements.
+#
+# Usage Dokploy (2 stacks, une par env) :
+#   Stack "veridian-core-db-staging" :
+#     - sourceType  : git
+#     - repo        : https://github.com/Christ-Roy/veridian-platform
+#     - branch      : staging
+#     - composePath : ./infra/docker-compose.veridian-core-db.yml
+#     - env         : VERIDIAN_CORE_DB_PASSWORD=<secret staging>
+#   Stack "veridian-core-db-prod" :
+#     - sourceType  : git
+#     - repo        : https://github.com/Christ-Roy/veridian-platform
+#     - branch      : main
+#     - composePath : ./infra/docker-compose.veridian-core-db.yml
+#     - env         : VERIDIAN_CORE_DB_PASSWORD=<secret prod>
+#
+# Pourquoi un fichier isole plutot que docker-compose.yml global :
+# - docker-compose.yml contient toute la stack SaaS. Si Dokploy le lisait,
+#   il essaierait de re-deployer TOUT. On veut juste veridian-core-db.
+# - Chaque service/groupe a son propre compose isole dans
+#   infra/docker-compose.<service>.yml pour etre gere independamment par
+#   Dokploy (Option C hybride, cf docs/dokploy-git-migration-plan.md).
+#
+# Reseau : dokploy-network (external, cree par Dokploy) — pattern standard
+# pour que les composes puissent communiquer entre eux. Les apps qui auront
+# besoin de parler a cette DB (hub Prisma, analytics) devront aussi etre
+# sur dokploy-network et utiliser `veridian-core-db:5432` comme host.
+# ============================================================================
+
+services:
+  veridian-core-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+    environment:
+      POSTGRES_USER: veridian
+      POSTGRES_PASSWORD: ${VERIDIAN_CORE_DB_PASSWORD}
+      POSTGRES_DB: veridian
+    volumes:
+      - veridian-core-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U veridian -d veridian"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  veridian-core-db-data:
+
+networks:
+  dokploy-network:
+    external: true
