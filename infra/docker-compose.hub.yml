@@ -60,10 +60,13 @@ services:
       NEXTAUTH_URL: ${NEXT_PUBLIC_SITE_URL}
 
       # --- Auth.js (Prisma + Google OAuth + MFA) ---
+      # HUB_DATABASE_URL pointe sur veridian-core-db (schema hub_app).
+      # On n'ecrase pas le DATABASE_URL legacy Supabase que d'autres
+      # services peuvent utiliser — nom distinct cote Dokploy env vars.
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID}
       AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${HUB_DATABASE_URL}
       PRISMA_READY: ${PRISMA_READY:-true}
 
       # --- Supabase legacy (transition) ---
