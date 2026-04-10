@@ -626,7 +626,57 @@ export async function GET() {
 
 ---
 
-## 9. Checklist d'audit SaaS
+## 9. Workflow déploiement & Dokploy
+
+**Règle absolue** : l'infra Veridian staging + prod est pilotée par **Dokploy**.
+Les fichiers `infra/docker-compose.*.yml` du repo sont la **trace versionnée**
+(source de vérité en code, reviews Git, historique) mais ne sont **PAS** appliqués
+directement sur les serveurs. La source d'exécution c'est Dokploy.
+
+Cette règle est opposable lors des reviews. Toute app/service Veridian déployé
+suit ce workflow — pas d'exception. C'est déjà documenté dans `infra/CLAUDE.md`
+(section "Workflow deploiement") ; on le reprend ici pour en faire une règle
+standard du SaaS.
+
+### 9.1 Workflow obligatoire pour toute modif d'infra
+
+1. **Éditer le compose en local** (`infra/docker-compose.*.yml`)
+2. **Valider le YAML** : `docker compose -f infra/docker-compose.<env>.yml config`
+3. **Commit + push** (trace versionnée, code review)
+4. **Ouvrir Dokploy** → stack concernée → reporter la modif :
+   - Coller le YAML mis à jour dans l'éditeur Dokploy
+   - Configurer / mettre à jour les secrets dans l'UI Dokploy
+5. **Déployer depuis Dokploy** (bouton Deploy, pas de SSH)
+6. **Vérifier** : logs Dokploy + health check `/api/health` (voir §8) + alertes
+   monitoring (`/opt/veridian/monitoring/`)
+
+### 9.2 Interdits absolus
+
+- **`docker compose up` direct en SSH sur le VPS** → court-circuite Dokploy et
+  désynchronise son état. Interdit, même pour un "petit test rapide".
+- **Cron système ad hoc** (`crontab -e`, `/etc/cron.d/...`) → toujours passer
+  par **Dokploy Schedule Jobs**. Cela inclut les purges soft delete 30j (§1.4).
+- **Secrets en clair dans un compose commité** → interpolation `${VAR_NAME}`
+  uniquement, valeurs dans l'UI Dokploy + miroir local dans
+  `~/credentials/.all-creds.env`.
+- **Modifier la prod Dokploy sans accord explicite de Robert** (règle racine
+  `.claude/rules/git-workflow.md` et `CLAUDE.md`).
+
+### 9.3 Cas particulier : nouveau service / nouvelle app
+
+Quand on ajoute une app au monorepo (fork Notifuse, Analytics, etc.) :
+
+1. Créer `<app>/Dockerfile` et le bloc compose correspondant (dans
+   `infra/docker-compose.*.yml` ou un fichier dédié).
+2. Commit + push de la trace versionnée.
+3. Créer la stack correspondante dans Dokploy (UI), coller le YAML, configurer
+   les secrets.
+4. Ajouter le health check au compose (voir §8) pour permettre le rollback auto CI.
+5. Ajouter l'app au monitoring (`/opt/veridian/monitoring/config.json` côté VPS).
+
+---
+
+## 10. Checklist d'audit SaaS
 
 **À cocher pour toute nouvelle app ou toute feature majeure avant merge.**
 Le lead du sprint valide.
@@ -683,6 +733,13 @@ Le lead du sprint valide.
 - [ ] Déclaré dans le Dockerfile / docker-compose healthcheck
 - [ ] Utilisé par le rollback auto CI
 
+### Déploiement & Dokploy
+- [ ] Compose validé en local (`docker compose ... config`) + commit de la trace versionnée
+- [ ] Modif d'infra reportée dans Dokploy (pas seulement commit repo)
+- [ ] Secrets configurés via l'UI Dokploy (aucun secret en clair dans le repo)
+- [ ] Cron/purges passent par Dokploy Schedule Jobs (pas de cron système)
+- [ ] Aucun `docker compose up` direct en SSH sur le VPS
+
 ### Docs & TODO
 - [ ] README de l'app référence ce document
 - [ ] Tout écart (ex : Supabase Auth legacy) tracé dans `todo/TODO-LIVE.md`
@@ -690,7 +747,7 @@ Le lead du sprint valide.
 
 ---
 
-## 10. Contact & mise à jour
+## 11. Contact & mise à jour
 
 - **Modifier ce document** : PR reviewée par Robert, motif documenté dans le
   commit (`docs(saas-standards): ...`). Tout changement impacte potentiellement
