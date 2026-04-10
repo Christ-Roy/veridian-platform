@@ -48,6 +48,7 @@ volumes:
   db-config:
   crowdsec-db:
   crowdsec-config:
+  veridian-core-db-data:
 
 # ============================================================================
 # SERVICES
@@ -921,6 +922,32 @@ services:
       - "traefik.http.services.crowdsec-traefik-bouncer.loadbalancer.server.port=8080"
     # Healthcheck désactivé car l'image n'a pas wget/curl
     # Le bouncer fonctionne via le middleware Traefik
+
+  # ==========================================================================
+  # VERIDIAN CORE DB - Postgres 16 dédié Veridian (post-Supabase)
+  # ==========================================================================
+  # Brique de base du futur post-Supabase. Toutes les nouvelles apps
+  # (Analytics P1.2) et nouvelles tables Hub (P1.4 + P1.5) vivent ici via Prisma.
+  # Supabase reste en parallèle pour les tables legacy uniquement.
+  # Schemas prévus : `hub_app` (tables Hub Prisma), `analytics` (tables Analytics).
+  # Accès interne Docker uniquement (pas de port exposé à l'hôte).
+  veridian-core-db:
+    container_name: veridian-core-db
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      - global-saas-network
+    environment:
+      POSTGRES_USER: veridian
+      POSTGRES_PASSWORD: ${VERIDIAN_CORE_DB_PASSWORD}
+      POSTGRES_DB: veridian
+    volumes:
+      - veridian-core-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U veridian -d veridian"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ==========================================================================
   # FAIL2BAN - Intrusion Prevention System (DEPRECATED - Use CrowdSec)

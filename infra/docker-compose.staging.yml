@@ -481,6 +481,29 @@ services:
       - traefik.http.routers.staging-notifuse.tls.certresolver=letsencrypt
       - traefik.http.services.staging-notifuse.loadbalancer.server.port=8081
 
+  # === VERIDIAN CORE DB (Postgres 16 dédié post-Supabase) ===
+  # Brique de base du futur post-Supabase. Toutes les nouvelles apps
+  # (Analytics P1.2) et nouvelles tables Hub (P1.4 + P1.5) vivent ici via Prisma.
+  # Supabase reste en parallèle pour les tables legacy uniquement.
+  # Schemas prévus : `hub_app` (Hub Prisma), `analytics` (Analytics).
+  # Accès interne Docker uniquement (pas de port exposé à l'hôte).
+  veridian-core-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      - supabase-internal
+    environment:
+      POSTGRES_USER: veridian
+      POSTGRES_PASSWORD: ${VERIDIAN_CORE_DB_PASSWORD}
+      POSTGRES_DB: veridian
+    volumes:
+      - staging-veridian-core-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U veridian -d veridian"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   staging-supabase-db:
   staging-supabase-storage:
@@ -490,6 +513,7 @@ volumes:
   staging-twenty-storage:
   staging-notifuse-db:
   staging-notifuse-data:
+  staging-veridian-core-db:
 
 networks:
   dokploy-network:

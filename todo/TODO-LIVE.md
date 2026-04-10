@@ -168,22 +168,30 @@
 > absurde de les brancher sur Supabase maintenant pour les migrer dans 6 mois. On paie
 > une fois maintenant, pas deux fois plus tard.
 
-- [ ] **Nouveau service `veridian-core-db`** dans `infra/docker-compose.yml` (+ staging +
-  prod override) : Postgres 16 officiel, volume dedie `veridian-core-db-data`, reseau
-  `global-saas-network`, port NON-exposed (acces interne Docker uniquement)
-- [ ] **Mot de passe** dans `~/credentials/.all-creds.env` : `VERIDIAN_CORE_DB_PASSWORD`
-  (generer un nouveau secret, NE PAS reutiliser POSTGRES_PASSWORD Supabase)
+- [x] **Nouveau service `veridian-core-db`** dans `infra/docker-compose.yml` (+ staging) :
+  Postgres 16 officiel (`postgres:16-alpine`), volume dedie `veridian-core-db-data`
+  (base) / `staging-veridian-core-db` (staging), reseau `global-saas-network` (base) /
+  `supabase-internal` (staging, convention des autres PG staging), port NON-exposed
+  (acces interne Docker uniquement). **Prod override NON ajoute** — mini-tache separee
+  a traiter avec validation explicite de Robert au prochain sprint.
+- [x] **Mot de passe** dans `~/credentials/.all-creds.env` : `VERIDIAN_CORE_DB_PASSWORD`
+  (nouveau secret genere via `openssl rand -base64 32`, distinct de POSTGRES_PASSWORD Supabase)
 - [ ] **Schemas par app** : a la premiere migration Prisma de chaque app :
   - `hub_app` — tables Hub (WorkspaceMember, Invitation, mfa_codes, etc.)
   - `analytics` — tables Analytics (Tenant, Site, Pageview, FormSubmission, SipCall, etc.)
   - Notifuse fork viendra plus tard, a trancher en P1.3 (probablement sa propre DB comme
     aujourd'hui pour preserver la logique "boite noire")
-- [ ] **Backup auto** : job Dokploy Schedule (hebdo au debut) qui `pg_dump` sur volume
-  dedie. Ne PAS bricoler un cron ad hoc — passer par Dokploy comme convenu
-- [ ] **Health check** dans le compose pour eviter que les apps demarrent avant la DB
-- [ ] **Documenter** dans `infra/CLAUDE.md` + dans `docs/saas-standards.md` (ecrit en P1.1) :
-  "toute nouvelle app/feature ecrit sur `veridian-core-db`, plus jamais sur Supabase PG
-  sauf tables legacy". Regle opposable lors des reviews.
+- [ ] **Configurer backup hebdo via Dokploy Schedule** (a faire apres que le service
+  soit up — a traiter dans une session separee avec Robert). **Ne PAS bricoler un cron
+  ad hoc** — passer par Dokploy comme convenu (regle CLAUDE.md global : "JAMAIS bricoler
+  en dehors des outils prevus").
+- [x] **Health check** dans le compose (`pg_isready -U veridian -d veridian`, interval 10s,
+  retries 5) pour eviter que les apps demarrent avant la DB
+- [x] **Documenter** dans `infra/CLAUDE.md` (section `veridian-core-db` ajoutee avec role,
+  schemas, regle opposable). A re-documenter dans `docs/saas-standards.md` quand ecrit en P1.1.
+- [x] **Regle opposable** : **toute nouvelle app/feature ecrit sur `veridian-core-db`,
+  plus jamais sur Supabase PG sauf tables legacy deja presentes**. A verifier lors de
+  chaque review de PR touchant au schema d'une app.
 - [ ] **Prerequis** pour : P1.2 (Analytics), P1.4 (Hub OAuth/2FA), P1.5 (Hub membres)
 
 ### P1.1 — Standards cross-SaaS (base avant tout le reste)
