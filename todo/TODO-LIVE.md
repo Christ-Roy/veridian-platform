@@ -194,6 +194,34 @@
   chaque review de PR touchant au schema d'une app.
 - [ ] **Prerequis** pour : P1.2 (Analytics), P1.4 (Hub OAuth/2FA), P1.5 (Hub membres)
 
+### P1.0-bis — Reporter `veridian-core-db` dans Dokploy [2026-04-10]
+
+> **Precision Robert 2026-04-10** : l'infra Veridian est pilotee par **Dokploy** sur
+> staging et prod. Les fichiers `infra/docker-compose.*.yml` du repo sont la **trace
+> versionnee** (source de verite en code, review-friendly), mais ils ne sont PAS
+> appliques directement — Dokploy lit sa propre config de stack. Toute modif de compose
+> commitee en repo doit etre **manuellement reportee dans Dokploy** pour reellement
+> provisionner le service en staging/prod.
+>
+> **Regle** : le repo reste la source de verite pour les reviews et l'historique, mais
+> le workflow de deploiement c'est toujours `edit compose → commit → ouvrir Dokploy →
+> reporter la modif → deploy Dokploy`. **JAMAIS** de `docker compose up` direct en SSH
+> sur le VPS (regle CLAUDE.md global : "JAMAIS bricoler en dehors des outils prevus").
+
+- [ ] **Staging Dokploy** : ajouter le service `veridian-core-db` dans la stack staging Dokploy
+  (coller le YAML commit `d61f8f8`), configurer le secret `VERIDIAN_CORE_DB_PASSWORD`,
+  deployer, verifier les logs, verifier `pg_isready` via health check
+- [ ] **Prod Dokploy** (plus tard, mini-tache separee avec validation Robert) : meme chose
+  + ajouter le service dans `infra/docker-compose.prod.yml` commit repo en parallele
+  pour garder la trace versionnee coherente avec Dokploy
+- [ ] **Documenter le workflow Dokploy** dans `infra/CLAUDE.md` : bloc "Workflow
+  deploiement" expliquant que le repo est la trace versionnee et que Dokploy est la
+  source d'execution — chaque changement de compose doit etre reporte manuellement
+- [ ] **Backup hebdo Dokploy Schedule** : une fois le service up, configurer via l'UI
+  Dokploy (pas de cron ad hoc)
+- [ ] **A traiter en session avec Robert** — pas en autonomie de teammate, c'est une
+  action sur l'infra partagee qui peut impacter staging
+
 ### P1.1 — Standards cross-SaaS (base avant tout le reste)
 > **Priorite absolue** : avant de forker Notifuse ou de creer Analytics, on definit les
 > standards que TOUTES nos apps doivent respecter pour etre "SaaS-ready". Twenty est deja

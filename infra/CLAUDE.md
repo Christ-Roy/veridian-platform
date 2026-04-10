@@ -56,6 +56,41 @@ Point à valider lors des reviews.
 > **Prod override** : le service n'est PAS encore ajouté à `docker-compose.prod.yml`.
 > Mini-tâche séparée à traiter avec validation explicite de Robert.
 
+## Workflow deploiement (IMPORTANT)
+
+L'infra Veridian est pilotee par **Dokploy** sur staging et prod. Les fichiers
+`docker-compose.*.yml` de ce dossier sont la **trace versionnee** (source de
+verite en code, reviews Git, historique) mais ne sont **PAS** appliques
+directement sur les serveurs.
+
+**Source d'execution** = Dokploy (stack staging + stack prod, pilotees via
+l'UI Dokploy ou l'API).
+
+**Workflow obligatoire pour toute modif d'infra** :
+
+1. Editer le(s) fichier(s) `docker-compose.*.yml` en local
+2. `docker compose config` pour valider le YAML
+3. Commit + push (trace versionnee, review)
+4. **Ouvrir Dokploy** → stack concernee → reporter la modif (coller le YAML
+   mis a jour, configurer les secrets eventuels dans l'UI Dokploy, pas en
+   clair dans le compose)
+5. Deployer depuis Dokploy
+6. Verifier les logs + health check depuis Dokploy
+
+**Regles absolues** :
+
+- JAMAIS de `docker compose up` direct en SSH sur le VPS — ca court-circuite
+  Dokploy et desynchronise son etat
+- JAMAIS de cron systeme ad hoc — utiliser **Dokploy Schedule Jobs** pour
+  tout ce qui est recurrent (backups, cleanups, syncs)
+- JAMAIS de secret en clair dans le compose commite — uniquement des
+  interpolations `${VAR_NAME}`, les valeurs sont dans Dokploy (UI secrets)
+  et dans `~/credentials/.all-creds.env` en local pour dev
+- JAMAIS modifier la prod Dokploy sans accord explicite de Robert
+
+Le skill `infra-dokploy` peut etre utilise pour les actions Dokploy (deploy,
+schedule, backup, API).
+
 ## Commandes
 
 ```bash
