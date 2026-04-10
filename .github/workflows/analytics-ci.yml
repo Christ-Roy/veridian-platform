@@ -1,0 +1,146 @@
+# Analytics CI/CD
+# Pattern identique a hub-ci.yml : test (cloud) → docker (self-hosted) → deploy prod
+
+name: Analytics CI/CD
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - 'analytics/**'
+      - '.github/workflows/analytics-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'analytics/**'
+  workflow_dispatch:
+
+concurrency:
+  group: analytics-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: christ-roy/analytics
+
+defaults:
+  run:
+    working-directory: analytics
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: analytics/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+      - name: Prisma generate
+        run: pnpm prisma generate
+      - name: Lint
+        run: pnpm lint
+        continue-on-error: true
+      - name: Tests
+        run: pnpm test
+        env:
+          NODE_ENV: test
+      - name: Build check
+        run: pnpm build
+        env:
+          AUTH_SECRET: fake-auth-secret-for-build
+          NEXTAUTH_URL: http://localhost:3000
+
+  docker:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: [self-hosted, veridian]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version
+        id: version
+        run: |
+          PACKAGE_NAME="analytics"
+          EXISTING_TAGS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/users/${{ github.repository_owner }}/packages/container/${PACKAGE_NAME}/versions" \
+            --jq '.[].metadata.container.tags[]' 2>/dev/null || echo "")
+          LATEST_TAG=$(echo "$EXISTING_TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV | tail -n 1)
+          if [ -z "$LATEST_TAG" ]; then
+            VERSION="v0.1.0"
+          else
+            VERSION_WITHOUT_V=${LATEST_TAG#v}
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION_WITHOUT_V"
+            PATCH=$((PATCH + 1))
+            VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./analytics
+          file: ./analytics/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  deploy-prod:
+    needs: docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy prod
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          COMPOSE_ID: ${{ vars.ANALYTICS_COMPOSE_ID_PROD }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ] || [ -z "$COMPOSE_ID" ]; then
+            echo "Prod deploy not configured — skipping (ANALYTICS_COMPOSE_ID_PROD missing?)"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s <<DEPLOY
+            docker pull ghcr.io/christ-roy/analytics:latest
+            DKEY=\$(grep '^DOKPLOY_OVH_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
+            curl -sf -X POST \
+              -H "x-api-key: \$DKEY" \
+              -H "Content-Type: application/json" \
+              -d '{"json":{"composeId":"'$COMPOSE_ID'"}}' \
+              http://localhost:3000/api/trpc/compose.redeploy && echo "Analytics prod redeploy triggered"
+          DEPLOY
+          echo "Waiting for analytics health..."
+          for i in \$(seq 1 12); do
+            if curl -sf https://analytics.app.veridian.site/api/health | grep -q ok; then
+              echo "Analytics prod healthy after \${i}0s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "WARNING: analytics health check timed out"
+        working-directory: .

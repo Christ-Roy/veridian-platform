@@ -1,0 +1,142 @@
+// Analytics — Schema Prisma
+// Cible : veridian-core-db (Postgres 16 dedie), schema `analytics`
+//
+// Multitenant des le jour 1 :
+//   Tenant -> Membership -> User (N:N via Membership)
+//   Tenant -> Site (1:N) -> Pageview, FormSubmission (1:N)
+//   Tenant -> GscProperty (1:N, plus tard)
+//
+// Auth : Auth.js v5 credentials provider (email/password local).
+// Pas de dependance au Hub pour l'auth — l'app tourne meme si le Hub est down.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["analytics"]
+}
+
+// ============================================================================
+// Auth.js core models (conformes @auth/prisma-adapter)
+// ============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  emailVerified DateTime?
+  passwordHash  String? // pour credentials provider
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts    Account[]
+  sessions    Session[]
+  memberships Membership[]
+
+  @@schema("analytics")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@schema("analytics")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("analytics")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@schema("analytics")
+}
+
+// ============================================================================
+// Multi-tenant core
+// ============================================================================
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  memberships Membership[]
+  sites       Site[]
+
+  @@schema("analytics")
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+
+  @@schema("analytics")
+}
+
+model Membership {
+  id        String         @id @default(cuid())
+  tenantId  String
+  userId    String
+  role      MembershipRole @default(MEMBER)
+  createdAt DateTime       @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@schema("analytics")
+}
+
+// ============================================================================
+// Sites & traffic (v0 — sera enrichi avec Pageview, FormSubmission plus tard)
+// ============================================================================
+
+model Site {
+  id        String   @id @default(cuid())
+  tenantId  String
+  domain    String
+  name      String
+  siteKey   String   @unique @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@schema("analytics")
+}

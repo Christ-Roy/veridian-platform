@@ -1,0 +1,61 @@
+# ============================================================================
+# ANALYTICS — Compose isole Dokploy (environnement-agnostique)
+# ============================================================================
+# Meme pattern que veridian-core-db et hub : un seul fichier, differences
+# entre environnements via env vars Dokploy. Image buildee par analytics-ci.yml
+# et poussee sur GHCR, tag injecte via ANALYTICS_IMAGE_TAG.
+#
+# Usage Dokploy :
+#   Stack "analytics-prod" :
+#     - sourceType  : git
+#     - repo        : https://github.com/Christ-Roy/veridian-platform
+#     - branch      : main
+#     - composePath : ./infra/docker-compose.analytics.yml
+#     - domain      : analytics.app.veridian.site
+#     - env         : ANALYTICS_IMAGE_TAG, DOMAIN, AUTH_SECRET, NEXTAUTH_URL,
+#                     DATABASE_URL
+#
+# Se connecte a veridian-core-db via le reseau dokploy-network interne
+# (DNS: veridian-core-db:5432, schema: analytics).
+# ============================================================================
+
+services:
+  analytics:
+    image: ghcr.io/christ-roy/analytics:${ANALYTICS_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      AUTH_SECRET: ${AUTH_SECRET}
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      DATABASE_URL: ${DATABASE_URL}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+          cpus: "0.1"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.analytics.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.analytics.entrypoints=websecure
+      - traefik.http.routers.analytics.tls.certresolver=letsencrypt
+      - traefik.http.services.analytics.loadbalancer.server.port=3000
+
+networks:
+  dokploy-network:
+    external: true
