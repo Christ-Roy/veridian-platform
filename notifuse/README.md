@@ -34,6 +34,17 @@ pour pouvoir builder une image custom sans dupliquer tout l'upstream.
 - **Image custom** : **a creer**
 - **CI** : `.github/workflows/notifuse-ci.yml` (squelette placeholder, a compléter en P1.3)
 
+## ⚠️ Retard upstream critique (2026-04-10)
+
+- **Prod actuelle** : `notifuse/notifuse:v27.0` (pin dans `infra/docker-compose.yml`
+  et `infra/docker-compose.staging.yml`)
+- **Dernier stable upstream** : `v29.2` publie le 2026-04-09
+- **Retard** : ~15 releases en 2 mois (v27.1 → v29.2). Deux versions majeures de
+  retard (v27 → v29), il peut y avoir des breaking changes.
+- **Action** : a traiter dans le sprint P1.3. Avant le fork, verifier le changelog
+  upstream, tester `v29.2` en staging, appliquer en prod avec validation Robert.
+  C'est probablement la premiere tache du sprint P1.3 (on part d'une base a jour).
+
 ## Philosophie
 
 **Boite noire API-only**. Pilotable exclusivement via HTTP depuis le Hub

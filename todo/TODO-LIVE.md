@@ -155,6 +155,37 @@
 > multitenant propres pour les nouveaux services sans toucher aux sujets douloureux.
 > On accepte la dette Supabase pour l'instant (voir section Chantiers douloureux).
 
+### P1.0 — Provisionner `veridian-core-db` (Postgres dedie, hors Supabase) [2026-04-10]
+
+> **Contexte — decision 2026-04-10** : au lieu de brancher Prisma Hub sur la Postgres
+> Supabase existante (chemin legacy, aggraverait la dette), on provisionne un **nouveau
+> Postgres dedie** partage par le Hub (tables app) et Analytics (nouveau service). Ce sera
+> la **brique de base du futur post-Supabase** — toute nouvelle table/feature ecrit ici,
+> plus jamais sur Supabase Postgres sauf pour les tables legacy deja presentes.
+>
+> **Pourquoi P1.0 et pas dans un chantier separe** : P1.4 (OAuth + 2FA Hub) et P1.5
+> (membres workspace Hub) + P1.2 (Analytics) ont toutes besoin de Prisma **et** il serait
+> absurde de les brancher sur Supabase maintenant pour les migrer dans 6 mois. On paie
+> une fois maintenant, pas deux fois plus tard.
+
+- [ ] **Nouveau service `veridian-core-db`** dans `infra/docker-compose.yml` (+ staging +
+  prod override) : Postgres 16 officiel, volume dedie `veridian-core-db-data`, reseau
+  `global-saas-network`, port NON-exposed (acces interne Docker uniquement)
+- [ ] **Mot de passe** dans `~/credentials/.all-creds.env` : `VERIDIAN_CORE_DB_PASSWORD`
+  (generer un nouveau secret, NE PAS reutiliser POSTGRES_PASSWORD Supabase)
+- [ ] **Schemas par app** : a la premiere migration Prisma de chaque app :
+  - `hub_app` — tables Hub (WorkspaceMember, Invitation, mfa_codes, etc.)
+  - `analytics` — tables Analytics (Tenant, Site, Pageview, FormSubmission, SipCall, etc.)
+  - Notifuse fork viendra plus tard, a trancher en P1.3 (probablement sa propre DB comme
+    aujourd'hui pour preserver la logique "boite noire")
+- [ ] **Backup auto** : job Dokploy Schedule (hebdo au debut) qui `pg_dump` sur volume
+  dedie. Ne PAS bricoler un cron ad hoc — passer par Dokploy comme convenu
+- [ ] **Health check** dans le compose pour eviter que les apps demarrent avant la DB
+- [ ] **Documenter** dans `infra/CLAUDE.md` + dans `docs/saas-standards.md` (ecrit en P1.1) :
+  "toute nouvelle app/feature ecrit sur `veridian-core-db`, plus jamais sur Supabase PG
+  sauf tables legacy". Regle opposable lors des reviews.
+- [ ] **Prerequis** pour : P1.2 (Analytics), P1.4 (Hub OAuth/2FA), P1.5 (Hub membres)
+
 ### P1.1 — Standards cross-SaaS (base avant tout le reste)
 > **Priorite absolue** : avant de forker Notifuse ou de creer Analytics, on definit les
 > standards que TOUTES nos apps doivent respecter pour etre "SaaS-ready". Twenty est deja

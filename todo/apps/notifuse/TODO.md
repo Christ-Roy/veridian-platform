@@ -18,6 +18,16 @@
 
 ### P1.3 — Notifuse fork boite noire
 
+**🚨 Bloquant zero — rattraper le retard upstream (2026-04-10)**
+- [ ] Prod actuelle : `notifuse/notifuse:v27.0` (pin `infra/docker-compose.yml:491` et `infra/docker-compose.staging.yml:433`)
+- [ ] Dernier stable upstream : `v29.2` publie le 2026-04-09 (confirme via Docker Hub API)
+- [ ] ~15 releases de retard en 2 mois (v27.1 → v29.2), **deux majors** (v27 → v29)
+- [ ] Lire le changelog v28.0 et v29.0 (breaking changes probables)
+- [ ] Tester `v29.2` en staging : bump image, restart, verifier API + envoi email test
+- [ ] Bumper en prod (accord Robert, backup DB Notifuse avant)
+- [ ] **Partir d'une base a jour** avant d'attaquer le fork lui-meme — sinon on fork v27
+  et on paie le merge upstream deux fois
+
 **Setup fork**
 - [ ] Fork GitHub : `Christ-Roy/notifuse-veridian` avec branche `veridian`
 - [ ] Dossier `notifuse/` dans le monorepo (Dockerfile custom, compose entry, CI dediee)
