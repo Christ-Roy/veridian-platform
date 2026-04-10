@@ -626,7 +626,81 @@ export async function GET() {
 
 ---
 
-## 9. Workflow déploiement & Dokploy
+## 9. CI/CD — Tests robustes et flow staging → prod → rollback
+
+**Règle opposable** : toute app Veridian doit avoir une CI qui **teste réellement**
+le scénario complet d'un utilisateur, avant ET après deploy prod. Si un test prod
+échoue, rollback automatique vers l'image précédente en moins de 30 secondes.
+
+### Flow cible (identique sur toutes les apps)
+
+```
+push main
+  → job test       (unit + build + lint, cloud ubuntu-latest)
+  → job docker     (build image, push GHCR, self-hosted runner)
+  → job deploy-staging (Dokploy redeploy stack staging)
+  → job e2e-staging (Playwright navigateur, scénario complet, BLOQUANT)
+  → job deploy-prod (Dokploy redeploy stack prod — uniquement si e2e-staging vert)
+  → job e2e-prod (Playwright navigateur, scénario complet sur URL prod, BLOQUANT)
+  → job rollback   (auto si e2e-prod fail : retag :rollback → :latest + redeploy)
+```
+
+Temps cible total du push à prod validée : **~10 min**.
+
+### Tests e2e obligatoires (navigateur headless, Playwright)
+
+Chaque app doit avoir au minimum ces scénarios dans `app/e2e/` :
+
+1. **Health check** : GET `/api/health` retourne 200 avec format standard §8
+2. **Login flow** : page login → credentials → redirect vers dashboard
+3. **Protected route** : accès anonyme à une route authentifiée → redirect login
+4. **Logout flow** : depuis dashboard → logout → redirect login
+5. **Scenario métier critique** : au moins 1 action métier clé de l'app (invite
+   membre pour Hub, ajout lead pour Prospection, etc.)
+
+Les specs tournent en 3 browsers (chromium, firefox, webkit) en parallèle, mais
+seul chromium est bloquant (firefox/webkit en warning).
+
+### Distinction e2e-staging vs e2e-prod
+
+- **e2e-staging** : peut utiliser des comptes de test, des données mockées,
+  Stripe mode test. Attendue entre 1-3 minutes. Bloquant avant deploy prod.
+- **e2e-prod** : **login-only**, pas de signup (rate-limit), avec un compte
+  de test stable (`qa@veridian.site`). Scenarios read-only ou sur données de
+  test isolées (prefix `test-ci-` + run_id). **Pas de création de data prod
+  qui pourrait polluer**. Attendue < 2 minutes.
+
+### Rollback automatique
+
+Si `e2e-prod` fail après un deploy prod, le job `rollback` :
+1. Tag l'image actuelle `:broken-<sha>` pour debug
+2. Retag `:rollback` → `:latest` sur GHCR
+3. Redeploy la stack prod via Dokploy API
+4. Post-check health prod `/api/health`
+5. Notification Telegram (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`)
+
+L'image `:rollback` est toujours maintenue à jour par le workflow docker :
+à chaque nouveau build, l'ancienne `:latest` est retaguée `:rollback` avant
+d'être écrasée.
+
+### Environnement staging = mini-réplique prod
+
+Le staging **n'est pas un mini-prod**. C'est juste un environnement où on
+peut casser sans impact client. Il doit tourner sur la **même version de
+code** que la prochaine prod, avec les **mêmes env vars** (sauf secrets
+distincts), et la **même stack Dokploy** (même image, même compose). Si
+le staging passe vert, la prod doit passer vert — sinon la CI a un trou.
+
+### Référence existante
+
+`prospection-ci.yml` implémente déjà ce flow complet (cf. fichier dans
+`.github/workflows/`). Hub et Analytics doivent s'aligner dessus. Toute
+nouvelle app se crée avec ce flow directement — pas de raccourci "on
+verra les tests plus tard".
+
+---
+
+## 10. Workflow déploiement & Dokploy
 
 **Règle absolue** : l'infra Veridian staging + prod est pilotée par **Dokploy**.
 Les fichiers `infra/docker-compose.*.yml` du repo sont la **trace versionnée**
@@ -676,7 +750,7 @@ Quand on ajoute une app au monorepo (fork Notifuse, Analytics, etc.) :
 
 ---
 
-## 10. Checklist d'audit SaaS
+## 11. Checklist d'audit SaaS
 
 **À cocher pour toute nouvelle app ou toute feature majeure avant merge.**
 Le lead du sprint valide.
@@ -747,7 +821,7 @@ Le lead du sprint valide.
 
 ---
 
-## 11. Contact & mise à jour
+## 12. Contact & mise à jour
 
 - **Modifier ce document** : PR reviewée par Robert, motif documenté dans le
   commit (`docs(saas-standards): ...`). Tout changement impacte potentiellement
