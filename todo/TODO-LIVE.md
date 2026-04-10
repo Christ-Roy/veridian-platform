@@ -1,35 +1,104 @@
 # TODO-LIVE — Veridian Platform
 
 > Source de verite strategique pour le backlog. Mis a jour a chaque session.
-> Derniere update : 2026-04-10.
+> Derniere update : 2026-04-11.
 >
 > **Repo** : github.com/Christ-Roy/veridian-platform (public)
 > **CI** : self-hosted runner sur dev server + cloud GitHub
 > **Blocker actuel** : aucun
->
-> ## Ce fichier vs TODO par app
->
-> Ce fichier = **vue strategique globale** (ordre des sprints, arbitrages, chantiers douloureux).
-> Pour les **sous-taches detaillees, bugs, decisions techniques, notes agents** d'une app,
-> consulter les TODO dediees :
-> - [`apps/hub/TODO.md`](./apps/hub/TODO.md) — Hub SaaS
-> - [`apps/prospection/TODO.md`](./apps/prospection/TODO.md) — Dashboard prospection
-> - [`apps/notifuse/TODO.md`](./apps/notifuse/TODO.md) — Notifuse fork (a creer)
-> - [`apps/analytics/TODO.md`](./apps/analytics/TODO.md) — Analytics beta POC (a creer)
-> - [`apps/twenty/TODO.md`](./apps/twenty/TODO.md) — Twenty hands-off
->
-> **Polish UI solo** : chaque app a son `UI-REVIEW.md` — file d'attente pour Robert en session
-> standalone, hors sprint. Les agents livrent fonctionnel, Robert polish ensuite tranquillement.
->
-> **Regle agent** : avant de bosser sur une app → lire sa `TODO.md`. Pendant → cocher et noter.
-> A chaque livraison UI → entree dans `UI-REVIEW.md`. A la fin → archiver en "Recently shipped".
+
+---
+
+## 🎯 PRIORITE ABSOLUE — Analytics UP en prod + tests donnees reelles
+
+**Tout le reste attend.** Analytics est la priorite unique jusqu'a ce qu'il soit
+deploye en prod et qu'on teste avec des cas reels (Robert va detailler les
+scenarios).
+
+### Analytics — Objectif : de staging dev-server a prod stable
+
+**Etat actuel (2026-04-11)** :
+- ✅ Scaffold code complet (Next.js 15, Prisma 6 schema `analytics` sur veridian-core-db)
+- ✅ Image Docker buildee et sur GHCR (`ghcr.io/christ-roy/analytics:latest`)
+- ✅ Instance de test sur dev-server, accessible via Tailscale : `http://100.92.215.42:3100`
+- ✅ Login fonctionnel : `robert@veridian.site` / `test1234`
+- ✅ DB dediee Postgres 16 + 7 tables Prisma + seed user/tenant
+- ❌ Pas encore deploye en prod (pas de stack Dokploy, pas de DNS, pas de cert)
+- ❌ Pas de flow metier concret (juste dashboard vide avec "viens bientot...")
+
+### Ce qui bloque le "prod" (a traiter en sequence)
+
+1. **Scenarios metier reels a implementer** (priorite numero 1)
+   - Robert detaille ce qu'il veut voir/faire concretement dans Analytics
+   - Exemples possibles (a confirmer par Robert) :
+     - Ingestion pageviews d'un ou plusieurs sites vitrine (siteKey)
+     - Dashboard metrics 30j par site (pageviews, top pages, UTM sources)
+     - Google Search Console API : connecter un domaine perso, voir impressions/clics/CTR
+     - Formulaires HTML natifs trackes (snippet JS a installer sur sites clients)
+     - Upload CSV OVH voiceConsumption pour call tracking manuel
+   - **Robert : remplir cette section avec les cas d'usage precis et les ordonner**
+
+2. **Iteration + polish UI** sur Tailscale dev-server
+   - A chaque feature : code → push staging → pull image sur dev-server → tester
+   - `todo/apps/analytics/UI-REVIEW.md` pour tracer les points a polish
+   - Pas de deploy prod tant que le flow metier n'est pas stable
+
+3. **Deploy prod** (seulement quand les flows sont stables)
+   - Creer stack Dokploy `analytics-prod` en sourceType git (Option C2 validee)
+   - Compose isole : `infra/docker-compose.analytics.yml` (deja cree)
+   - Env vars Dokploy : `ANALYTICS_IMAGE_TAG`, `AUTH_SECRET`, `NEXTAUTH_URL`, `DATABASE_URL`
+   - DNS : `analytics.app.veridian.site` (Cloudflare wildcard deja en place)
+   - Migrations Prisma appliquees sur `veridian-core-db` schema `analytics` (deja fait en dev)
+   - Health check verifie
+   - Card BETA ajoutee sur la home Hub (`hub/components/AppCard.tsx` + badge BETA)
+
+### Commandes dev-server utiles
+
+```bash
+# Acces Tailscale
+http://100.92.215.42:3100
+
+# Login test
+robert@veridian.site / test1234
+
+# Logs
+ssh dev-pub 'docker logs analytics-test -f'
+
+# Update image apres push main
+ssh dev-pub 'cd ~/analytics-test && docker compose pull && docker compose up -d'
+
+# Reset DB (perte donnees)
+ssh dev-pub 'cd ~/analytics-test && docker compose down -v'
+
+# Acces DB direct
+ssh dev-pub 'docker exec -it analytics-test-db psql -U analytics -d analytics'
+```
+
+---
+
+## Ce fichier vs TODO par app
+
+Ce fichier = **vue strategique globale** (ordre des sprints, arbitrages, chantiers douloureux).
+Pour les **sous-taches detaillees, bugs, decisions techniques, notes agents** d'une app,
+consulter les TODO dediees :
+- [`apps/analytics/TODO.md`](./apps/analytics/TODO.md) — **Analytics (PRIORITE)**
+- [`apps/hub/TODO.md`](./apps/hub/TODO.md) — Hub SaaS
+- [`apps/prospection/TODO.md`](./apps/prospection/TODO.md) — Dashboard prospection
+- [`apps/notifuse/TODO.md`](./apps/notifuse/TODO.md) — Notifuse fork (a creer)
+- [`apps/twenty/TODO.md`](./apps/twenty/TODO.md) — Twenty hands-off
+
+**Polish UI solo** : chaque app a son `UI-REVIEW.md` — file d'attente pour Robert en session
+standalone, hors sprint. Les agents livrent fonctionnel, Robert polish ensuite tranquillement.
+
+**Regle agent** : avant de bosser sur une app → lire sa `TODO.md`. Pendant → cocher et noter.
+A chaque livraison UI → entree dans `UI-REVIEW.md`. A la fin → archiver en "Recently shipped".
 
 ## Sommaire
 
+- [Analytics — PRIORITE ABSOLUE (ci-dessus)](#-priorite-absolue--analytics-up-en-prod--tests-donnees-reelles)
 - [Mode de travail — Agent Teams](#mode-de-travail--agent-teams)
 - [CI/CD — Flow et role du lead](#cicd--flow-et-role-du-lead)
-- [P0 — Bloquant / Urgent](#p0--bloquant--urgent)
-- [P1 — Sprint en cours](#p1--sprint-en-cours)
+- [Second plan — P0/P1 en pause tant qu'Analytics n'est pas up](#second-plan--en-pause-tant-quanalytics-nest-pas-up)
 - [P2 — Court terme](#p2--court-terme)
 - [P3 — Long terme](#p3--long-terme)
 - [⚠️ Chantiers douloureux — NE PAS commencer sans accord Robert](#chantiers-douloureux)
@@ -108,12 +177,20 @@
 
 ---
 
-## P0 — Bloquant / Urgent
+## Second plan — en pause tant qu'Analytics n'est pas up
 
-> Tout ce qui doit etre fixe AVANT de continuer a shipper des features.
-> Si un item P0 traine, le lead doit l'adresser en priorite absolue.
+> **Regle 2026-04-11** : tout ce qui suit est en **PAUSE** jusqu'a ce qu'Analytics
+> soit up en prod et teste avec des donnees reelles. Aucune tache ci-dessous ne
+> doit etre prise par un teammate ou par le lead tant que la section "PRIORITE
+> ABSOLUE — Analytics" ci-dessus n'est pas verte.
+>
+> **Exception** : si un bug CI/prod critique apparait sur Hub ou Prospection,
+> on le fixe en urgence puis on revient a Analytics. Le reste attend.
+>
+> Ces items restent **valides et pertinents** pour la suite, ils sont juste
+> decales dans le temps. Ne pas les supprimer.
 
-### P0.1 — checkTrialExpired = return false en prod
+### [PAUSE] P0.1 — checkTrialExpired = return false en prod
 - [ ] Hack temporaire depuis le sprint du 6 avril. Le trial ne bloque plus personne.
 - [ ] Recabler proprement : lookup tenant via workspace_members, cache 5min, pas d'admin API
 - **2026-04-10** : audit confirme toujours `return false` dans `prospection/src/lib/trial.ts:10-11`, bien que `useTrial` hook + paywall UI soient deja en place
@@ -149,13 +226,17 @@
 
 ---
 
-## P1 — Sprint en cours
+## [PAUSE] P1 — Sprint Hub/Standards/Notifuse (reprise apres Analytics up)
 
-> **Objectif sprint** : peupler le Hub rapidement, le rendre pro, et poser les fondations
-> multitenant propres pour les nouveaux services sans toucher aux sujets douloureux.
-> On accepte la dette Supabase pour l'instant (voir section Chantiers douloureux).
+> **Objectif sprint (en pause)** : peupler le Hub rapidement, le rendre pro, et
+> poser les fondations multitenant propres pour les nouveaux services sans toucher
+> aux sujets douloureux. On accepte la dette Supabase pour l'instant.
+>
+> **Etat au 2026-04-11** : la majorite des items sont deja livres en prod ou en
+> commits locaux. Ce qui reste est du polish et des chantiers qui peuvent attendre.
+> Priorite basculee sur Analytics (cf. section PRIORITE ABSOLUE en tete de fichier).
 
-### P1.0 — Provisionner `veridian-core-db` (Postgres dedie, hors Supabase) [2026-04-10]
+### [DONE 2026-04-10] P1.0 — Provisionner `veridian-core-db` (Postgres dedie, hors Supabase)
 
 > **Contexte — decision 2026-04-10** : au lieu de brancher Prisma Hub sur la Postgres
 > Supabase existante (chemin legacy, aggraverait la dette), on provisionne un **nouveau
@@ -194,7 +275,12 @@
   chaque review de PR touchant au schema d'une app.
 - [ ] **Prerequis** pour : P1.2 (Analytics), P1.4 (Hub OAuth/2FA), P1.5 (Hub membres)
 
-### P1.0-bis — Reporter `veridian-core-db` dans Dokploy [2026-04-10]
+### [OBSOLETE] P1.0-bis — Reporter `veridian-core-db` dans Dokploy
+
+> Remplace par la Phase 1 Option C2 (sourceType git) executee le 2026-04-10 :
+> stack Dokploy `veridian-core-db-staging` creee directement via API en
+> sourceType git pointant sur `infra/docker-compose.veridian-core-db.yml`.
+> Le "report manuel" ne s'applique plus, Dokploy clone le repo a chaque deploy.
 
 > **Precision Robert 2026-04-10** : l'infra Veridian est pilotee par **Dokploy** sur
 > staging et prod. Les fichiers `infra/docker-compose.*.yml` du repo sont la **trace
@@ -222,7 +308,15 @@
 - [ ] **A traiter en session avec Robert** — pas en autonomie de teammate, c'est une
   action sur l'infra partagee qui peut impacter staging
 
-### P1.1 — Standards cross-SaaS (base avant tout le reste)
+### [DONE 2026-04-10] P1.1 — Standards cross-SaaS (base avant tout le reste)
+
+> `docs/saas-standards.md` ecrit (699+ lignes, 12 sections + checklist audit).
+> Section §9 ajoutee pour le flow CI/CD robuste avec tests e2e navigateur +
+> rollback auto (2026-04-10). Reference Prospection alignee (roles, audit
+> log helper, health check format standard).
+>
+> Reste a faire (plus tard) : retrofit Hub et Analytics sur les standards
+> (rôles, audit log, provisioning API).
 > **Priorite absolue** : avant de forker Notifuse ou de creer Analytics, on definit les
 > standards que TOUTES nos apps doivent respecter pour etre "SaaS-ready". Twenty est deja
 > parfait sur ces points → on se cale sur ses patterns. Notifuse est un OSS "pas vraiment
@@ -246,7 +340,15 @@
 - [ ] **Checklist d'audit** : chaque app qu'on ajoute ou met a jour doit cocher tous les items
   du standard. Le lead agent verifie avant d'accepter un merge.
 
-### P1.2 — Analytics (beta POC) : nouveau micro-service multitenant
+### [EN COURS — PRIORITE ABSOLUE] P1.2 — Analytics (beta POC)
+
+> **Voir la section "PRIORITE ABSOLUE — Analytics" en tete de fichier** pour
+> l'etat actuel et le plan. Le scaffold est fait, l'instance tourne sur
+> dev-server via Tailscale, reste les scenarios metier + deploy prod.
+>
+> Le detail original du sprint P1.2 (fondations multitenant, endpoints
+> ingestion, pages admin, documentation integration) reste valide ci-dessous
+> comme reference pour les features a implementer au fil de l'eau.
 > **Objectif** : dashboard de metrics pour les sites vitrine clients (Tramtech d'abord).
 > Ingestion formulaires + tracking appels SIP (upload manuel au debut). Multitenant des
 > le jour 1, basique mais propre. Proposer a terme aux clients actuels comme valeur ajoutee
@@ -309,7 +411,7 @@
 - [ ] **Phase 2 (plus tard, P2/P3)** : cron qui pull l'API OVH toutes les 15min et insert les CDR
 - [ ] **Phase 3 (futur)** : swap Telnyx + pool de numeros + attribution par page (pas pour le POC)
 
-### P1.3 — Notifuse fork boite noire (API-only, standard SaaS)
+### [PAUSE] P1.3 — Notifuse fork boite noire (API-only, standard SaaS)
 > Fork leger de Notifuse pour le rendre "SaaS-ready" selon le standard defini en P1.1.
 > Meme philosophie que Prospection : boite noire autonome, pilotable exclusivement par API
 > depuis le Hub. Le Hub parle HTTP, point.
@@ -351,7 +453,14 @@
 - [ ] **Audit log** sur les actions sensibles (suspend, delete, change plan)
 - [ ] **Health check** `/api/health` conforme au standard
 
-### P1.4 — OAuth Google minimal + 2FA email opt-in (Hub)
+### [DONE 2026-04-10] P1.4 — OAuth Google minimal + 2FA email opt-in (Hub)
+
+> Livre en prod : Auth.js v5 + Google provider + cookies 3 mois + 2FA email
+> opt-in + page /auth/mfa + /settings/security. Commits `68740bb` a `5f07e88`
+> sur main. Image GHCR deployee sur prod via hub-ci.yml. Les nouvelles pages
+> repondent sur `app.veridian.site`. Reste a wire `HUB_DATABASE_URL` vers
+> veridian-core-db dans les env vars Dokploy du compose dashboard prod pour
+> activer le flow Prisma complet (en pause, pas urgent).
 > Objectif : accelerer le signup Hub avec OAuth Google minimal (login-only) + offrir un toggle
 > 2FA email pour les users qui veulent securiser leur compte.
 >
@@ -379,7 +488,13 @@
   - UI : page `/auth/mfa` avec input code + bouton resend
 - [ ] **Tests e2e** : login Google (mock provider), flow 2FA email, cookies long terme
 
-### P1.5 — Hub : page membres workspace + invitations
+### [DONE 2026-04-10] P1.5 — Hub : page membres workspace + invitations
+
+> Livre en prod : modeles Prisma (Workspace, WorkspaceMember, Invitation,
+> enum WorkspaceRole), pages /dashboard/workspace/members, /invite/[token],
+> routes API workspace/invite + members/[id]. Commits `d02add0` a `077c489`
+> sur main. Routes API en mode stub (PRISMA_READY=false) tant que
+> HUB_DATABASE_URL n'est pas wire (en pause).
 > **Contexte** : tu veux une premiere version simple de la gestion workspace dans le Hub.
 > Pas d'impersonate, pas de dashboard cross-apps pour l'instant. Juste la base : liste membres,
 > invitations, roles owner/admin/member. On enrichira plus tard.
@@ -405,7 +520,7 @@
   - `member` : read-only sur la liste membres, ne peut pas inviter
 - [ ] **Tests e2e** : invitation flow, changement role, permissions par role
 
-### P1.6 — Tenants Prospection : nettoyage workspaces + isolation membres
+### [PAUSE] P1.6 — Tenants Prospection : nettoyage workspaces + isolation membres
 > Suite du chantier invitations V1. Aujourd'hui un workspace Prospection peut avoir plusieurs
 > membres mais l'isolation logique est incomplete : tous voient tout, pas de roles fins internes,
 > pas de purge quand le tenant est supprime cote Hub.
@@ -426,7 +541,7 @@
 - [ ] **Middleware filtrage** : chaque query prospects/outreach/pipeline filtree par `workspace_id` + role
 - [ ] **Tests e2e** : scenarios multi-users (member ne voit pas les leads d'un autre, viewer read-only)
 
-### P1.7 — Prisma Migrate + API sync data (main agent only)
+### [PAUSE] P1.7 — Prisma Migrate + API sync data (main agent only)
 > **Cette tache ne doit JAMAIS etre deleguee a un agent ephemere.**
 > Le main agent gere ca a la main, etape par etape, avec validation Robert entre chaque etape.
 > Une migration DB foireuse = donnees perdues, tenants casses, prod down. Zero tolerance.
@@ -461,7 +576,7 @@
 - [ ] Le pipeline de scraping pousse via l'API sync au lieu de dumps
 - [ ] Cron GitHub Actions (ou Clawdbot) pour les syncs regulieres
 
-### P1.8 — Infra agents autonomes : `.claude/agents/` + workflow CI-loop
+### [PAUSE] P1.8 — Infra agents autonomes : `.claude/agents/` + workflow CI-loop
 > Objectif : permettre a des agents de boucler en autonomie sur une feature, avec la CI comme
 > seul oracle de verite. Peu d'aide humaine : l'agent lit la TODO, choisit une tache, code, push,
 > attend la CI, lit les logs d'echec, fixe, re-push — jusqu'a CI verte.
@@ -496,13 +611,13 @@
 - [ ] **Doc `docs/agents-autonomous.md`** : comment lancer un sprint autonome, limites connues,
   quand escalader, patterns de prompts, choix du modele selon complexite
 
-### P1.9 — Polish UI invitations
+### [PAUSE] P1.9 — Polish UI invitations
 - [ ] Loader bouton "Accepter l'invitation" (anti double-clic)
 - [ ] Dialog "copier lien" inline dans la table
 - [ ] Logo Veridian sur /invite/[token]
 - [ ] Dashboard /admin : ligne "Invitations recentes"
 
-### P1.10 — Bugs post-sprint
+### [PAUSE] P1.10 — Bugs post-sprint
 - [ ] twenty.ts getQualifications : verifier SIREN→web_domain en staging
 - [ ] /segments/rge/sans_site : root cause serveur (body vide)
 - [ ] DB locale postgres:5433 pas migree → documenter `npm run db:fresh:siren`
@@ -733,6 +848,16 @@
 
 ## Historique sessions
 
+- **2026-04-11 (refocus Analytics + pause P1)** : Priorite basculee sur Analytics.
+  Bilan session du 2026-04-10 : P1.0 veridian-core-db UP en sourceType git Option C2,
+  P1.1 standards + §9 CI/CD robuste + rollback ecrits, P1.4 Hub OAuth/2FA + P1.5
+  Hub membres livres en prod (hub-ci.yml full pipeline test→docker→deploy-prod vert),
+  Analytics scaffolde + buildee GHCR + deployee sur dev-server via Tailscale
+  `100.92.215.42:3100` avec DB dediee et seed user robert@veridian.site/test1234.
+  Decision : tout le P1 reste passe en [PAUSE], seule Analytics reste active. Robert
+  va detailler les scenarios metier reels dans `apps/analytics/TODO.md` avant qu'on
+  continue. Card BETA Hub, deploy prod Analytics, Notifuse fork, P1.7 Prisma Migrate :
+  tout attend.
 - **2026-04-10 (amorcage sprint lead Opus 1M)** : Sync TODO apps vs code reel via audit Explore.
   Detecte : P0.2 (cache 5min) et P0.5 (next 15.5.14 + build vert) etaient DONE mais restaient
   coches partiellement. Hub avait `tenants.deleted_at` + `/api/health` + Stripe webhooks + plans

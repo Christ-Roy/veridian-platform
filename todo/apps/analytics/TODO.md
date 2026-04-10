@@ -9,11 +9,66 @@
 >
 > **Status** : BETA POC — en construction, affiche avec badge BETA dans le Hub.
 
-## Etat actuel
+## Etat actuel (2026-04-11)
 
-- **Dossier** : a creer (`analytics/`)
-- **URL prod (cible)** : https://analytics.app.veridian.site
-- **Sante** : ⚪ (pas encore creee)
+- **Dossier** : ✅ `analytics/` cree (Next.js 15 + Prisma 6 + Auth.js v5)
+- **Image Docker** : ✅ `ghcr.io/christ-roy/analytics:latest` (buildee par la CI)
+- **Instance de test** : ✅ dev-server via Tailscale `http://100.92.215.42:3100`
+- **DB test** : ✅ Postgres 16 dedie, schema `analytics`, 7 tables Prisma seedees
+- **Login test** : ✅ `robert@veridian.site` / `test1234` (tenant `Veridian`, role OWNER)
+- **URL prod (cible)** : https://analytics.app.veridian.site (pas encore deploye)
+- **Sante** : 🟡 PRIORITE ABSOLUE (squelette OK, scenarios metier a definir)
+
+### Commandes utiles dev-server
+
+```bash
+# Acces Tailscale
+http://100.92.215.42:3100
+
+# Logs live
+ssh dev-pub 'docker logs analytics-test -f'
+
+# Update image apres push main (CI auto-build)
+ssh dev-pub 'cd ~/analytics-test && docker compose pull && docker compose up -d'
+
+# Reset DB (perte donnees)
+ssh dev-pub 'cd ~/analytics-test && docker compose down -v'
+
+# DB access
+ssh dev-pub 'docker exec -it analytics-test-db psql -U analytics -d analytics'
+```
+
+## 🎯 SCENARIOS METIER A IMPLEMENTER (Robert a detailler)
+
+**Priorite unique de la prochaine session.** Robert va lister ici les cas
+d'usage concrets qu'il veut voir/tester dans Analytics avant qu'on deploie
+en prod. Chaque scenario devient une mini-feature ship-step-by-step sur
+l'instance dev-server avant merge main.
+
+### Scenario 1 : _[Robert a remplir]_
+
+_Exemple template a adapter :_
+- **Objectif** : ingerer les metrics Google Search Console de mes domaines
+  et voir clicks/impressions/CTR/position moyenne sur 30j
+- **Donnees reelles** : compte GSC de Robert + domaines (a lister)
+- **Flow user** :
+  1. Robert se login sur l'instance
+  2. Va sur /dashboard/properties (ou equivalent)
+  3. Clique "Ajouter une propriete Google Search Console"
+  4. Flow OAuth Google (scope `webmasters.readonly`)
+  5. Selectionne les domaines a brancher
+  6. Dashboard affiche les metrics 30j par property
+- **Modeles Prisma a ajouter** : `GscProperty`, `GscMetric`
+- **Endpoints** : `/api/gsc/connect`, `/api/gsc/callback`, `/api/gsc/sync`
+- **Tests** : login + add property + voir data
+
+### Scenario 2 : _[Robert a remplir]_
+
+### Scenario 3 : _[Robert a remplir]_
+
+**Note pour le lead** : ne pas coder ces scenarios tant que Robert ne les a
+pas remplis avec le detail precis. Pas de supposition, pas de "je commence
+avec GSC parce que c'est evident". Attendre les specs.
 
 ## Philosophie
 
