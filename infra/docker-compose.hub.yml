@@ -1,0 +1,137 @@
+# ============================================================================
+# HUB (Veridian Dashboard) — Compose isole Dokploy (environnement-agnostique)
+# ============================================================================
+# Ce fichier est le point d'entree Dokploy pour le service Hub en mode
+# sourceType: git. Le MEME fichier est utilise pour staging ET prod. Les
+# differences entre environnements sont injectees via env vars Dokploy.
+#
+# Image :
+#   L'image est buildee par la CI GitHub Actions (hub-ci.yml) a partir
+#   du code dans hub/ et poussee sur GHCR. La CI met ensuite a jour
+#   l'env var HUB_IMAGE_TAG dans Dokploy et declenche un redeploy.
+#   Source de verite unique = le monorepo (code + compose).
+#
+# Usage Dokploy (2 stacks, une par env) :
+#   Stack "hub-staging" :
+#     - sourceType  : git
+#     - repo        : https://github.com/Christ-Roy/veridian-platform
+#     - branch      : staging
+#     - composePath : ./infra/docker-compose.hub.yml
+#     - domain      : saas-hub.staging.veridian.site
+#     - env vars    : HUB_IMAGE_TAG, DATABASE_URL, AUTH_SECRET, NEXTAUTH_URL,
+#                     AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET, + Supabase legacy,
+#                     Stripe, Brevo, Notifuse, Twenty, Prospection
+#   Stack "hub-prod" :
+#     - sourceType  : git
+#     - repo        : https://github.com/Christ-Roy/veridian-platform
+#     - branch      : main
+#     - composePath : ./infra/docker-compose.hub.yml
+#     - domain      : app.veridian.site
+#     - env vars    : idem staging avec valeurs prod
+#
+# Connexions :
+#   - veridian-core-db (reseau dokploy-network, DNS: veridian-core-db:5432)
+#     pour les tables Prisma hub_app (Auth.js, MFA, WorkspaceMember,
+#     Invitation, ...).
+#   - Supabase legacy (via env vars NEXT_PUBLIC_SUPABASE_URL, ANON_KEY,
+#     SERVICE_ROLE_KEY) tant que la decommission Supabase n'est pas faite
+#     (voir todo/TODO-LIVE.md > Chantiers douloureux).
+# ============================================================================
+
+services:
+  hub:
+    image: ghcr.io/christ-roy/veridian-dashboard:${HUB_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+    expose:
+      - "3000"
+    environment:
+      # --- Node runtime ---
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      CI: "true"
+
+      # --- URLs publiques ---
+      DOMAIN: ${DOMAIN}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+      DASHBOARD_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+      NEXTAUTH_URL: ${NEXT_PUBLIC_SITE_URL}
+
+      # --- Auth.js (Prisma + Google OAuth + MFA) ---
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET}
+      DATABASE_URL: ${DATABASE_URL}
+      PRISMA_READY: ${PRISMA_READY:-true}
+
+      # --- Supabase legacy (transition) ---
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      DASHBOARD_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
+      DASHBOARD_SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+
+      # --- Twenty CRM ---
+      NEXT_PUBLIC_TWENTY_URL: ${NEXT_PUBLIC_TWENTY_URL}
+      DASHBOARD_TWENTY_URL: ${NEXT_PUBLIC_TWENTY_URL}
+      TWENTY_GRAPHQL_URL: ${NEXT_PUBLIC_TWENTY_URL}/graphql
+      TWENTY_METADATA_URL: ${NEXT_PUBLIC_TWENTY_URL}/metadata
+      TWENTY_FRONTEND_URL: ${NEXT_PUBLIC_TWENTY_URL}
+      TWENTY_SERVER_URL: ${NEXT_PUBLIC_TWENTY_URL}
+      TWENTY_APP_SECRET: ${TWENTY_APP_SECRET}
+
+      # --- Notifuse ---
+      NEXT_PUBLIC_NOTIFUSE_URL: ${NEXT_PUBLIC_NOTIFUSE_URL}
+      DASHBOARD_NOTIFUSE_URL: ${NEXT_PUBLIC_NOTIFUSE_URL}
+      NEXT_PUBLIC_NOTIFUSE_API_URL: ${NEXT_PUBLIC_NOTIFUSE_API_URL}
+      DASHBOARD_NOTIFUSE_API_URL: ${NEXT_PUBLIC_NOTIFUSE_API_URL}
+      NOTIFUSE_API_URL: ${NOTIFUSE_API_URL}
+      NOTIFUSE_API_ENDPOINT: ${NOTIFUSE_API_URL}
+      NOTIFUSE_SECRET_KEY: ${NOTIFUSE_SECRET_KEY}
+      NOTIFUSE_ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL}
+
+      # --- Stripe ---
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+      DASHBOARD_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+
+      # --- Brevo (email MFA) ---
+      BREVO_API_KEY: ${BREVO_API_KEY}
+
+      # --- Prospection app ---
+      NEXT_PUBLIC_PROSPECTION_URL: ${NEXT_PUBLIC_PROSPECTION_URL}
+      PROSPECTION_API_URL: ${PROSPECTION_API_URL}
+      PROSPECTION_TENANT_API_SECRET: ${PROSPECTION_TENANT_API_SECRET}
+      PROSPECTION_INTERNAL_URL: ${PROSPECTION_INTERNAL_URL}
+
+      # --- Cron jobs ---
+      CRON_SECRET: ${CRON_SECRET}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+          cpus: "0.25"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.hub.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.hub.entrypoints=websecure
+      - traefik.http.routers.hub.tls.certresolver=letsencrypt
+      - traefik.http.services.hub.loadbalancer.server.port=3000
+
+networks:
+  dokploy-network:
+    external: true
