@@ -118,8 +118,11 @@ jobs:
         run: pnpm exec prisma db push --skip-generate
 
       - name: Seed test user (robert@veridian.site / test1234)
+        # Le script doit tourner depuis `analytics/` (via defaults.run.working-directory)
+        # pour que Node resolve bcryptjs + @prisma/client depuis `analytics/node_modules`.
+        # On ecrit donc le script dans le cwd, pas dans /tmp.
         run: |
-          cat > /tmp/seed.mjs <<'JS'
+          cat > ci-seed.mjs <<'JS'
           import bcrypt from 'bcryptjs';
           import { PrismaClient } from '@prisma/client';
           const prisma = new PrismaClient();
@@ -132,7 +135,8 @@ jobs:
           console.log('seeded robert@veridian.site');
           await prisma.$disconnect();
           JS
-          node /tmp/seed.mjs
+          node ci-seed.mjs
+          rm ci-seed.mjs
 
       - name: Build
         run: pnpm build
