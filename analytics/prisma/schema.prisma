@@ -135,8 +135,129 @@ model Site {
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  pageviews       Pageview[]
+  formSubmissions FormSubmission[]
+  sipCalls        SipCall[]
+  gscDaily        GscDaily[]
+  gscProperty     GscProperty?
 
   @@index([tenantId])
+  @@schema("analytics")
+}
+
+// ============================================================================
+// Tracking events (POC — ingestion cote sites clients)
+// ============================================================================
+
+model Pageview {
+  id        String   @id @default(cuid())
+  siteId    String
+  path      String
+  referrer  String?
+  utmSource String?
+  utmMedium String?
+  utmTerm   String?
+  country   String?
+  userAgent String?  @db.Text
+  sessionId String?
+  createdAt DateTime @default(now())
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, createdAt])
+  @@schema("analytics")
+}
+
+model FormSubmission {
+  id        String   @id @default(cuid())
+  siteId    String
+  formName  String
+  path      String?
+  payload   Json
+  email     String?
+  phone     String?
+  utmSource String?
+  createdAt DateTime @default(now())
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, createdAt])
+  @@schema("analytics")
+}
+
+model SipCall {
+  id        String    @id @default(cuid())
+  siteId    String
+  callId    String    @unique
+  fromNum   String
+  toNum     String
+  direction String // inbound | outbound
+  status    String // answered | missed | voicemail
+  duration  Int       @default(0)
+  startedAt DateTime
+  endedAt   DateTime?
+  createdAt DateTime  @default(now())
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, startedAt])
+  @@schema("analytics")
+}
+
+// ============================================================================
+// GscDaily — clone 1:1 des dimensions Google Search Console
+// ============================================================================
+// Chaque row correspond a une ligne de searchAnalytics.query avec tous les
+// breakdowns actifs. Le "sheet" compose par (day, query, page, country,
+// device, searchType) est unique car GSC n'agrege jamais plus fin.
+
+model GscDaily {
+  id          String   @id @default(cuid())
+  siteId      String
+  day         DateTime @db.Date
+
+  // Dimensions GSC
+  query       String
+  page        String
+  country     String   // code ISO3 GSC (ex: "fra", "usa", "(zz)" si inconnu)
+  device      String   // "desktop" | "mobile" | "tablet"
+  searchType  String   // "web" | "image" | "video" | "news" | "discover" | "googleNews"
+
+  // Metriques
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  ctr         Float    @default(0)
+  position    Float    @default(0)
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, day, query, page, country, device, searchType], map: "GscDaily_unique_row")
+  @@index([siteId, day])
+  @@index([siteId, day, searchType])
+  @@index([siteId, query])
+  @@index([siteId, page])
+  @@schema("analytics")
+}
+
+// ============================================================================
+// GSC Property — lien entre un Site Veridian et une propriete Google Search Console
+// ============================================================================
+// Pour le POC : on utilise un refresh_token Google global (env GSC_REFRESH_TOKEN)
+// qui appartient au compte de Robert (owner sur toutes les proprietes GSC clients).
+// Quand un client voudra connecter SON Google, on ajoutera un champ refreshToken
+// chiffre ici et on fera un flow OAuth per-tenant.
+
+model GscProperty {
+  id         String   @id @default(cuid())
+  siteId     String   @unique
+  // Format GSC : "sc-domain:veridian.site" OU "https://www.veridian.site/"
+  propertyUrl String
+  lastSyncAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
   @@schema("analytics")
 }

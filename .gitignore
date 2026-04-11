@@ -50,6 +50,9 @@ test-results/
 playwright-report/
 coverage/
 
+# === TypeScript build info (incremental) ===
+*.tsbuildinfo
+
 # === Temp ===
 tmp/
 *.tmp
