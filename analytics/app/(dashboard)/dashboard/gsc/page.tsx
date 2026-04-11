@@ -1,9 +1,35 @@
+import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { PerformanceDashboard } from '@/components/gsc/performance-dashboard';
+import { auth } from '@/auth';
+import {
+  getUserTenantStatus,
+  aggregateActiveServices,
+  isServiceActive,
+} from '@/lib/user-tenant';
+import { LockedServicePage } from '@/components/locked-service-page';
 
+// Deja force-dynamic avant la phase 2 — on garde, plus revalidate=0 pour
+// etre explicite et coherent avec les autres pages guardees.
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function GscPage() {
+  // Guard service : si GSC n'est pas actif pour le tenant du user, on
+  // affiche l'ecran "verrouille" au lieu du clone GSC. Des qu'une propriete
+  // est attachee + sync, la page s'unlock automatiquement au reload.
+  const session = await auth();
+  if (!session?.user?.email) {
+    redirect('/login');
+  }
+
+  const status = await getUserTenantStatus(session.user.email);
+  const active = aggregateActiveServices(status);
+  if (!isServiceActive(active, 'gsc')) {
+    const domain = status?.sites[0]?.domain ?? '';
+    return <LockedServicePage service="gsc" siteDomain={domain} />;
+  }
+
   // Charge la liste des sites accessibles (tous pour le POC).
   let sites: Array<{
     id: string;

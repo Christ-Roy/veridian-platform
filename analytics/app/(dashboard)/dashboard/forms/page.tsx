@@ -1,7 +1,35 @@
+import { redirect } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
+import {
+  getUserTenantStatus,
+  aggregateActiveServices,
+  isServiceActive,
+} from '@/lib/user-tenant';
+import { LockedServicePage } from '@/components/locked-service-page';
+
+// Force-dynamic : des que Robert ingere le premier form submit via le skill
+// admin, le user voit la page s'unlock au prochain reload, pas de cache qui
+// traine.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function FormsPage() {
+  // Guard service : on resout le tenant du user et on check si 'forms' est
+  // actif. Si non, on affiche l'ecran plein "Verrouille + CTA mailto".
+  const session = await auth();
+  if (!session?.user?.email) {
+    redirect('/login');
+  }
+
+  const status = await getUserTenantStatus(session.user.email);
+  const active = aggregateActiveServices(status);
+  if (!isServiceActive(active, 'forms')) {
+    const domain = status?.sites[0]?.domain ?? '';
+    return <LockedServicePage service="forms" siteDomain={domain} />;
+  }
+
   let submissions: Awaited<
     ReturnType<typeof prisma.formSubmission.findMany>
   > = [];

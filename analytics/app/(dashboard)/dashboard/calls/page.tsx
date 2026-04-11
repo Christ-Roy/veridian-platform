@@ -1,7 +1,32 @@
+import { redirect } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
+import {
+  getUserTenantStatus,
+  aggregateActiveServices,
+  isServiceActive,
+} from '@/lib/user-tenant';
+import { LockedServicePage } from '@/components/locked-service-page';
+
+// Force-dynamic : le call tracking peut etre active n'importe quand cote
+// skill admin, et le user doit voir la page s'unlock au reload.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function CallsPage() {
+  const session = await auth();
+  if (!session?.user?.email) {
+    redirect('/login');
+  }
+
+  const status = await getUserTenantStatus(session.user.email);
+  const active = aggregateActiveServices(status);
+  if (!isServiceActive(active, 'calls')) {
+    const domain = status?.sites[0]?.domain ?? '';
+    return <LockedServicePage service="calls" siteDomain={domain} />;
+  }
+
   let calls: Awaited<ReturnType<typeof prisma.sipCall.findMany>> = [];
   let dbError: string | null = null;
   try {

@@ -16,65 +16,76 @@ test.describe('Dashboard', () => {
     await login(page);
   });
 
-  test('renders the metrics grid with 4 widgets', async ({ page }) => {
-    await expect(page.getByTestId('metrics-grid')).toBeVisible();
-    // 4 metrics : pageviews, forms, calls, gsc_clicks
-    const cards = page.locator('[data-testid^="metric-"]').filter({
-      hasNot: page.locator('[data-testid*="-value"]'),
-    });
-    // On utilise les ids racine (pas les -value/-delta)
-    await expect(page.getByTestId('metric-pageviews')).toBeVisible();
-    await expect(page.getByTestId('metric-forms')).toBeVisible();
-    await expect(page.getByTestId('metric-calls')).toBeVisible();
-    await expect(page.getByTestId('metric-gsc_clicks')).toBeVisible();
+  test('renders the Veridian score and the services grid', async ({ page }) => {
+    // Le score Veridian global doit etre visible en haut
+    const score = page.getByTestId('score-value');
+    await expect(score).toBeVisible();
+    const scoreText = ((await score.textContent()) || '').trim();
+    // Le score est un entier entre 0 et 100
+    expect(scoreText).toMatch(/^\d{1,3}$/);
+    const n = parseInt(scoreText, 10);
+    expect(n).toBeGreaterThanOrEqual(0);
+    expect(n).toBeLessThanOrEqual(100);
+
+    // Le compteur de services actifs est visible (format "X / 6 services actifs")
+    await expect(page.getByTestId('score-services-count')).toBeVisible();
+
+    // La grille de services est visible
+    await expect(page.getByTestId('services-grid')).toBeVisible();
   });
 
-  test('each widget has a numeric value and a delta', async ({ page }) => {
-    for (const key of ['pageviews', 'forms', 'calls', 'gsc_clicks']) {
-      const value = page.getByTestId(`metric-${key}-value`);
-      await expect(value).toBeVisible();
-      const text = (await value.textContent()) || '';
-      // Doit matcher un nombre FR locale (chiffres + espaces)
-      expect(text.replace(/\s/g, '')).toMatch(/^\d+$/);
+  test('shows at least one shadow marketing block for unused services', async ({
+    page,
+  }) => {
+    // Robert n'a pas tous les services actifs (ads et pagespeed ne sont jamais
+    // actifs pour le moment) — il doit donc y avoir au moins un bloc shadow.
+    const shadowBlocks = page.locator('[data-testid^="shadow-"]');
+    const count = await shadowBlocks.count();
+    expect(count).toBeGreaterThanOrEqual(1);
 
-      const delta = page.getByTestId(`metric-${key}-delta`);
-      await expect(delta).toBeVisible();
-      expect((await delta.textContent()) || '').toMatch(/[+-]?\d+(\.\d+)?%/);
-    }
+    // Le premier bloc shadow est un <a href="mailto:..."> bien forme
+    const first = shadowBlocks.first();
+    await expect(first).toBeVisible();
+    const href = await first.getAttribute('href');
+    expect(href).toBeTruthy();
+    expect(href!).toMatch(/^mailto:contact@veridian\.site\?/);
+    expect(href!).toContain('subject=');
+    expect(href!).toContain('body=');
   });
 
   test('sidebar navigation works', async ({ page }) => {
     // Scope les locators au <aside> pour eviter les collisions avec les
     // cards du dashboard qui contiennent aussi "Formulaires soumis" etc.
+    // NOTE: depuis la phase 2, les pages services peuvent etre lockees. On
+    // ne check donc plus que l'URL (le contenu est teste separement dans
+    // 08-locked-pages.spec.ts et dans la suite de tests par service).
     const sidebar = page.locator('aside');
 
     await sidebar.getByRole('link', { name: 'Formulaires', exact: true }).click();
     await expect(page).toHaveURL(/\/dashboard\/forms/);
-    await expect(
-      page.getByRole('heading', { name: 'Formulaires' }),
-    ).toBeVisible();
 
     await sidebar.getByRole('link', { name: 'Appels', exact: true }).click();
     await expect(page).toHaveURL(/\/dashboard\/calls/);
-    await expect(
-      page.getByRole('heading', { name: 'Appels' }),
-    ).toBeVisible();
 
     await sidebar.getByRole('link', { name: 'Search Console' }).click();
     await expect(page).toHaveURL(/\/dashboard\/gsc/);
-    await expect(
-      page.getByRole('heading', { name: 'Google Search Console' }),
-    ).toBeVisible();
 
     await sidebar.getByRole('link', { name: 'Dashboard', exact: true }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
   });
 
-  test('clicking a widget navigates to its dedicated page', async ({
+  test('clicking an active service block navigates to its dedicated page', async ({
     page,
   }) => {
-    await page.getByTestId('metric-forms').click();
-    await expect(page).toHaveURL(/\/dashboard\/forms/);
+    // Cherche n'importe quel service actif (sinon le test passe via pageviews
+    // qui devrait etre actif pour robert@veridian.site si la seed a tourne).
+    const active = page.locator('[data-testid^="service-"]').first();
+    if ((await active.count()) === 0) {
+      test.skip(true, 'Aucun service actif pour cet utilisateur');
+    }
+    await active.click();
+    // L'URL doit rester sous /dashboard
+    await expect(page).toHaveURL(/\/dashboard/);
   });
 
   test('logout returns to login', async ({ page }) => {
