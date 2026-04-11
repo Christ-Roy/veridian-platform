@@ -115,6 +115,25 @@ propriétés GSC, configure les numéros d'appel, etc. Tout se fait via Claude
    Chaque service donne des points. Score = somme pondérée. Plus c'est haut,
    plus c'est "vert".
 
+6bis. **Lock/unlock des pages par service**. Tous les services qui ont leur
+   propre page (/dashboard/calls, /dashboard/forms, /dashboard/gsc, et plus
+   tard /dashboard/ads, /dashboard/pagespeed) sont **verrouillés** quand le
+   service est inactif (aucune data ingérée). Côté UX :
+   - Icône cadenas en overlay
+   - Titre muté
+   - Texte explicatif : "Débloquez cette page en activant le service"
+   - CTA `contact@veridian.site` ou bouton "Demander à activer"
+   - Dans la sidebar, l'entrée est présente mais grisée avec un petit cadenas
+   
+   Dès que la 1ère data arrive (premier pageview pour forms, premier
+   SipCall pour calls, première GscDaily row pour gsc), la page s'unlock
+   automatiquement au prochain rafraîchissement. **Pas de cache Next
+   agressif** sur la sidebar ni sur les pages (force-dynamic) pour que
+   l'unlock soit visible immédiatement quand Robert provisionne via Claude
+   pendant que le client est loggué. Côté API, la source de vérité est
+   déjà `tenant-status.activeServices[]` — il suffit de brancher le
+   guard côté layout/page.
+
 7. **Shadow marketing pour les services non actifs**. Pour chaque service
    non activé chez un client, on affiche un bloc muté "Débloquer ce service
    — contact@veridian.site". Exemple : Tramtech n'a pas encore de suivi
@@ -250,17 +269,34 @@ feature est une étape indépendante qu'on peut shipper sans casser le reste.
    uniquement sa data.
 2. **Scope auth multi-tenant strict**. Quand un user se loggue, ses queries
    GSC/forms/calls/pageviews sont filtrées par `tenantId` → `siteId` auto.
-   Robert garde un "mode admin" qui lui donne accès à tout.
+   Robert garde un "mode admin" (rôle `ADMIN` ou `SUPERADMIN`) qui lui donne
+   accès à tous les tenants + la possibilité de switcher de tenant au
+   top du header.
 3. **Skill Claude de provisioning**. Un `.claude/rules/` ou un skill global
    qui encapsule le flow (voir "Provisionnement simple par skill" plus haut).
-4. **Page d'accueil client gamifiée**. Score de perf, shadow marketing pour
-   services non actifs.
-5. **Call tracking basique**. Un numéro par client, synchro API OVH ou
+   **Déjà livré** (voir `~/.claude/skills/analytics-provision/SKILL.md`).
+4. **Magic link pour onboarding client**. Robert clique sur un bouton dans
+   son admin (ou déclenche via skill), ça génère un lien signé à usage
+   unique (expire 7j), l'envoie automatiquement au client via Brevo ou
+   Notifuse. Le client clique, arrive loggé sur son dashboard sans avoir
+   à créer de mot de passe. Auth.js v5 supporte déjà le email provider
+   (magic link natif). Voir `todo/VISION-CROSS-APP.md` pour la réflexion
+   plus large sur l'onboarding.
+5. **UI admin Robert**. Une page `/admin` (visible uniquement pour le
+   rôle `ADMIN`) avec :
+   - Liste de tous les tenants + état (score, services actifs)
+   - Boutons d'action rapide : envoyer magic link, rotate site-key,
+     sync GSC on-demand, éditer propriété GSC, voir les counts
+   - Permet à Robert de ne PAS toujours passer par Claude quand il
+     veut faire une action rapide sur un client existant
+6. **Page d'accueil client gamifiée**. Score de perf, shadow marketing pour
+   services non actifs. **En cours** (agent dédié qui bosse dessus).
+7. **Call tracking basique**. Un numéro par client, synchro API OVH ou
    Telnyx, affichage dans `/dashboard/calls` (scope tenant).
-6. **Docs d'intégration client**. Un `analytics/docs/integration.md` que
+8. **Docs d'intégration client**. Un `analytics/docs/integration.md` que
    Robert copie-colle pour expliquer au client comment intégrer le tracker
    (snippet tracker.js + tag formulaires).
-7. **Deploy prod** sur `analytics.app.veridian.site` via Dokploy.
+9. **Deploy prod** sur `analytics.app.veridian.site` via Dokploy.
 
 ### Phase B — Après les 3 premiers clients
 

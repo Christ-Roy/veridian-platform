@@ -56,6 +56,35 @@ Catégories possibles : `gamification`, `shadow-marketing`, `call-tracking`,
 - **Effort estimé** : 🟢 petit
 - **Status** : proposé
 
+### 2026-04-11 — [provisioning] Page admin Robert avec actions UI
+
+- **Contexte** : Robert veut pouvoir agir sur un tenant client sans toujours passer par Claude. Typiquement : envoyer un magic link, rotate une site-key, re-sync GSC, voir le score, switcher de tenant.
+- **Idée** : créer une page `/admin` (visible uniquement pour role `ADMIN`/`SUPERADMIN`) qui liste tous les tenants avec pour chacun :
+  - Son score Veridian + services actifs
+  - Bouton "Envoyer magic link" → génère token + envoie via Brevo/Notifuse
+  - Bouton "Rotate site-key" → confirm + appelle l'endpoint existant
+  - Bouton "Sync GSC maintenant" → déclenche sync + affiche l'état
+  - Bouton "Ouvrir le dashboard client" (impersonation douce : loggue Robert sur le tenant client, avec un bandeau "mode admin")
+- **Pourquoi c'est utile** : le skill Claude reste pour le provisioning et les actions rares, mais pour les actions quotidiennes Robert doit pouvoir faire 2 clics au lieu d'ouvrir un terminal.
+- **Effort estimé** : 🟡 moyen — dépend du rôle admin (ajouter un champ `role` sur `User` ou utiliser `Membership.role`), de la page UI, et des endpoints (la plupart existent déjà via admin API).
+- **Status** : proposé
+
+### 2026-04-11 — [auth] Magic link natif via Auth.js v5 email provider
+
+- **Contexte** : onboarding des clients Analytics. Sans magic link, un client reçoit "connecte-toi sur analytics.app.veridian.site avec ton email et ce mot de passe temporaire" → friction énorme, perte de lead.
+- **Idée** : activer le email provider d'Auth.js v5 (déjà supporté nativement). Config SMTP via Lark ou Brevo (credentials déjà dispo). Auth.js gère automatiquement `VerificationToken`, expiration, click → session.
+- **Pourquoi c'est utile** : c'est le vecteur critique de conversion des leads en utilisateurs actifs. Sans ça, le MVP est livrable aux clients mais très peu se connecteront vraiment.
+- **Effort estimé** : 🟡 moyen — config Auth.js + template email à designer + endpoint/UI pour déclencher l'envoi + quelques tests
+- **Status** : proposé. Lié au sujet plus large "bring to the SaaS doucement" dans `todo/VISION-CROSS-APP.md`.
+
+### 2026-04-11 — [ux-client] Pages services lockées avec cadenas + unlock auto
+
+- **Contexte** : Robert veut que toutes les pages d'un service non activé soient visibles mais verrouillées avec un cadenas, et que dès que l'API reçoit la 1ère data le service se débloque automatiquement.
+- **Idée** : composant `<LockedServicePage service="forms" />` qui s'affiche quand `activeServices.includes('forms') === false`. Sidebar qui grise les items inactifs avec une icône lock. `dynamic = 'force-dynamic'` partout pour que l'unlock soit instantané au reload.
+- **Pourquoi c'est utile** : UX gamifiée cohérente, le client voit ce qu'il pourrait avoir → pousse au CTA `contact@veridian.site` pour activer. Pas besoin d'un déploiement prod pour tester → aussitôt qu'un pageview est ingéré, tout s'unlock visuellement.
+- **Effort estimé** : 🟢 petit — logique simple en server component + composant générique
+- **Status** : **en cours d'implémentation par un agent Claude** (phase 2 du chantier shadow marketing, 2026-04-11)
+
 ---
 
 ## Idées retenues (passées en VISION.md ou TODO.md)

@@ -17,6 +17,12 @@ Le dossier `todo/` contient deux niveaux de suivi :
   - **Section "⚠️ Chantiers douloureux"** en bas, a ne PAS commencer sans accord Robert
     (decommission Supabase, SSO avance, refactor trunk-based)
 
+- **[`VISION-CROSS-APP.md`](./VISION-CROSS-APP.md)** — questions architecturales
+  qui traversent plusieurs apps et qu'on ne peut pas traiter dans le TODO
+  d'une seule app. Notamment :
+  - Tenant cross-app sans re-consommer la periode d'essai Stripe
+  - Onboarding magic link + strategie "bring to the SaaS doucement"
+
 ### 2. Suivi detaille par app
 
 - **[`apps/`](./apps/README.md)** — un dossier par app du monorepo :
