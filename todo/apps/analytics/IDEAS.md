@@ -69,13 +69,25 @@ Catégories possibles : `gamification`, `shadow-marketing`, `call-tracking`,
 - **Effort estimé** : 🟡 moyen — dépend du rôle admin (ajouter un champ `role` sur `User` ou utiliser `Membership.role`), de la page UI, et des endpoints (la plupart existent déjà via admin API).
 - **Status** : proposé
 
-### 2026-04-11 — [auth] Magic link natif via Auth.js v5 email provider
+### 2026-04-11 — [auth] Magic link "style Prospection" (email pré-rempli + session 9 mois)
 
-- **Contexte** : onboarding des clients Analytics. Sans magic link, un client reçoit "connecte-toi sur analytics.app.veridian.site avec ton email et ce mot de passe temporaire" → friction énorme, perte de lead.
-- **Idée** : activer le email provider d'Auth.js v5 (déjà supporté nativement). Config SMTP via Lark ou Brevo (credentials déjà dispo). Auth.js gère automatiquement `VerificationToken`, expiration, click → session.
-- **Pourquoi c'est utile** : c'est le vecteur critique de conversion des leads en utilisateurs actifs. Sans ça, le MVP est livrable aux clients mais très peu se connecteront vraiment.
-- **Effort estimé** : 🟡 moyen — config Auth.js + template email à designer + endpoint/UI pour déclencher l'envoi + quelques tests
-- **Status** : proposé. Lié au sujet plus large "bring to the SaaS doucement" dans `todo/VISION-CROSS-APP.md`.
+- **Contexte** : onboarding des clients Analytics. Robert a précisé (2026-04-11) qu'il veut copier exactement le flow de Prospection : click sur le magic link → page d'onboarding avec email **pré-rempli** + demande de password pour les prochaines fois + session browser **9 mois** pour éviter les re-login.
+- **Idée** :
+  1. Activer le email provider Auth.js v5 (config SMTP Brevo)
+  2. Créer une page `/welcome?token=...` qui valide le token, pré-remplit l'email, demande un password, hash + store, crée session longue durée
+  3. Dans `auth.ts` : `session.maxAge = 9 * 30 * 24 * 60 * 60` (9 mois)
+  4. Réutiliser le design du flow Prospection (`prospection/src/app/(auth)/`) au lieu de réinventer
+- **Pourquoi c'est utile** : c'est le vecteur critique de conversion lead → utilisateur actif. Robert le veut identique à Prospection qui fait déjà ses preuves.
+- **Effort estimé** : 🟡 moyen — copier/adapter depuis Prospection, tests, template email
+- **Status** : proposé. Détaillé dans `todo/VISION-CROSS-APP.md` (problème #2).
+
+### 2026-04-11 — [ux-admin] Workspace admin Robert cross-tenant
+
+- **Contexte** : Robert est OWNER du tenant `veridian`, mais c'est aussi le SUPERADMIN de la plateforme. Il doit pouvoir voir tous les tenants configurés, leur data, et faire des actions (magic link, rotate key, sync GSC) sans passer par Claude à chaque fois.
+- **Idée** : ajouter un rôle `SUPERADMIN` sur `User` (champ `role`), un switcher de tenant dans le header (visible uniquement si superadmin), une page `/admin` qui liste tous les tenants + actions, et une impersonation douce (query `?asTenant=<slug>`) pour voir le dashboard client avec un bandeau "Mode admin".
+- **Pourquoi c'est utile** : Robert ne peut pas être dépendant de Claude pour chaque action quotidienne sur un tenant. Il faut une console admin self-service.
+- **Effort estimé** : 🔴 gros — touche le schema (role), l'auth (guards SUPERADMIN), la page `/admin`, le switcher, l'impersonation, les tests. Mérite une vraie Team Claude Code.
+- **Status** : proposé. Détaillé dans `todo/VISION-CROSS-APP.md` (problème #3). **Lié au magic link** (problème #2) — le workspace admin est l'UI qui déclenche les magic links.
 
 ### 2026-04-11 — [ux-client] Pages services lockées avec cadenas + unlock auto
 

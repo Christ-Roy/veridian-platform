@@ -162,6 +162,111 @@ peut juste optionnellement définir un password plus tard.
   admin Analytics ou le skill `analytics-provision` qui pourrait aussi
   avoir une commande "send-magic-link".
 
+### Flow magic link "style Prospection" (spec Robert, 2026-04-11)
+
+Robert veut reproduire exactement le flow déjà en place sur l'app
+Prospection, qui fonctionne bien :
+
+1. **Robert clique "Envoyer magic link"** depuis son workspace admin
+   (voir problème #3 ci-dessous) pour un client donné
+2. Le client reçoit un email avec un lien signé à usage unique
+3. **Click sur le lien → page d'onboarding** avec :
+   - L'email **pré-rempli** dans le champ (le client ne tape rien, le
+     token contient déjà l'email)
+   - Un champ "choisir un mot de passe" (pour les prochaines connexions)
+   - Optionnellement "confirmer le mot de passe"
+   - Bouton "Valider et entrer"
+4. Après validation :
+   - Le password est hashé et stocké en DB (`User.passwordHash`)
+   - Une session longue durée est créée → **token browser 9 mois**
+     (pas de re-login tous les 30 jours, le client reste loggué presque
+     un an sans toucher à rien)
+   - Redirect direct vers `/dashboard`
+5. Les fois suivantes, le client revient sur `analytics.app.veridian.site`
+   et est **déjà loggué** (cookie 9 mois)
+
+**Détails techniques importants** :
+- Durée session 9 mois = `session.maxAge: 9 * 30 * 24 * 60 * 60` dans
+  la config Auth.js (pas la valeur par défaut 30 jours)
+- Le magic link lui-même expire court (24h max) — c'est le cookie de
+  session qui est long, pas le token magic link
+- Le lien porte un `token` et peut-être un `email` (en query string ou
+  dans le JWT du token) pour pré-remplir le formulaire
+- Si le client perd son cookie, il doit pouvoir se re-loguer avec
+  email/password, OU demander un nouveau magic link depuis la page de
+  login (lien "Je n'ai plus mon mot de passe")
+
+**Référence** : le code Prospection (app `prospection/`) a déjà un flow
+équivalent — Claude doit le lire et l'adapter à Analytics au lieu de
+réinventer la roue. Voir `prospection/src/app/(auth)/` et la config
+Auth.js de Prospection.
+
+---
+
+## 🎯 Problème #3 — Workspace admin Robert (cross-app)
+
+### Le problème
+
+Quand Robert se loggue sur Analytics avec son compte (`robert@veridian.site`),
+il voit **son** tenant `veridian` et ses data. Mais c'est aussi le SUPERADMIN
+de la plateforme : il devrait pouvoir :
+
+1. **Voir la liste de tous les tenants configurés** (Tramtech, Morel, Apical,
+   et les futurs) avec leur état
+2. **Voir la data de chaque tenant** pour contrôler que tout est conforme
+   (le tracker est bien branché, les formulaires remontent, GSC sync,
+   appels trackés)
+3. **Faire des actions sans passer par Claude** :
+   - Envoyer un magic link à un client
+   - Rotate une site-key
+   - Déclencher une sync GSC manuelle
+   - Voir les derniers events ingérés
+   - Pour l'instant, tout ça doit passer par le skill Claude → friction
+
+### Ce qu'on veut
+
+Un mode "workspace admin" activé quand l'utilisateur loggué a le rôle
+`SUPERADMIN` (ou un flag `isVeridianAdmin` sur `User`). Dans ce mode :
+
+- Un switcher de tenant dans le header (dropdown "Vue en tant que : Veridian ▼")
+  qui liste tous les tenants + "Tout" pour une vue globale
+- Une page `/admin` dédiée qui liste tous les tenants avec pour chacun :
+  - Score Veridian + services actifs/inactifs (réutilise l'endpoint `/status`)
+  - Nombre de sites
+  - Bouton "Envoyer magic link" (déclenche le flow ci-dessus)
+  - Bouton "Rotate key"
+  - Bouton "Sync GSC maintenant"
+  - Bouton "Ouvrir le dashboard client" (impersonation douce : Robert voit
+    le dashboard EXACTEMENT comme le client le voit, avec un bandeau
+    "Mode admin — vous consultez le tenant X")
+- Le switcher + la page `/admin` sont visibles UNIQUEMENT si
+  `session.user.role === 'SUPERADMIN'`. Les clients réguliers ne voient rien.
+
+### Ce que ça exige côté modèle
+
+- Ajouter un champ `role` sur `User` (ou utiliser `Membership.role` mais
+  distinguer un "role de plateforme" d'un "role de tenant")
+- Attribuer `SUPERADMIN` au user `robert@veridian.site` dans le seed
+- La logique "quel tenant vois-je ?" doit pouvoir prendre le tenant de
+  session (default) OU un override admin (query param `?asTenant=<slug>`)
+
+### Lien avec le problème #1 (tenant cross-app + Stripe trial)
+
+Quand on résoudra le #1, le workspace admin de Robert sera l'UI qui
+montrera pour chaque client ses subscriptions cross-app : "Le client X
+a Analytics trial jusqu'au 2026-05-01, Prospection non activée". C'est
+la console d'admin Veridian unifiée.
+
+### Prochaines étapes
+
+1. **Pas dans le MVP Analytics immédiat** (Phase A), mais **important
+   pour la Phase A+**. À attaquer dans une session dédiée après que
+   les 3 clients soient provisionnés.
+2. **À attaquer en vraie Team Claude Code** (3-4 teammates : un pour le
+   schema/auth SUPERADMIN, un pour la page `/admin`, un pour le flow
+   magic link Auth.js, un pour les tests).
+3. **Dépend de** : magic link (problème #2) activé.
+
 ### Stratégie "bring to the SaaS doucement"
 
 Le magic link n'est qu'un bout du puzzle. L'idée plus large :
