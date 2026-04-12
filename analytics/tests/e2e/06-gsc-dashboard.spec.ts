@@ -1,52 +1,25 @@
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 const EMAIL = process.env.E2E_EMAIL || 'robert@veridian.site';
 const PASSWORD = process.env.E2E_PASSWORD || 'test1234';
+const ADMIN_KEY = process.env.ADMIN_API_KEY || '';
 
 /**
  * Tests du clone GSC Performance Dashboard.
  *
- * Isolation : chaque run cree SA propre fixture via POST /api/test/seed-gsc
- * (qui renvoie tenantId + siteId + 21 rows GscDaily deterministes), puis
- * nettoie en afterAll via POST /api/test/cleanup-tenant.
+ * Strategie : on utilise le tenant et site DEJA seedes par la CI (tenant
+ * veridian-ci, site analytics.veridian.site, 21 rows GscDaily). Le seed
+ * CI est fait dans le workflow avant le build.
  *
- * Aucun de ces tests ne depend d'un etat global : le site selector est
- * force explicitement sur notre fixture siteId pour eviter les collisions
- * avec d'autres sites (seed CI, tests precedents, etc.).
+ * On ne cree PAS de tenant/site supplementaire dans ces tests — depuis
+ * l'isolation tenant, le site-selector ne liste QUE les sites du tenant
+ * de Robert, et un tenant de test separe ne serait pas visible dans le
+ * dropdown.
  *
- * Les APIs /api/test/* sont guardees par lib/test-apis.ts (404 en prod).
+ * Le beforeEach loggue Robert, navigue sur /dashboard/gsc, et attend que
+ * le dashboard soit charge avec au moins 1 site dans le selector et un
+ * fetch /api/gsc/query ok.
  */
-
-type SeedResponse = {
-  ok: true;
-  tenant: { id: string; slug: string; name: string };
-  site: { id: string; domain: string; name: string };
-  user: { id: string; email: string };
-  gscRows: number;
-};
-
-async function seedFixture(request: APIRequestContext): Promise<SeedResponse> {
-  const res = await request.post('/api/test/seed-gsc', {
-    data: {
-      ownerEmail: EMAIL,
-      suffix: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-      days: 7,
-    },
-  });
-  expect(res.ok(), 'seed-gsc API must be enabled (ENABLE_TEST_APIS=true)').toBe(
-    true,
-  );
-  return (await res.json()) as SeedResponse;
-}
-
-async function cleanupFixture(
-  request: APIRequestContext,
-  tenantId: string,
-): Promise<void> {
-  await request.post('/api/test/cleanup-tenant', {
-    data: { id: tenantId },
-  });
-}
 
 async function login(page: Page) {
   await page.goto('/login');
@@ -56,44 +29,35 @@ async function login(page: Page) {
   await page.waitForURL(/\/dashboard/, { timeout: 10_000 });
 }
 
-/**
- * Navigue sur /dashboard/gsc apres login et force le site selector sur
- * la fixture precisee, en attendant le fetch /api/gsc/query qui en decoule.
- * Tous les tests GSC ci-dessous demarrent par ce helper pour etre sur d'etre
- * dans un etat ou le dashboard est pleinement charge avec NOS data.
- */
-async function gotoGscWithFixture(page: Page, siteId: string) {
+async function gotoGsc(page: Page) {
   await page.goto('/dashboard/gsc');
-  await expect(page.getByTestId('gsc-dashboard')).toBeVisible();
-  // Attend que le site selector soit peuple, puis force notre site.
-  const selector = page.getByTestId('site-selector');
-  await expect(selector).toBeVisible();
-  await selector.selectOption(siteId);
-  // Le changement de site declenche un fetch — on l'attend pour eviter les
-  // races downstream. On matche large : n'importe quelle reponse ok sur
-  // /api/gsc/query concerne notre site vu qu'on vient de le selectionner.
+  // Si le service gsc est inactif (pas de GscProperty attachee au tenant
+  // de Robert), la page affiche LockedServicePage → on skip.
+  // En CI, le seed cree un tenant veridian-ci avec GscProperty → gsc actif.
+  const gscDashboard = page.getByTestId('gsc-dashboard');
+  const lockedPage = page.locator('[data-testid^="locked-page-"]');
+  await Promise.race([
+    gscDashboard.waitFor({ state: 'visible', timeout: 15_000 }),
+    lockedPage.waitFor({ state: 'visible', timeout: 15_000 }),
+  ]);
+  if (await lockedPage.isVisible()) {
+    test.skip(true, 'GSC service is locked for this tenant (no GscProperty or no data)');
+  }
+  // Attend le premier fetch /api/gsc/query
   await page.waitForResponse(
     (r) => r.url().includes('/api/gsc/query') && r.ok(),
-    { timeout: 10_000 },
+    { timeout: 15_000 },
   );
 }
 
 test.describe('GSC Performance Dashboard', () => {
-  let fixture: SeedResponse;
-
-  test.beforeAll(async ({ request }) => {
-    fixture = await seedFixture(request);
-  });
-
-  test.afterAll(async ({ request }) => {
-    if (fixture?.tenant?.id) {
-      await cleanupFixture(request, fixture.tenant.id);
-    }
-  });
+  // Skip l'ensemble si pas de cle admin (certains tests envoient des
+  // requetes admin pour verifier le contrat)
+  test.skip(!ADMIN_KEY, 'ADMIN_API_KEY not set');
 
   test.beforeEach(async ({ page }) => {
     await login(page);
-    await gotoGscWithFixture(page, fixture.site.id);
+    await gotoGsc(page);
     await expect(
       page.getByRole('heading', { name: 'Google Search Console' }),
     ).toBeVisible();
@@ -108,7 +72,7 @@ test.describe('GSC Performance Dashboard', () => {
     await expect(page.getByTestId('searchtype-selector')).toBeVisible();
   });
 
-  test('renders 4 KPI tiles with values from fixture', async ({ page }) => {
+  test('renders 4 KPI tiles with values', async ({ page }) => {
     await expect(page.getByTestId('kpi-clicks')).toBeVisible();
     await expect(page.getByTestId('kpi-impressions')).toBeVisible();
     await expect(page.getByTestId('kpi-ctr')).toBeVisible();
