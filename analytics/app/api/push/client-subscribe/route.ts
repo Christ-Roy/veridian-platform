@@ -27,6 +27,16 @@ const schema = z.object({
       auth: z.string().min(1),
     }),
   }),
+  // Metadata device optionnelle — collectee par pwa-install.js au moment
+  // du subscribe. Utile pour croiser avec les appels telephoniques et
+  // segmenter les abonnes par plateforme/langue.
+  device: z.object({
+    userAgent: z.string().max(500).nullable().optional(),
+    language: z.string().max(20).nullable().optional(),
+    screenSize: z.string().max(20).nullable().optional(),
+    platform: z.string().max(20).nullable().optional(),
+    installPage: z.string().max(500).nullable().optional(),
+  }).optional(),
 });
 
 function clientIp(req: Request): string {
@@ -59,7 +69,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const { siteKey, subscription } = parsed.data;
+  const { siteKey, subscription, device } = parsed.data;
 
   // Resout le site + tenant via le siteKey
   const site = await prisma.site.findUnique({
@@ -71,7 +81,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'site_not_found' }, { status: 404 });
   }
 
-  // Upsert par endpoint (un browser = un endpoint unique)
+  // Upsert par endpoint (un browser = un endpoint unique).
+  // On stocke les metadonnees device au create ET au update : si le user
+  // reinstalle la PWA, ses infos sont rafraichies.
   await prisma.pushSubscription.upsert({
     where: { endpoint: subscription.endpoint },
     create: {
@@ -80,12 +92,24 @@ export async function POST(req: Request) {
       endpoint: subscription.endpoint,
       p256dh: subscription.keys.p256dh,
       auth: subscription.keys.auth,
+      userAgent: device?.userAgent || null,
+      language: device?.language || null,
+      screenSize: device?.screenSize || null,
+      platform: device?.platform || null,
+      installPage: device?.installPage || null,
+      ip,
     },
     update: {
       tenantId: site.tenantId,
       siteId: site.id,
       p256dh: subscription.keys.p256dh,
       auth: subscription.keys.auth,
+      userAgent: device?.userAgent || null,
+      language: device?.language || null,
+      screenSize: device?.screenSize || null,
+      platform: device?.platform || null,
+      installPage: device?.installPage || null,
+      ip,
     },
   });
 

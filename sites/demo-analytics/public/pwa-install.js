@@ -21,18 +21,14 @@
   var siteKey = scriptTag.getAttribute('data-site-key') || '';
   var tenant = scriptTag.getAttribute('data-tenant') || '';
   var mode = scriptTag.getAttribute('data-veridian-pwa') || 'auto';
-  // URL de base du serveur Analytics. Priorite :
-  //   1. data-analytics-url (explicite, pour quand le script est servi localement)
-  //   2. Deduite depuis le src du script (quand le script est cross-origin depuis Analytics)
-  var analyticsUrl = scriptTag.getAttribute('data-analytics-url') || '';
-  if (!analyticsUrl) {
-    try {
-      var src = scriptTag.getAttribute('src') || '';
-      var u = new URL(src);
-      analyticsUrl = u.origin;
-    } catch (_) {
-      analyticsUrl = '';
-    }
+  // URL de base du serveur Analytics (deduite depuis le src du script)
+  var analyticsUrl = '';
+  try {
+    var src = scriptTag.getAttribute('src') || '';
+    var u = new URL(src);
+    analyticsUrl = u.origin;
+  } catch (_) {
+    analyticsUrl = '';
   }
 
   if (!siteKey && !tenant) {
@@ -293,12 +289,24 @@
       })
       .then(function (subscription) {
         if (!subscription) return;
+        // Collecte des metadonnees device disponibles sans permission
+        // supplementaire. Utile pour croiser avec les appels telephoniques
+        // (meme horaire = meme lead probable) et segmenter par plateforme.
+        var deviceInfo = {
+          userAgent: navigator.userAgent || null,
+          language: navigator.language || null,
+          screenSize: screen.width + 'x' + screen.height,
+          platform: /iPhone|iPad|iPod/.test(navigator.userAgent) ? 'iOS'
+            : /Android/.test(navigator.userAgent) ? 'Android' : 'Desktop',
+          installPage: window.location.pathname || '/',
+        };
         return fetch(analyticsUrl + '/api/push/client-subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             siteKey: siteKey,
             subscription: subscription.toJSON(),
+            device: deviceInfo,
           }),
         });
       })

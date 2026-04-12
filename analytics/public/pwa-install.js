@@ -289,12 +289,24 @@
       })
       .then(function (subscription) {
         if (!subscription) return;
+        // Collecte des metadonnees device disponibles sans permission
+        // supplementaire. Utile pour croiser avec les appels telephoniques
+        // (meme horaire = meme lead probable) et segmenter par plateforme.
+        var deviceInfo = {
+          userAgent: navigator.userAgent || null,
+          language: navigator.language || null,
+          screenSize: screen.width + 'x' + screen.height,
+          platform: /iPhone|iPad|iPod/.test(navigator.userAgent) ? 'iOS'
+            : /Android/.test(navigator.userAgent) ? 'Android' : 'Desktop',
+          installPage: window.location.pathname || '/',
+        };
         return fetch(analyticsUrl + '/api/push/client-subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             siteKey: siteKey,
             subscription: subscription.toJSON(),
+            device: deviceInfo,
           }),
         });
       })

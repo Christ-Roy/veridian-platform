@@ -294,6 +294,16 @@ model PushSubscription {
   auth      String
   createdAt DateTime @default(now())
 
+  // Metadata device collectee au moment du subscribe — permet de croiser
+  // avec les appels telephoniques (meme horaire = meme lead probable)
+  // et de segmenter les abonnes par plateforme/langue.
+  userAgent   String?  @db.Text   // ex: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0..."
+  language    String?              // ex: "fr-FR"
+  screenSize  String?              // ex: "390x844"
+  platform    String?              // ex: "iOS", "Android", "Desktop"
+  installPage String?              // page depuis laquelle l'install s'est faite (ex: "/contact")
+  ip          String?              // IP de la requete au moment du subscribe
+
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
