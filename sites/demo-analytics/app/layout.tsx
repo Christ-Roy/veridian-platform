@@ -24,12 +24,13 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <head>
-        {/* Manifest PWA dynamique servi par Analytics, brande au nom du tenant */}
-        <link
-          rel="manifest"
-          href={`${analyticsUrl}/api/manifest?tenant=demo-analytics&mode=client`}
-          crossOrigin="anonymous"
-        />
+        {/* PWA manifest + icônes iOS (apple-touch-icon prend la priorité sur le
+            manifest côté Safari — il faut les deux pour être sûr) */}
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="Demo Analytics" />
         <meta name="theme-color" content="#16a34a" />
       </head>
       <body className="min-h-screen bg-white text-gray-900 antialiased">
@@ -83,11 +84,14 @@ export default function RootLayout({
           data-veridian-track="auto"
           strategy="afterInteractive"
         />
-        {/* PWA Veridian — install prompt + push subscribe */}
+        {/* PWA Veridian — install prompt + push subscribe
+            En dev : script local (meme origine, evite les problemes HTTPS/mixed content)
+            En prod : pointer vers https://analytics.app.veridian.site/pwa-install.js */}
         <Script
-          src={`${analyticsUrl}/pwa-install.js`}
+          src="/pwa-install.js"
           data-site-key={siteKey}
           data-tenant="demo-analytics"
+          data-analytics-url={analyticsUrl}
           data-veridian-pwa="auto"
           strategy="afterInteractive"
         />

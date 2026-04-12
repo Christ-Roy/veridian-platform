@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+    <meta name="robots" content="noodp">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=yes, viewport-fit=cover">
+    <meta name="theme-color" content="hsl(203.6, 100%, 12%)">
+
+    <title>  Web Push for Web Apps on iOS and iPadOS | WebKit</title>
+
+    <meta name="application-name" content="WebKit">
+
+    <link rel="stylesheet" type="text/css" href="https://webkit.org/wp-content/themes/webkit/style.css?2022100501" media="all">
+    <link rel="stylesheet" href="https://www.apple.com/wss/fonts?families=SF+Pro,v1" type="text/css">
+    <link rel="stylesheet" href="https://www.apple.com/wss/fonts?families=SF+Mono,v2" type="text/css">
+    <meta name="supported-color-schemes" content="light dark">
+
+    <noscript>
+        <img src="https://shynet.webkit.org/ingress/561b9e53-fb8c-4297-ae4d-bde05e8daa59/pixel.gif">
+    </noscript>
+    <script defer src="https://shynet.webkit.org/ingress/561b9e53-fb8c-4297-ae4d-bde05e8daa59/script.js"></script>
+
+    <link rel="alternate" type="application/rss+xml" title="RSS 2.0" href="https://webkit.org/feed/">
+    <link rel="alternate" type="text/xml" title="RSS .92" href="https://webkit.org/feed/rss/">
+    <link rel="alternate" type="application/atom+xml" title="Atom 0.3" href="https://webkit.org/feed/atom/">
+    <link rel="pingback" href="https://webkit.org/wp/xmlrpc.php">
+
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="shortcut icon" sizes="any" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+
+    <meta name='robots' content='max-image-preview:large' />
+<link rel="alternate" title="oEmbed (JSON)" type="application/json+oembed" href="https://webkit.org/wp-json/oembed/1.0/embed?url=https%3A%2F%2Fwebkit.org%2Fblog%2F13878%2Fweb-push-for-web-apps-on-ios-and-ipados%2F" />
+<link rel="alternate" title="oEmbed (XML)" type="text/xml+oembed" href="https://webkit.org/wp-json/oembed/1.0/embed?url=https%3A%2F%2Fwebkit.org%2Fblog%2F13878%2Fweb-push-for-web-apps-on-ios-and-ipados%2F&#038;format=xml" />
+<style id='wp-img-auto-sizes-contain-inline-css' type='text/css'>
+img:is([sizes=auto i],[sizes^="auto," i]){contain-intrinsic-size:3000px 1500px}
+/*# sourceURL=wp-img-auto-sizes-contain-inline-css */
+</style>
+<style id='wp-block-library-inline-css' type='text/css'>
+:root{--wp-block-synced-color:#7a00df;--wp-block-synced-color--rgb:122,0,223;--wp-bound-block-color:var(--wp-block-synced-color);--wp-editor-canvas-background:#ddd;--wp-admin-theme-color:#007cba;--wp-admin-theme-color--rgb:0,124,186;--wp-admin-theme-color-darker-10:#006ba1;--wp-admin-theme-color-darker-10--rgb:0,107,160.5;--wp-admin-theme-color-darker-20:#005a87;--wp-admin-theme-color-darker-20--rgb:0,90,135;--wp-admin-border-width-focus:2px}@media (min-resolution:192dpi){:root{--wp-admin-border-width-focus:1.5px}}.wp-element-button{cursor:pointer}:root .has-very-light-gray-background-color{background-color:#eee}:root .has-very-dark-gray-background-color{background-color:#313131}:root .has-very-light-gray-color{color:#eee}:root .has-very-dark-gray-color{color:#313131}:root .has-vivid-green-cyan-to-vivid-cyan-blue-gradient-background{background:linear-gradient(135deg,#00d084,#0693e3)}:root .has-purple-crush-gradient-background{background:linear-gradient(135deg,#34e2e4,#4721fb 50%,#ab1dfe)}:root .has-hazy-dawn-gradient-background{background:linear-gradient(135deg,#faaca8,#dad0ec)}:root .has-subdued-olive-gradient-background{background:linear-gradient(135deg,#fafae1,#67a671)}:root .has-atomic-cream-gradient-background{background:linear-gradient(135deg,#fdd79a,#004a59)}:root .has-nightshade-gradient-background{background:linear-gradient(135deg,#330968,#31cdcf)}:root .has-midnight-gradient-background{background:linear-gradient(135deg,#020381,#2874fc)}:root{--wp--preset--font-size--normal:16px;--wp--preset--font-size--huge:42px}.has-regular-font-size{font-size:1em}.has-larger-font-size{font-size:2.625em}.has-normal-font-size{font-size:var(--wp--preset--font-size--normal)}.has-huge-font-size{font-size:var(--wp--preset--font-size--huge)}.has-text-align-center{text-align:center}.has-text-align-left{text-align:left}.has-text-align-right{text-align:right}.has-fit-text{white-space:nowrap!important}#end-resizable-editor-section{display:none}.aligncenter{clear:both}.items-justified-left{justify-content:flex-start}.items-justified-center{justify-content:center}.items-justified-right{justify-content:flex-end}.items-justified-space-between{justify-content:space-between}.screen-reader-text{border:0;clip-path:inset(50%);height:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;width:1px;word-wrap:normal!important}.screen-reader-text:focus{background-color:#ddd;clip-path:none;color:#444;display:block;font-size:1em;height:auto;left:5px;line-height:normal;padding:15px 23px 14px;text-decoration:none;top:5px;width:auto;z-index:100000}html :where(.has-border-color){border-style:solid}html :where([style*=border-top-color]){border-top-style:solid}html :where([style*=border-right-color]){border-right-style:solid}html :where([style*=border-bottom-color]){border-bottom-style:solid}html :where([style*=border-left-color]){border-left-style:solid}html :where([style*=border-width]){border-style:solid}html :where([style*=border-top-width]){border-top-style:solid}html :where([style*=border-right-width]){border-right-style:solid}html :where([style*=border-bottom-width]){border-bottom-style:solid}html :where([style*=border-left-width]){border-left-style:solid}html :where(img[class*=wp-image-]){height:auto;max-width:100%}:where(figure){margin:0 0 1em}html :where(.is-position-sticky){--wp-admin--admin-bar--position-offset:var(--wp-admin--admin-bar--height,0px)}@media screen and (max-width:600px){html :where(.is-position-sticky){--wp-admin--admin-bar--position-offset:0px}}
+
+/*# sourceURL=wp-block-library-inline-css */
+</style>
+<style id='classic-theme-styles-inline-css' type='text/css'>
+/*! This file is auto-generated */
+.wp-block-button__link{color:#fff;background-color:#32373c;border-radius:9999px;box-shadow:none;text-decoration:none;padding:calc(.667em + 2px) calc(1.333em + 2px);font-size:1.125em}.wp-block-file__button{background:#32373c;color:#fff;text-decoration:none}
+/*# sourceURL=/wp-includes/css/classic-themes.min.css */
+</style>
+<style id='global-styles-inline-css' type='text/css'>
+:root{--wp--preset--aspect-ratio--square: 1;--wp--preset--aspect-ratio--4-3: 4/3;--wp--preset--aspect-ratio--3-4: 3/4;--wp--preset--aspect-ratio--3-2: 3/2;--wp--preset--aspect-ratio--2-3: 2/3;--wp--preset--aspect-ratio--16-9: 16/9;--wp--preset--aspect-ratio--9-16: 9/16;--wp--preset--color--black: #000000;--wp--preset--color--cyan-bluish-gray: #abb8c3;--wp--preset--color--white: #ffffff;--wp--preset--color--pale-pink: #f78da7;--wp--preset--color--vivid-red: #cf2e2e;--wp--preset--color--luminous-vivid-orange: #ff6900;--wp--preset--color--luminous-vivid-amber: #fcb900;--wp--preset--color--light-green-cyan: #7bdcb5;--wp--preset--color--vivid-green-cyan: #00d084;--wp--preset--color--pale-cyan-blue: #8ed1fc;--wp--preset--color--vivid-cyan-blue: #0693e3;--wp--preset--color--vivid-purple: #9b51e0;--wp--preset--gradient--vivid-cyan-blue-to-vivid-purple: linear-gradient(135deg,rgb(6,147,227) 0%,rgb(155,81,224) 100%);--wp--preset--gradient--light-green-cyan-to-vivid-green-cyan: linear-gradient(135deg,rgb(122,220,180) 0%,rgb(0,208,130) 100%);--wp--preset--gradient--luminous-vivid-amber-to-luminous-vivid-orange: linear-gradient(135deg,rgb(252,185,0) 0%,rgb(255,105,0) 100%);--wp--preset--gradient--luminous-vivid-orange-to-vivid-red: linear-gradient(135deg,rgb(255,105,0) 0%,rgb(207,46,46) 100%);--wp--preset--gradient--very-light-gray-to-cyan-bluish-gray: linear-gradient(135deg,rgb(238,238,238) 0%,rgb(169,184,195) 100%);--wp--preset--gradient--cool-to-warm-spectrum: linear-gradient(135deg,rgb(74,234,220) 0%,rgb(151,120,209) 20%,rgb(207,42,186) 40%,rgb(238,44,130) 60%,rgb(251,105,98) 80%,rgb(254,248,76) 100%);--wp--preset--gradient--blush-light-purple: linear-gradient(135deg,rgb(255,206,236) 0%,rgb(152,150,240) 100%);--wp--preset--gradient--blush-bordeaux: linear-gradient(135deg,rgb(254,205,165) 0%,rgb(254,45,45) 50%,rgb(107,0,62) 100%);--wp--preset--gradient--luminous-dusk: linear-gradient(135deg,rgb(255,203,112) 0%,rgb(199,81,192) 50%,rgb(65,88,208) 100%);--wp--preset--gradient--pale-ocean: linear-gradient(135deg,rgb(255,245,203) 0%,rgb(182,227,212) 50%,rgb(51,167,181) 100%);--wp--preset--gradient--electric-grass: linear-gradient(135deg,rgb(202,248,128) 0%,rgb(113,206,126) 100%);--wp--preset--gradient--midnight: linear-gradient(135deg,rgb(2,3,129) 0%,rgb(40,116,252) 100%);--wp--preset--font-size--small: 13px;--wp--preset--font-size--medium: 20px;--wp--preset--font-size--large: 36px;--wp--preset--font-size--x-large: 42px;--wp--preset--spacing--20: 0.44rem;--wp--preset--spacing--30: 0.67rem;--wp--preset--spacing--40: 1rem;--wp--preset--spacing--50: 1.5rem;--wp--preset--spacing--60: 2.25rem;--wp--preset--spacing--70: 3.38rem;--wp--preset--spacing--80: 5.06rem;--wp--preset--shadow--natural: 6px 6px 9px rgba(0, 0, 0, 0.2);--wp--preset--shadow--deep: 12px 12px 50px rgba(0, 0, 0, 0.4);--wp--preset--shadow--sharp: 6px 6px 0px rgba(0, 0, 0, 0.2);--wp--preset--shadow--outlined: 6px 6px 0px -3px rgb(255, 255, 255), 6px 6px rgb(0, 0, 0);--wp--preset--shadow--crisp: 6px 6px 0px rgb(0, 0, 0);}:where(.is-layout-flex){gap: 0.5em;}:where(.is-layout-grid){gap: 0.5em;}body .is-layout-flex{display: flex;}.is-layout-flex{flex-wrap: wrap;align-items: center;}.is-layout-flex > :is(*, div){margin: 0;}body .is-layout-grid{display: grid;}.is-layout-grid > :is(*, div){margin: 0;}:where(.wp-block-columns.is-layout-flex){gap: 2em;}:where(.wp-block-columns.is-layout-grid){gap: 2em;}:where(.wp-block-post-template.is-layout-flex){gap: 1.25em;}:where(.wp-block-post-template.is-layout-grid){gap: 1.25em;}.has-black-color{color: var(--wp--preset--color--black) !important;}.has-cyan-bluish-gray-color{color: var(--wp--preset--color--cyan-bluish-gray) !important;}.has-white-color{color: var(--wp--preset--color--white) !important;}.has-pale-pink-color{color: var(--wp--preset--color--pale-pink) !important;}.has-vivid-red-color{color: var(--wp--preset--color--vivid-red) !important;}.has-luminous-vivid-orange-color{color: var(--wp--preset--color--luminous-vivid-orange) !important;}.has-luminous-vivid-amber-color{color: var(--wp--preset--color--luminous-vivid-amber) !important;}.has-light-green-cyan-color{color: var(--wp--preset--color--light-green-cyan) !important;}.has-vivid-green-cyan-color{color: var(--wp--preset--color--vivid-green-cyan) !important;}.has-pale-cyan-blue-color{color: var(--wp--preset--color--pale-cyan-blue) !important;}.has-vivid-cyan-blue-color{color: var(--wp--preset--color--vivid-cyan-blue) !important;}.has-vivid-purple-color{color: var(--wp--preset--color--vivid-purple) !important;}.has-black-background-color{background-color: var(--wp--preset--color--black) !important;}.has-cyan-bluish-gray-background-color{background-color: var(--wp--preset--color--cyan-bluish-gray) !important;}.has-white-background-color{background-color: var(--wp--preset--color--white) !important;}.has-pale-pink-background-color{background-color: var(--wp--preset--color--pale-pink) !important;}.has-vivid-red-background-color{background-color: var(--wp--preset--color--vivid-red) !important;}.has-luminous-vivid-orange-background-color{background-color: var(--wp--preset--color--luminous-vivid-orange) !important;}.has-luminous-vivid-amber-background-color{background-color: var(--wp--preset--color--luminous-vivid-amber) !important;}.has-light-green-cyan-background-color{background-color: var(--wp--preset--color--light-green-cyan) !important;}.has-vivid-green-cyan-background-color{background-color: var(--wp--preset--color--vivid-green-cyan) !important;}.has-pale-cyan-blue-background-color{background-color: var(--wp--preset--color--pale-cyan-blue) !important;}.has-vivid-cyan-blue-background-color{background-color: var(--wp--preset--color--vivid-cyan-blue) !important;}.has-vivid-purple-background-color{background-color: var(--wp--preset--color--vivid-purple) !important;}.has-black-border-color{border-color: var(--wp--preset--color--black) !important;}.has-cyan-bluish-gray-border-color{border-color: var(--wp--preset--color--cyan-bluish-gray) !important;}.has-white-border-color{border-color: var(--wp--preset--color--white) !important;}.has-pale-pink-border-color{border-color: var(--wp--preset--color--pale-pink) !important;}.has-vivid-red-border-color{border-color: var(--wp--preset--color--vivid-red) !important;}.has-luminous-vivid-orange-border-color{border-color: var(--wp--preset--color--luminous-vivid-orange) !important;}.has-luminous-vivid-amber-border-color{border-color: var(--wp--preset--color--luminous-vivid-amber) !important;}.has-light-green-cyan-border-color{border-color: var(--wp--preset--color--light-green-cyan) !important;}.has-vivid-green-cyan-border-color{border-color: var(--wp--preset--color--vivid-green-cyan) !important;}.has-pale-cyan-blue-border-color{border-color: var(--wp--preset--color--pale-cyan-blue) !important;}.has-vivid-cyan-blue-border-color{border-color: var(--wp--preset--color--vivid-cyan-blue) !important;}.has-vivid-purple-border-color{border-color: var(--wp--preset--color--vivid-purple) !important;}.has-vivid-cyan-blue-to-vivid-purple-gradient-background{background: var(--wp--preset--gradient--vivid-cyan-blue-to-vivid-purple) !important;}.has-light-green-cyan-to-vivid-green-cyan-gradient-background{background: var(--wp--preset--gradient--light-green-cyan-to-vivid-green-cyan) !important;}.has-luminous-vivid-amber-to-luminous-vivid-orange-gradient-background{background: var(--wp--preset--gradient--luminous-vivid-amber-to-luminous-vivid-orange) !important;}.has-luminous-vivid-orange-to-vivid-red-gradient-background{background: var(--wp--preset--gradient--luminous-vivid-orange-to-vivid-red) !important;}.has-very-light-gray-to-cyan-bluish-gray-gradient-background{background: var(--wp--preset--gradient--very-light-gray-to-cyan-bluish-gray) !important;}.has-cool-to-warm-spectrum-gradient-background{background: var(--wp--preset--gradient--cool-to-warm-spectrum) !important;}.has-blush-light-purple-gradient-background{background: var(--wp--preset--gradient--blush-light-purple) !important;}.has-blush-bordeaux-gradient-background{background: var(--wp--preset--gradient--blush-bordeaux) !important;}.has-luminous-dusk-gradient-background{background: var(--wp--preset--gradient--luminous-dusk) !important;}.has-pale-ocean-gradient-background{background: var(--wp--preset--gradient--pale-ocean) !important;}.has-electric-grass-gradient-background{background: var(--wp--preset--gradient--electric-grass) !important;}.has-midnight-gradient-background{background: var(--wp--preset--gradient--midnight) !important;}.has-small-font-size{font-size: var(--wp--preset--font-size--small) !important;}.has-medium-font-size{font-size: var(--wp--preset--font-size--medium) !important;}.has-large-font-size{font-size: var(--wp--preset--font-size--large) !important;}.has-x-large-font-size{font-size: var(--wp--preset--font-size--x-large) !important;}
+/*# sourceURL=global-styles-inline-css */
+</style>
+
+<link rel="EditURI" type="application/rsd+xml" title="RSD" href="https://webkit.org/wp/xmlrpc.php?rsd" />
+<meta name="generator" content="WordPress 6.9.4" />
+<link rel="canonical" href="https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/" />
+<link rel='shortlink' href='https://webkit.org/?p=13878' />
+
+    <!-- Schema.org markup -->
+    <meta itemprop="name" content="Web Push for Web Apps on iOS and iPadOS">
+    <meta itemprop="description" content="With iOS and iPadOS 16.4 beta 1 comes support for Web Push for Home Screen web apps, Badging API, Manifest ID, and more.">
+    <meta itemprop="image" content="https://webkit.org/wp-content/uploads/Web_Push_on_iOS-1024x576.png">
+
+    <!-- Twitter Card data -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image:src" content="https://webkit.org/wp-content/uploads/Web_Push_on_iOS-1024x576.png">
+    <meta name="twitter:site" content="@webkit">
+    <meta name="twitter:title" content="Web Push for Web Apps on iOS and iPadOS">
+    <meta name="twitter:description" content="With iOS and iPadOS 16.4 beta 1 comes support for Web Push for Home Screen web apps, Badging API, Manifest ID, and more.">
+
+    <!-- Open Graph data -->
+    <meta property="og:title" content="Web Push for Web Apps on iOS and iPadOS">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/">
+    <meta property="og:image" content="https://webkit.org/wp-content/uploads/Web_Push_on_iOS-1024x576.png">
+    <meta property="og:description" content="With iOS and iPadOS 16.4 beta 1 comes support for Web Push for Home Screen web apps, Badging API, Manifest ID, and more.">
+    <meta property="og:site_name" content="WebKit">
+    <meta property="article:published_time" content="2023-02-16T10:30:59-08:00">
+    <meta property="article:modified_time" content="2023-05-02T14:40:14-07:00">
+    <meta property="article:section" content="News">
+<style type="text/css">article .byline .author { white-space: normal; }</style></head>
+<body class="wp-singular post-template-default single single-post postid-13878 single-format-standard wp-theme-webkit">
+    <!-- Copyright © 2020 Apple Inc. All rights reserved. -->
+<svg xmlns="http://www.w3.org/2000/svg">
+	<style> svg { display: block; width: 0; height: 0; } </style>
+    <filter id="invertLightness" x="0" y="0" style="color-interpolation-filters: sRGB">
+        <feColorMatrix type="matrix" in="SourceGraphic" result="red" values="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 0 0 1" />
+        <feColorMatrix type="matrix" in="SourceGraphic" result="green" values="0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 0 1" />
+        <feColorMatrix type="matrix" in="SourceGraphic" result="blue" values="0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 1" />
+        <feBlend in="red" in2="green" mode="lighten" result="maxyellow" />
+        <feBlend in="maxyellow" in2="blue" mode="lighten" result="max" />
+        <feBlend in="red" in2="green" mode="darken" result="minyellow" />
+        <feBlend in="minyellow" in2="blue" mode="darken" result="min" />
+        <feComponentTransfer result="adjustment" in="min">
+            <feFuncR type="linear" intercept="1" slope="-1" />
+            <feFuncG type="linear" intercept="1" slope="-1" />
+            <feFuncB type="linear" intercept="1" slope="-1" />
+        </feComponentTransfer>
+        <feComposite operator="arithmetic" in="SourceGraphic" in2="adjustment" k1="0" k2="1" k3="1" k4="-1" result="channelAdjustment" />
+        <feComposite operator="arithmetic" in="channelAdjustment" in2="max" k1="0" k2="1" k3="-1" k4="1" result="finalColors" />
+        <feComposite operator="in" in="finalColors" in2="SourceAlpha" />
+    </filter>
+</svg>    <header aria-label="WebKit.org Header" id="header">
+        <div class="page-width">
+        <a href="/"><div id="logo" class="site-logo">WebKit</div></a>
+        <nav id="site-nav" aria-label="Site Menu">
+<div class="menu-main-menu-container"><input type="checkbox" id="menu-main-menu-toggle" class="menu-toggle" /><label for="menu-main-menu-toggle" class="label-toggle main-menu" data-open="Main Menu" data-close="Close Menu"></label><ul id="menu-main-menu" class="menu" role="menubar"><li id="menu-item-6091" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-6091"><a href="https://webkit.org/downloads/" role="menuitem">Downloads</a></li>
+<li id="menu-item-4272" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-has-children menu-item-4272"><input type="checkbox" id="toggle-4272" class="menu-toggle" /><a href="#nav-sub-menu" role="menuitem" aria-haspopup="true" aria-owns="sub-menu-for-4272" aria-controls="sub-menu-for-4272" aria-expanded="true"><label for="toggle-4272" class="label-toggle">Feature Status</label></a>
+<ul class="sub-menu sub-menu-layer" role="menu" id="sub-menu-for-4272">
+	<li id="menu-item-13052" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-13052"><a href="https://webkit.org/css-status/" role="menuitem">CSS Features</a></li>
+	<li id="menu-item-14388" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-14388"><a href="https://webkit.org/standards-positions/" role="menuitem">Standards Positions</a></li>
+</ul>
+</li>
+<li id="menu-item-9988" class="menu-item menu-item-type-custom menu-item-object-custom menu-item-has-children menu-item-9988"><input type="checkbox" id="toggle-9988" class="menu-toggle" /><a href="#nav-sub-menu" role="menuitem" aria-haspopup="true" aria-owns="sub-menu-for-9988" aria-controls="sub-menu-for-9988" aria-expanded="true"><label for="toggle-9988" class="label-toggle">Documentation</label></a>
+<ul class="sub-menu sub-menu-layer" role="menu" id="sub-menu-for-9988">
+	<li id="menu-item-9989" class="menu-item menu-item-type-custom menu-item-object-custom menu-item-9989"><a href="/web-inspector" role="menuitem">Web Inspector</a></li>
+	<li id="menu-item-10868" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-10868"><a href="https://webkit.org/tracking-prevention/" role="menuitem">Tracking Prevention</a></li>
+</ul>
+</li>
+<li id="menu-item-4282" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-has-children menu-item-4282"><input type="checkbox" id="toggle-4282" class="menu-toggle" /><a href="#nav-sub-menu" role="menuitem" aria-haspopup="true" aria-owns="sub-menu-for-4282" aria-controls="sub-menu-for-4282" aria-expanded="true"><label for="toggle-4282" class="label-toggle">Policies</label></a>
+<ul class="sub-menu sub-menu-layer" role="menu" id="sub-menu-for-4282">
+	<li id="menu-item-10037" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-10037"><a href="https://webkit.org/project/" role="menuitem">Project Goals</a></li>
+	<li id="menu-item-13077" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-13077"><a href="https://webkit.org/bug-prioritization/" role="menuitem">Bug Prioritization</a></li>
+	<li id="menu-item-13076" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-13076"><a href="https://webkit.org/bug-report-guidelines/" role="menuitem">Bug Report Guidelines</a></li>
+	<li id="menu-item-13075" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-13075"><a href="https://webkit.org/code-style-guidelines/" role="menuitem">Code Style Guidelines</a></li>
+	<li id="menu-item-13074" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-13074"><a href="https://webkit.org/commit-and-review-policy/" role="menuitem">Commit and Review Policy</a></li>
+	<li id="menu-item-13073" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-13073"><a href="https://webkit.org/feature-policy/" role="menuitem">Feature Policy</a></li>
+	<li id="menu-item-13072" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-13072"><a href="https://webkit.org/security-policy/" role="menuitem">Security Policy</a></li>
+	<li id="menu-item-13071" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-13071"><a href="https://webkit.org/tracking-prevention-policy/" role="menuitem">Tracking Prevention Policy</a></li>
+</ul>
+</li>
+<li id="menu-item-4274" class="menu-item menu-item-type-custom menu-item-object-custom menu-item-has-children menu-item-4274"><input type="checkbox" id="toggle-4274" class="menu-toggle" /><a href="#nav-sub-menu" role="menuitem" aria-haspopup="true" aria-owns="sub-menu-for-4274" aria-controls="sub-menu-for-4274" aria-expanded="true"><label for="toggle-4274" class="label-toggle">Contribute</label></a>
+<ul class="sub-menu sub-menu-layer" role="menu" id="sub-menu-for-4274">
+	<li id="menu-item-4277" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-4277"><a href="https://webkit.org/getting-started/" role="menuitem">Getting Started</a></li>
+	<li id="menu-item-4284" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-4284"><a href="https://webkit.org/contributing-code/" role="menuitem">Contributing Code</a></li>
+	<li id="menu-item-4281" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-4281"><a href="https://webkit.org/testing-contributions/" role="menuitem">Testing Contributions</a></li>
+	<li id="menu-item-4273" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-4273"><a href="https://webkit.org/reporting-bugs/" role="menuitem">How to Report Bugs</a></li>
+	<li id="menu-item-4278" class="menu-item menu-item-type-custom menu-item-object-custom menu-item-4278"><a href="https://github.com/WebKit/WebKit" role="menuitem">GitHub Repository</a></li>
+</ul>
+</li>
+<li id="menu-item-4270" class="menu-item menu-item-type-post_type menu-item-object-page current_page_parent menu-item-has-children menu-item-4270"><input type="checkbox" id="toggle-4270" class="menu-toggle" /><a href="#nav-sub-menu" role="menuitem" aria-haspopup="true" aria-owns="sub-menu-for-4270" aria-controls="sub-menu-for-4270" aria-expanded="true"><label for="toggle-4270" class="label-toggle">Blog</label></a>
+<ul class="sub-menu sub-menu-layer" role="menu" id="sub-menu-for-4270">
+	<li id="menu-item-13057" class="menu-item menu-item-type-taxonomy menu-item-object-category current-post-ancestor current-menu-parent current-post-parent menu-item-13057"><a href="https://webkit.org/blog/category/news/" role="menuitem">News Posts</a></li>
+	<li id="menu-item-13058" class="menu-item menu-item-type-taxonomy menu-item-object-category menu-item-13058"><a href="https://webkit.org/blog/category/css/" role="menuitem">CSS Posts</a></li>
+	<li id="menu-item-13063" class="menu-item menu-item-type-taxonomy menu-item-object-category menu-item-13063"><a href="https://webkit.org/blog/category/contributing/" role="menuitem">Contributing Posts</a></li>
+	<li id="menu-item-13062" class="menu-item menu-item-type-taxonomy menu-item-object-category menu-item-13062"><a href="https://webkit.org/blog/category/privacy/" role="menuitem">Privacy Posts</a></li>
+	<li id="menu-item-13060" class="menu-item menu-item-type-taxonomy menu-item-object-category menu-item-13060"><a href="https://webkit.org/blog/category/performance/" role="menuitem">Performance Posts</a></li>
+	<li id="menu-item-13061" class="menu-item menu-item-type-taxonomy menu-item-object-category menu-item-13061"><a href="https://webkit.org/blog/category/javascript/" role="menuitem">JavaScript Posts</a></li>
+	<li id="menu-item-13056" class="menu-item menu-item-type-taxonomy menu-item-object-category menu-item-13056"><a href="https://webkit.org/blog/category/standards/" role="menuitem">Standards Posts</a></li>
+	<li id="menu-item-13059" class="menu-item menu-item-type-taxonomy menu-item-object-category menu-item-13059"><a href="https://webkit.org/blog/category/web-inspector/" role="menuitem">Web Inspector Posts</a></li>
+	<li id="menu-item-13055" class="menu-item menu-item-type-taxonomy menu-item-object-category menu-item-13055"><a href="https://webkit.org/blog/category/safari-technology-preview/" role="menuitem">Safari Technology Preview Posts</a></li>
+</ul>
+</li>
+<li><form action="/" method="get"><input type="search" name="s" class="search-input" value=""></form></li></ul></div></nav>
+        </div>
+    </header>
+
+<main id="content">
+    <div class="page-width">
+    
+        <article class="post-13878 post type-post status-publish format-standard hentry category-news" id="post-13878">
+            <h1><a href="https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/" rel="bookmark" title="Permanent Link: Web Push for Web Apps on iOS and iPadOS">Web Push for Web Apps on iOS and iPadOS</a></h1>
+            <div class="byline">
+                <p class="date">Feb 16, 2023</p>
+                <p class="author">by <span>Brady Eidson and Jen Simmons</span></p>
+                            </div>
+
+            <div class="bodycopy">
+                                
+                <p>Today marks the release of iOS and iPadOS 16.4 beta 1, and with it comes support for Web Push and other features for Home Screen web apps.</p>
+<figure>
+<img fetchpriority="high" decoding="async" src="https://webkit.org/wp-content/uploads/Web_Push_on_iOS-1024x576.png" alt="iPhone Lock Screen showing a notification arriving" width="1024" height="576" class="preserve-color alignnone size-large wp-image-13886" srcset="https://webkit.org/wp-content/uploads/Web_Push_on_iOS-1024x576.png 1024w, https://webkit.org/wp-content/uploads/Web_Push_on_iOS-300x169.png 300w, https://webkit.org/wp-content/uploads/Web_Push_on_iOS-768x432.png 768w, https://webkit.org/wp-content/uploads/Web_Push_on_iOS-1536x864.png 1536w, https://webkit.org/wp-content/uploads/Web_Push_on_iOS.png 1920w" sizes="(max-width: 1024px) 100vw, 1024px" /><br />
+</figure>
+<p>Today also brings the first beta of Safari 16.4. It’s a huge release, packed with over 135 features in WebKit — including RegExp lookbehind assertions, Import Maps, OffscreenCanvas, Media Queries Range Syntax, <code>@property</code>, <code>font-size-adjust</code>, Declarative Shadow DOM, and much more. We’ll <a href="https://webkit.org/blog/13966/webkit-features-in-safari-16-4/">write all about these new WebKit features</a> when Safari 16.4 is released. Meanwhile, you can read a comprehensive list of new features and fixes in the <a href="https://developer.apple.com/documentation/safari-release-notes/safari-16_4-release-notes">Safari 16.4 release notes</a>.</p>
+<p>But let’s set Safari aside and talk about Home Screen web apps on iOS and iPadOS.</p>
+<p>Since the first iPhone, users could add any website to their Home Screen — whether it’s a brochure site, a blog, a newspaper, an online store, a social media platform, a streaming video site, productivity software, an application for creating artwork, or any other type of website. For the last ten years, users of Safari on iOS and iPadOS could do this by tapping the Share button to open the Share menu, and then tapping “Add to Home Screen”. The icon for that website then appears on their Home Screen, where a quick tap gets them back to the site.</p>
+<p>Web developers have the option to create a <a href="https://developer.mozilla.org/en-US/docs/Web/Manifest">manifest file</a> (with its  <a href="https://developer.mozilla.org/en-US/docs/Web/Manifest/display"><code>display</code></a> member set to <code>standalone</code> or <code>fullscreen</code>) and serve it along with their website. If they do, that site becomes a Home Screen web app. Then, when you tap on its icon, the web app opens like any other app on iOS or iPadOS instead of opening in a browser. You can see its app preview in the <a href="https://support.apple.com/en-us/HT202070">App Switcher</a>, separate from Safari or any other browser.</p>
+<h2>Web Push for Web Apps added to the Home Screen</h2>
+<p>Now with iOS and iPadOS 16.4, we are adding support for Web Push to Home Screen web apps. Web Push makes it possible for web developers to send push notifications to their users through the use of <a href="https://developer.mozilla.org/en-US/docs/Web/API/Push_API">Push API</a>, <a href="https://developer.mozilla.org/en-US/docs/Web/API/Notifications_API">Notifications API</a>, and <a href="https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API">Service Workers</a> all working together.</p>
+<p>A web app that has been added to the Home Screen can request permission to receive push notifications as long as that request is in response to direct user interaction — such as tapping on a ‘subscribe’ button provided by the web app. iOS or iPadOS will then prompt the user to give the web app permission to send notifications. Once allowed, the user can <a href="https://support.apple.com/en-us/HT201925">manage those permissions per web app</a> in Notifications Settings — just like any other app on iPhone and iPad.</p>
+<p>The notifications from web apps work exactly like notifications from other apps. They show on the Lock Screen, in Notification Center, and on a paired Apple Watch.</p>
+<p>This is the same W3C standards-based Web Push that was added in <a href="https://webkit.org/blog/13399/webkit-features-in-safari-16-1/#web-push-for-macos-ventura">Safari 16.1</a> for macOS Ventura last fall. If you’ve implemented standards-based Web Push for your web app with industry best practices — such as using feature detection instead of browser detection — it will automatically work on iPhone and iPad.</p>
+<p>Web Push on iOS and iPadOS uses the same Apple Push Notification service that powers native push on all Apple devices. You do not need to be a member of the Apple Developer Program to use it. Just be sure to allow URLs from <code>*.push.apple.com</code> if you are in control of your server push endpoints.</p>
+<p>To learn more about how to setup Web Push, read the article <a href="https://webkit.org/blog/12945/meet-web-push/">Meet Web Push</a> on webkit.org, or watch the WWDC22 session video <a href="https://developer.apple.com/videos/play/wwdc2022/10098/">Meet Web Push</a>.</p>
+<h2>Focus support</h2>
+<p>Notifications are a powerful tool, but it’s easy for people to get into situations where they are overwhelmed by too many of them. Notifications for Home Screen web apps on iPhone and iPad integrate with <a href="https://support.apple.com/en-us/HT212608">Focus</a>, allowing users to precisely configure when or where to receive them. For users who add the same web app to their Home Screen on more than one iOS or iPadOS device, Focus modes automatically apply to all of them.</p>
+<h2>Badging API</h2>
+<p>Home Screen web apps on iOS and iPadOS 16.4 now support the <a href="https://developer.mozilla.org/en-US/docs/Web/API/Badging_API">Badging API</a>. Just like any app on iOS and iPadOS, web apps are now able to set their badge count. Both <code>setAppBadge</code> and <code>clearAppBadge</code> change the count while the user has the web app open in the foreground or while the web app is handling push events in the background — even before permission to display the count has been granted.</p>
+<p>Permission to display the badge on the app icon is granted in exactly the same way as other apps on iOS and iPadOS. Once a user gives permission to allow notifications, the icon on the Home Screen will immediately display the current badge count. Users can then configure permissions for Badging in Notifications Settings, just like any other app on iOS or iPadOS.</p>
+<h2>Manifest ID</h2>
+<p>WebKit for iOS and iPadOS 16.4 adds support for the <a href="https://developer.mozilla.org/en-US/docs/Web/Manifest/id"><code>id</code> member</a> from the Web Application Manifest standard. It’s a string (in the form of a URL) that acts as the unique identifier for the web application, intended to be used by an OS in whatever way desired. iOS and iPadOS use the Manifest ID for the purpose of syncing <a href="https://support.apple.com/en-us/HT212608">Focus</a> settings across multiple devices.</p>
+<p>iOS has supported multiple installs of the same web app since the very beginning. We believe the ability for people to install any web app more than once on their device can be useful — providing additional flexibility to support multiple accounts, separate work vs personal usage, and more.</p>
+<p>When adding a web app to the Home Screen, users are given the opportunity to change the app’s name. iOS and iPadOS 16.4 combine this name with the Manifest ID to uniquely identify the web app. That way, a user can install multiple copies of the web app on one device and give them different identities. For example, notifications from “Shiny (personal)” can be silenced by Focus while notifications from “Shiny (work)” can be allowed. If the user gives their favorite website the same name on multiple devices, Focus settings on one device will sync and apply to the others as well.</p>
+<h2>Third-party browser support for Add to Home Screen</h2>
+<p>In iOS and iPadOS 16.4, third-party browsers can now offer their users the ability to add websites and web apps to the Home Screen from the Share menu.</p>
+<p>Applications on iOS and iPadOS present the Share menu by creating a <code>UIActivityViewController</code> with an array of <code>activityItems</code>. For “Add to Home Screen” to be included in the Share menu the following must be true:</p>
+<ol>
+<li>The application has the <a href="https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_developer_web-browser">com.apple.developer.web-browser</a> managed entitlement</li>
+<li>A WKWebView is included in the array of <code>activityItems</code></li>
+<li>The WKWebView is displaying a document with an HTTP or HTTPS URL</li>
+<li>If the device is an iPad, it must not be configured as a <a href="https://support.apple.com/guide/deployment/shared-ipad-overview-dep9a34c2ba2/web">Shared iPad</a></li>
+</ol>
+<p>As described above, after a user adds to Home Screen, any website with a Manifest file that sets the <code>display</code> member to <code>standalone</code> or <code>fullscreen</code> will open as a web app when a user taps its icon. This is true no matter which browser added the website to the Home Screen.</p>
+<p>If there is no manifest file configured to request web app behavior (and no <code>meta</code> tag marking the site as web app capable), then that website will be saved as a Home Screen bookmark. Starting in iOS and iPadOS 16.4, Home Screen bookmarks will now open in the user’s current default browser.</p>
+<h2>New Fallback Icon</h2>
+<p>Web developers usually provide icons to represent their website throughout the interface of a browser. If icons for the Home Screen are not provided, previously iOS and iPadOS would create an icon from a screenshot of the site. Now, iOS and iPadOS 16.4 will create and display a monogram icon using the first letter of the site’s name along with a color from the site instead.</p>
+<p>To provide the icon to be used for your website or web app, list the <a href="https://developer.mozilla.org/en-US/docs/Web/Manifest/icons">icons in the Manifest file</a> — a capability that’s been supported <a href="https://webkit.org/blog/12445/new-webkit-features-in-safari-15-4/#web-apps">since iOS and iPadOS 15.4</a>. Or you can use the long-supported technique of listing <code>apple-touch-icons</code> in the HTML document <code>head</code>. (If you do both, <code>apple-touch-icon</code> will take precedence over the Manifest-declared icons.)</p>
+<h2>New Web API for Web Apps</h2>
+<p>Besides Web Push, Badging API, and Manifest ID, many of the other new features in Webkit for iOS and iPadOS 16.4 are of particular interest to web app developers focusing on Home Screen web apps. These include:</p>
+<ul>
+<li><a href="https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API">Screen Wake Lock API</a></li>
+<li><a href="https://developer.mozilla.org/en-US/docs/Web/API/Screen_Orientation_API">Screen Orientation API</a></li>
+<li><a href="https://developer.mozilla.org/en-US/docs/Web/API/UserActivation">User Activation API</a></li>
+<li><a href="https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API">Web Codecs API</a> video support</li>
+</ul>
+<p>See the release notes for <a href="https://developer.apple.com/documentation/safari-release-notes/safari-16_4-release-notes">Safari 16.4</a> for the full list of features.</p>
+<h2>Feedback</h2>
+<p>Are you seeing a bug? That’s to be expected in a beta. Please help us such squash bugs before iOS and iPadOS 16.4 are released to the public by providing <a href="https://feedbackassistant.apple.com/">feedback</a> from your iPhone or iPad. Feedback Assistant will collect all the information needed to help us understand what’s happening.</p>
+<p>Also, we love hearing from you. You can find us on Mastodon at <a href="https://front-end.social/@jensimmons">@jensimmons@front-end.social</a>, <a href="https://mastodon.social/@bradeeoh">@bradeeoh@mastodon.social</a> and <a href="https://mastodon.social/@jondavis">@jondavis@mastodon.social</a>. Or send a tweet to <a href="https://twitter.com/webkit">@webkit</a> to share your thoughts on these new features.</p>
+
+                            </div>
+        </article>
+
+        <aside class="nextrouter" aria-label="Next/Previous posts">
+            <div class="bodycopy">
+                        <a class="page-numbers next-post" href="https://webkit.org/blog/13902/release-notes-for-safari-technology-preview-164/" rel="next"><div class="nextrouter-copy"><span class="label">Next</span><span class="title">Release Notes for Safari Technology Preview 164</span><span class="link">Learn more</span></div></a>            </div>
+        </aside>
+        <aside class="nextrouter previous" aria-label="Next/Previous posts">
+            <div class="bodycopy">
+            <a class="page-numbers prev-post" href="https://webkit.org/blog/13862/the-user-activation-api/" rel="prev"><div class="nextrouter-copy"><span class="label">Previously</span><span class="title">The User Activation API</span><span class="link">Learn more</span></div></a>            </div>
+        </aside>
+
+    
+    
+    </div><!--.page-width-->
+</main><!-- #content -->
+
+<footer>
+    <div class="page-width">
+        <nav id="footer-nav" aria-label="Footer menu"><div class="menu-footer-menu-container"><ul id="menu-footer-menu" class="menu"><li id="menu-item-7617" class="menu-item menu-item-type-custom menu-item-object-custom menu-item-7617"><a rel="me" href="https://front-end.social/@webkit">@webkit@front-end.social</a></li>
+<li id="menu-item-5365" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-5365"><a href="https://webkit.org/sitemap/">Site Map</a></li>
+<li id="menu-item-4185" class="menu-item menu-item-type-custom menu-item-object-custom menu-item-4185"><a href="http://www.apple.com/legal/privacy/">Privacy Policy</a></li>
+<li id="menu-item-4287" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-4287"><a href="https://webkit.org/licensing-webkit/">Licensing WebKit</a></li>
+<li id="menu-item-4187" class="menu-item menu-item-type-post_type menu-item-object-page menu-item-4187"><a href="https://webkit.org/terms-of-use/">WebKit and the WebKit logo are trademarks of Apple Inc.</a></li>
+</ul></div></nav>
+    </div>
+</footer>
+
+
+<script type="speculationrules">
+{"prefetch":[{"source":"document","where":{"and":[{"href_matches":"/*"},{"not":{"href_matches":["/wp/wp-*.php","/wp/wp-admin/*","/wp-content/uploads/*","/wp-content/*","/wp-content/plugins/*","/wp-content/themes/webkit/*","/*\\?(.+)"]}},{"not":{"selector_matches":"a[rel~=\"nofollow\"]"}},{"not":{"selector_matches":".no-prefetch, .no-prefetch a"}}]},"eagerness":"conservative"}]}
+</script>
+<script type="text/javascript" src="https://webkit.org/wp-content/themes/webkit/scripts/global.js?ver=1.0" id="theme-global-js"></script>
+</body>
+</html>

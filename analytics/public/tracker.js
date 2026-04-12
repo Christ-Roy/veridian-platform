@@ -124,9 +124,17 @@
     function (e) {
       var form = e.target;
       if (!form || form.tagName !== 'FORM') return;
+      // Nom du formulaire : priorite au data-veridian-track explicite,
+      // sinon l'attribut name du <form>, sinon le pathname de la page.
+      // En mode auto on capture TOUT, le nom est derive automatiquement.
+      // Ex: /contact → "contact", /devis → "devis", / → "accueil"
       var name =
         form.getAttribute('data-veridian-track') ||
-        (autoCapture ? form.getAttribute('name') || 'anonymous' : null);
+        (autoCapture
+          ? form.getAttribute('name') ||
+            window.location.pathname.replace(/^\//, '').replace(/\/$/, '') ||
+            'accueil'
+          : null);
       if (!name) return;
 
       var payload = serializeForm(form);
