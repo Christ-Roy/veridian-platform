@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { corsHeaders, resolveSiteKey } from '@/lib/ingest';
+import { corsHeaders, resolveSiteKey, checkIngestRateLimit } from '@/lib/ingest';
 
 export const runtime = 'nodejs';
 
@@ -21,6 +21,10 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: Request) {
+  const siteKey = req.headers.get('x-site-key') ?? '';
+  const rateLimited = checkIngestRateLimit(siteKey);
+  if (rateLimited) return rateLimited;
+
   const site = await resolveSiteKey(req);
   if (!site) {
     return NextResponse.json(

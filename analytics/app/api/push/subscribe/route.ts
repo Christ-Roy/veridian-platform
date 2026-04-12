@@ -4,8 +4,13 @@ import { z } from 'zod';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getUserTenantStatus } from '@/lib/user-tenant';
+import { createRateLimiter } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
+
+// Rate limit par email : 10 subscriptions/min max par user.
+// Un user normal en fait 1 a la premiere visite, jamais plus.
+const pushSubscribeLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
 
 const subscribeSchema = z.object({
   endpoint: z.string().url(),
@@ -20,6 +25,13 @@ export async function POST(req: Request) {
   const session = await auth();
   if (!session?.user?.email) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  if (!pushSubscribeLimiter.check(session.user.email)) {
+    return NextResponse.json(
+      { error: 'rate_limited', retryAfterSec: 60 },
+      { status: 429, headers: { 'Retry-After': '60' } },
+    );
   }
 
   let body;

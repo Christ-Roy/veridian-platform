@@ -1,4 +1,18 @@
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { createRateLimiter } from '@/lib/rate-limit';
+
+/**
+ * Rate limiter par siteKey pour les endpoints d'ingestion.
+ * 100 req/min par siteKey — suffisant pour un site client normal
+ * (meme un site avec 50 pages/min en SPA genere ~50 req/min max).
+ * Protege contre le spam de pageviews/forms/calls par un attaquant
+ * qui aurait recupere un siteKey depuis le HTML source d'un client.
+ */
+export const ingestRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 100,
+});
 
 /**
  * Résout un siteKey (header x-site-key) vers l'id du Site correspondant.
@@ -15,6 +29,22 @@ export async function resolveSiteKey(
   });
   if (!site || site.deletedAt) return null;
   return { siteId: site.id, tenantId: site.tenantId };
+}
+
+/**
+ * Verifie le rate limit pour un endpoint d'ingestion.
+ * Retourne une Response 429 si la limite est depassee, null sinon.
+ * A appeler APRES resolveSiteKey (on rate-limit par siteKey, pas par IP,
+ * car les siteKeys sont publiques et l'IP peut varier avec les CDN).
+ */
+export function checkIngestRateLimit(siteKey: string): NextResponse | null {
+  if (!ingestRateLimiter.check(siteKey)) {
+    return NextResponse.json(
+      { error: 'rate_limited', retryAfterSec: 60 },
+      { status: 429, headers: { ...corsHeaders(), 'Retry-After': '60' } },
+    );
+  }
+  return null;
 }
 
 export function corsHeaders(): HeadersInit {

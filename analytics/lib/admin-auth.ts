@@ -9,9 +9,9 @@ import { NextResponse } from 'next/server';
  * de base contre un abus ou une fuite accidentelle de la cle.
  */
 
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 60;
-const rateMap = new Map<string, { count: number; resetAt: number }>();
+import { createRateLimiter } from '@/lib/rate-limit';
+
+const adminRateLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
 
 function clientIp(req: Request): string {
   const fwd = req.headers.get('x-forwarded-for');
@@ -19,18 +19,6 @@ function clientIp(req: Request): string {
   const real = req.headers.get('x-real-ip');
   if (real) return real;
   return 'unknown';
-}
-
-function rateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateMap.get(ip);
-  if (!entry || entry.resetAt < now) {
-    rateMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= RATE_MAX) return false;
-  entry.count++;
-  return true;
 }
 
 // Timing-safe equal pour eviter une attaque par timing de comparaison.
@@ -52,7 +40,7 @@ export function requireAdmin(req: Request): NextResponse | null {
     );
   }
   const ip = clientIp(req);
-  if (!rateLimit(ip)) {
+  if (!adminRateLimiter.check(ip)) {
     return NextResponse.json(
       { error: 'rate_limited', retryAfterSec: 60 },
       { status: 429, headers: { 'Retry-After': '60' } },

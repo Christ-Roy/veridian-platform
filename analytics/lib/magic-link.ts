@@ -212,7 +212,7 @@ export function buildMagicLinkHtml(
   </p>
   ${metricsBlock}
   <p style="margin:24px 0;">
-    <a href="${url}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:500;font-size:14px;">
+    <a href="${escapeHtml(url)}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:500;font-size:14px;">
       ${hasMetrics ? 'Voir le detail complet' : 'Acceder a mon dashboard'}
     </a>
   </p>
@@ -224,7 +224,7 @@ export function buildMagicLinkHtml(
   <p style="margin:16px 0;font-size:12px;color:#666;">
     Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre
     navigateur :<br>
-    <span style="word-break:break-all;color:#2563eb;">${url}</span>
+    <span style="word-break:break-all;color:#2563eb;">${escapeHtml(url)}</span>
   </p>
   <hr style="margin:24px 0;border:none;border-top:1px solid #eee;">
   <p style="margin:0;font-size:11px;color:#999;">

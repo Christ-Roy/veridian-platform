@@ -118,10 +118,11 @@ export async function POST(req: Request) {
     const res = await gscQuery(parsed.data as QueryRequest);
     return NextResponse.json(res);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'query_failed';
-    console.error('[gsc/query] error:', msg);
+    // Log le detail cote serveur pour le debug, mais ne pas exposer
+    // le message d'erreur au client (peut contenir des chemins, du SQL, etc.).
+    console.error('[gsc/query] error:', e instanceof Error ? e.message : e);
     return NextResponse.json(
-      { error: 'query_failed', message: msg },
+      { error: 'query_failed' },
       { status: 500 },
     );
   }
