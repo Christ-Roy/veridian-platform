@@ -22,7 +22,9 @@ export default async function CallsPage() {
 
   const status = await getUserTenantStatus(session.user.email);
   const active = aggregateActiveServices(status);
-  if (!isServiceActive(active, 'calls')) {
+  // Narrowing : si status est null, active est [] donc le guard trigger.
+  // Le check explicite `!status` permet a TS de narrow pour la query plus bas.
+  if (!status || !isServiceActive(active, 'calls')) {
     const domain = status?.sites[0]?.domain ?? '';
     return <LockedServicePage service="calls" siteDomain={domain} />;
   }
@@ -30,7 +32,9 @@ export default async function CallsPage() {
   let calls: Awaited<ReturnType<typeof prisma.sipCall.findMany>> = [];
   let dbError: string | null = null;
   try {
+    // Isolation tenant : filtre par la relation site.tenantId.
     calls = await prisma.sipCall.findMany({
+      where: { site: { tenantId: status.tenant.id } },
       orderBy: { startedAt: 'desc' },
       take: 50,
       include: { site: true },

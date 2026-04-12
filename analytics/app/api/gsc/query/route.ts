@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { auth } from '@/auth';
 import { gscQuery, type QueryRequest } from '@/lib/gsc-query';
+import { getUserTenantStatus } from '@/lib/user-tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -53,12 +55,21 @@ const requestSchema = z.object({
  * POST /api/gsc/query
  * Body: QueryRequest (shape identique a l'API GSC searchAnalytics.query)
  *
- * Protege par session utilisateur (auth.js). Interroge notre table GscDaily
- * via gscQuery, qui clone la semantique de l'API Google.
+ * Protege par session utilisateur (auth.js). Avant d'interroger GscDaily,
+ * on verifie que le `siteId` du body appartient bien au tenant du user de
+ * session (ou au tenant impersonne si le user est SUPERADMIN avec le
+ * cookie d'impersonation actif). Un user sans droit sur ce siteId
+ * recoit un 404 (pas 403 pour ne pas leak l'existence du site).
+ *
+ * Contrat isolation tenant :
+ *   - User MEMBER : voit uniquement les sites de son tenant via membership
+ *   - User SUPERADMIN sans cookie : pareil que MEMBER (voit son propre tenant)
+ *   - User SUPERADMIN avec cookie `veridian_admin_as_tenant=<slug>` : voit
+ *     les sites du tenant impersonne (resolu par slug via getUserTenantStatus)
  */
 export async function POST(req: Request) {
   const session = await auth();
-  if (!session?.user) {
+  if (!session?.user?.email) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -75,6 +86,32 @@ export async function POST(req: Request) {
       { error: 'invalid_payload', issues: parsed.error.flatten() },
       { status: 400 },
     );
+  }
+
+  // Resolution du tenant du user (avec impersonation si SUPERADMIN + cookie).
+  // On lit le cookie d'impersonation pour que Robert puisse voir la data
+  // GSC d'un client qu'il consulte depuis /admin.
+  const cookieStore = await cookies();
+  const asTenantSlug = cookieStore.get('veridian_admin_as_tenant')?.value ?? null;
+  const requesterRole =
+    (session.user as { platformRole?: string }).platformRole ?? 'MEMBER';
+
+  const status = await getUserTenantStatus(session.user.email, {
+    asTenantSlug,
+    requesterRole,
+  });
+
+  if (!status) {
+    // Pas de tenant resolu → user orphelin ou tenant impersonne introuvable.
+    return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  }
+
+  // Verification isolation : le siteId demande doit appartenir aux sites du
+  // tenant resolu. 404 plutot que 403 pour ne pas confirmer l'existence du
+  // site a un attaquant qui essaierait de lister les sites d'autres tenants.
+  const authorizedSiteIds = new Set(status.sites.map((s) => s.id));
+  if (!authorizedSiteIds.has(parsed.data.siteId)) {
+    return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 
   try {

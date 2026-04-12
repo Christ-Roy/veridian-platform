@@ -25,12 +25,15 @@ export default async function GscPage() {
 
   const status = await getUserTenantStatus(session.user.email);
   const active = aggregateActiveServices(status);
-  if (!isServiceActive(active, 'gsc')) {
+  // Narrowing : si status est null, active est [] donc le guard trigger.
+  // Le check explicite `!status` permet a TS de narrow pour la query plus bas.
+  if (!status || !isServiceActive(active, 'gsc')) {
     const domain = status?.sites[0]?.domain ?? '';
     return <LockedServicePage service="gsc" siteDomain={domain} />;
   }
 
-  // Charge la liste des sites accessibles (tous pour le POC).
+  // Charge la liste des sites accessibles — isole par tenantId pour ne pas
+  // fuiter les sites des autres tenants dans le selector GSC.
   let sites: Array<{
     id: string;
     domain: string;
@@ -41,7 +44,7 @@ export default async function GscPage() {
 
   try {
     const raw = await prisma.site.findMany({
-      where: { deletedAt: null },
+      where: { tenantId: status.tenant.id, deletedAt: null },
       include: { gscProperty: { select: { id: true } } },
       orderBy: { createdAt: 'desc' },
     });

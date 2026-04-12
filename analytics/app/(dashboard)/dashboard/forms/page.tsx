@@ -25,7 +25,9 @@ export default async function FormsPage() {
 
   const status = await getUserTenantStatus(session.user.email);
   const active = aggregateActiveServices(status);
-  if (!isServiceActive(active, 'forms')) {
+  // Narrowing : si status est null, active est [] donc isServiceActive false.
+  // Le check explicite `!status` permet a TS de narrow pour la query plus bas.
+  if (!status || !isServiceActive(active, 'forms')) {
     const domain = status?.sites[0]?.domain ?? '';
     return <LockedServicePage service="forms" siteDomain={domain} />;
   }
@@ -35,7 +37,11 @@ export default async function FormsPage() {
   > = [];
   let dbError: string | null = null;
   try {
+    // Isolation tenant : filtre par la relation site.tenantId. status.tenant
+    // vient de getUserTenantStatus (qui gere l'impersonation superadmin),
+    // donc ce filtre suit automatiquement le contexte admin.
     submissions = await prisma.formSubmission.findMany({
+      where: { site: { tenantId: status.tenant.id } },
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: { site: true },
