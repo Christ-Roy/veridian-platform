@@ -55,6 +55,7 @@ export interface TenantStatus {
     members: { id: string; email: string; role: string }[];
   };
   sites: SiteStatus[];
+  pushSubscriptionsCount: number;
   summary: {
     sitesCount: number;
     totalActiveServices: number;
@@ -271,12 +272,24 @@ export async function listAllTenantsStatus(): Promise<TenantStatus[]> {
       },
     },
   });
-  return Promise.all(tenants.map((t) => buildTenantStatus(t)));
+  // Charge les counts de push subscriptions par tenant en un seul query
+  const pushCounts = await prisma.pushSubscription.groupBy({
+    by: ['tenantId'],
+    _count: { id: true },
+  });
+  const pushCountMap = new Map(
+    pushCounts.map((pc) => [pc.tenantId, pc._count.id]),
+  );
+
+  return Promise.all(
+    tenants.map((t) => buildTenantStatus(t, undefined, pushCountMap.get(t.id) ?? 0)),
+  );
 }
 
 export async function buildTenantStatus(
   tenant: TenantInput,
   req?: Request,
+  pushSubscriptionsCount = 0,
 ): Promise<TenantStatus> {
   const trackerBase = resolveTrackerBaseUrl(req);
 
@@ -340,6 +353,7 @@ export async function buildTenantStatus(
       })),
     },
     sites,
+    pushSubscriptionsCount,
     summary: {
       sitesCount: sites.length,
       totalActiveServices: totalActive,

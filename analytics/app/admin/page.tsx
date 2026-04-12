@@ -11,6 +11,7 @@ import {
   rotateSiteKeyAction,
   syncGscAction,
   sendMagicLinkAction,
+  sendPushNotifyAction,
 } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -221,6 +222,52 @@ function TenantCard({
             ))}
           </div>
         )}
+
+        {/* Notifications push */}
+        <div className="space-y-2 border-t border-border/40 pt-4">
+          <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <span>📢</span> Notifications push
+            <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono">
+              {tenant.pushSubscriptionsCount} device{tenant.pushSubscriptionsCount !== 1 ? 's' : ''}
+            </span>
+          </h3>
+          <form
+            action={async (formData: FormData) => {
+              'use server';
+              await sendPushNotifyAction(formData);
+            }}
+            className="space-y-1.5"
+          >
+            <input type="hidden" name="tenantId" value={tenant.tenant.id} />
+            <input
+              name="title"
+              placeholder="Titre de la notification"
+              required
+              className="w-full rounded border border-border/40 bg-muted/20 px-3 py-1.5 text-xs placeholder:text-muted-foreground/50"
+            />
+            <textarea
+              name="body"
+              placeholder="Corps du message"
+              required
+              rows={2}
+              className="w-full rounded border border-border/40 bg-muted/20 px-3 py-1.5 text-xs placeholder:text-muted-foreground/50"
+            />
+            <input
+              name="url"
+              placeholder="Lien (optionnel, ex: /dashboard/gsc)"
+              className="w-full rounded border border-border/40 bg-muted/20 px-3 py-1.5 text-xs placeholder:text-muted-foreground/50"
+            />
+            <Button
+              type="submit"
+              variant="outline"
+              className="h-7 px-3 text-[10px]"
+              data-testid={`push-notify-${tenant.tenant.slug}`}
+              disabled={tenant.pushSubscriptionsCount === 0}
+            >
+              Envoyer la notification
+            </Button>
+          </form>
+        </div>
 
         {/* Actions tenant-wide */}
         <div className="flex flex-wrap gap-2 border-t border-border/40 pt-4">

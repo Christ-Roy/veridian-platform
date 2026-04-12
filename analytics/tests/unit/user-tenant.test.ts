@@ -90,6 +90,7 @@ describe('aggregateActiveServices', () => {
         createdAt: new Date(),
         members: [],
       },
+      pushSubscriptionsCount: 0,
       summary: {
         sitesCount: sitesActive.length,
         totalActiveServices: 0,

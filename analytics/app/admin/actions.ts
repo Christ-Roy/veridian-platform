@@ -89,6 +89,73 @@ export async function syncGscAction(siteId: string, days = 3) {
 }
 
 /**
+ * Envoie une notification push a tous les abonnes d'un tenant.
+ * Le vrai travail est fait par la route /api/admin/tenants/:id/push-notify
+ * (creee par l'agent 2) — on ne duplique pas la logique ici.
+ */
+export async function sendPushNotifyAction(formData: FormData) {
+  const session = await auth();
+  requireSuperadmin(session);
+
+  const tenantId = String(formData.get('tenantId') || '');
+  const title = String(formData.get('title') || '');
+  const body = String(formData.get('body') || '');
+  const url = String(formData.get('url') || '');
+
+  if (!tenantId || !title || !body) {
+    return { ok: false, error: 'missing_fields' as const };
+  }
+
+  const adminKey = process.env.ADMIN_API_KEY;
+  if (!adminKey) {
+    return { ok: false, error: 'admin_api_key_not_set' as const };
+  }
+
+  const origin =
+    process.env.NEXTAUTH_URL ||
+    process.env.PUBLIC_TRACKER_URL ||
+    'http://127.0.0.1:3000';
+
+  try {
+    const res = await fetch(
+      `${origin}/api/admin/tenants/${tenantId}/push-notify`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-admin-key': adminKey,
+        },
+        body: JSON.stringify({ title, body, url: url || undefined }),
+        cache: 'no-store',
+      },
+    );
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      return {
+        ok: false,
+        error: `push_failed_${res.status}`,
+        details: text.slice(0, 200),
+      } as const;
+    }
+
+    const data = await res.json().catch(() => ({}));
+    revalidatePath('/admin');
+    return {
+      ok: true,
+      sent: data.sent ?? 0,
+      failed: data.failed ?? 0,
+      cleaned: data.cleaned ?? 0,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : 'push_failed',
+    } as const;
+  }
+}
+
+/**
  * Envoie un magic link a l'owner d'un tenant pour qu'il accede a son
  * dashboard sans avoir a connaitre de password. Le token est stocke dans
  * VerificationToken (modele Auth.js natif). Le lien renvoie vers /welcome

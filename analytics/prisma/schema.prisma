@@ -105,8 +105,9 @@ model Tenant {
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
 
-  memberships Membership[]
-  sites       Site[]
+  memberships       Membership[]
+  sites              Site[]
+  pushSubscriptions  PushSubscription[]
 
   @@schema("analytics")
 }
@@ -273,5 +274,28 @@ model GscProperty {
 
   site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
+  @@schema("analytics")
+}
+
+// ============================================================================
+// Push Subscriptions — Web Push notifications (PWA)
+// ============================================================================
+// Chaque browser qui s'abonne au push cree une PushSubscription liee au tenant.
+// Le champ endpoint est unique (un browser = un endpoint).
+// userId et siteId sont optionnels : on peut notifier un tenant entier.
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String?
+  siteId    String?
+  tenantId  String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
   @@schema("analytics")
 }
