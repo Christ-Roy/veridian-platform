@@ -359,3 +359,57 @@ feature est une étape indépendante qu'on peut shipper sans casser le reste.
   Hub continue de tourner).
 - Zéro Supabase. Auth locale Auth.js credentials.
 - Chaque app du monorepo a son propre auth → pas de SSO pour le MVP.
+
+### Phase E — PWA + Push Notifications (feature demandée 2026-04-12)
+
+Robert veut transformer chaque dashboard client en **Progressive Web App**
+installable, avec :
+
+1. **PWA installable par tenant** : le client ouvre le dashboard dans son
+   browser mobile, clique "Ajouter à l'écran d'accueil", et obtient une
+   app native-like avec le logo de SON entreprise (pas Veridian). Chaque
+   tenant a son propre `manifest.json` dynamique (nom, couleur, icônes).
+
+2. **Push notifications** : depuis l'admin workspace (/admin), Robert peut
+   rédiger un message + l'envoyer en push notification à tous les users
+   inscrits d'un tenant (ex: "Nouveau rapport mensuel dispo" ou "Votre
+   campagne Ads a généré 12 leads cette semaine"). Utilise Web Push API
+   avec VAPID keys côté serveur. Chaque user qui installe la PWA est
+   automatiquement abonné aux notifications de son tenant.
+
+3. **Metrics users actifs** : tableau de bord dans /admin qui montre pour
+   chaque tenant : users actifs aujourd'hui (DAU), cette semaine (WAU),
+   ce mois (MAU), users réguliers vs ponctuels. Basé sur les sessions
+   Auth.js ou sur un event "app opened" côté Service Worker.
+
+4. **Branding par tenant** : logo custom uploadable par Robert (ou via
+   le skill analytics-provision), stocké en DB ou en S3/R2, utilisé dans
+   le manifest.json, l'icône PWA, le header du dashboard, et les
+   notifications push.
+
+5. **Rédaction de notifs push depuis /admin** : un formulaire simple dans
+   la console admin qui permet de :
+   - Sélectionner le tenant cible
+   - Écrire un titre + un corps de notification
+   - Optionnel : ajouter un lien (ex: vers /dashboard/gsc)
+   - Planifier l'envoi (immédiat ou différé)
+   - Voir le nombre de devices inscrits + le taux de delivery
+
+**Architecture technique prévisible** :
+- `manifest.json` dynamique via une route `GET /manifest.json?tenant=<slug>`
+  qui génère le manifest avec le bon nom/icône/couleur
+- Service Worker : `public/sw.js` qui gère le cache offline + push
+  subscription + event listener `push`
+- Table `PushSubscription(id, userId, siteId, endpoint, p256dh, auth, createdAt)`
+- Endpoint `POST /api/push/subscribe` (appelé par le SW au premier install)
+- Endpoint `POST /api/admin/tenants/:id/push-notify` (protégé SUPERADMIN)
+  qui envoie la notif à tous les abonnés du tenant via Web Push Protocol
+- VAPID keys à générer une fois et stocker dans les env (`VAPID_PUBLIC_KEY`,
+  `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT=mailto:contact@veridian.site`)
+
+**Effort estimé** : 🔴 gros — 2-3 sessions Claude Code avec Team dédiée.
+**Dépend de** : Phase A terminée (MVP aux 3 clients) + deploy prod OK.
+**Valeur business** : chaque notification push est une impression marketing
+passive. Le client reçoit une notif sur son téléphone avec le logo de son
+entreprise → il pense à Veridian → il est plus susceptible de commander
+des services supplémentaires. C'est l'extension naturelle du shadow marketing.

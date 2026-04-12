@@ -99,6 +99,16 @@ Catégories possibles : `gamification`, `shadow-marketing`, `call-tracking`,
 
 ---
 
+### 2026-04-12 — [pwa] Progressive Web App installable par tenant
+
+- **Contexte** : Robert veut que chaque client puisse installer le dashboard comme une app mobile, avec le logo de son entreprise (pas Veridian), et recevoir des notifications push depuis l'admin.
+- **Idée** : manifest.json dynamique par tenant, Service Worker avec push subscription, branding custom (logo uploadé), formulaire de rédaction push dans /admin, metrics users actifs (DAU/WAU/MAU).
+- **Pourquoi c'est utile** : chaque notif push = impression marketing passive. Le client a l'app "de son entreprise" sur son téléphone, reçoit des notifications de Robert sur ses métriques. C'est le niveau supérieur du shadow marketing : la présence permanente sur le device du client.
+- **Effort estimé** : 🔴 gros — Service Worker, Web Push VAPID, manifest dynamique, branding upload, UI admin notifs, metrics sessions, 2-3 sessions Team
+- **Status** : proposé, Phase E (après les 3 premiers clients livrés + deploy prod)
+
+---
+
 ## Idées retenues (passées en VISION.md ou TODO.md)
 
 _(vide pour l'instant — on y déplace les idées validées en gardant
@@ -109,3 +119,4 @@ l'historique de la décision)_
 ## Idées rejetées
 
 _(vide — on garde trace des refus pour éviter de re-proposer la même chose)_
+
