@@ -210,11 +210,71 @@
     if (Notification.permission === 'granted') {
       subscribePush(reg);
     } else if (currentlyStandalone && Notification.permission === 'default') {
-      // En mode standalone (app installee), on demande la permission push
-      Notification.requestPermission().then(function (perm) {
-        if (perm === 'granted') subscribePush(reg);
-      });
+      // iOS EXIGE un geste utilisateur pour Notification.requestPermission().
+      // Un appel automatique est bloque silencieusement. On affiche donc un
+      // bandeau en haut de la page avec un bouton "Activer les notifications"
+      // que le user doit cliquer explicitement.
+      showPushOptInBanner(reg);
     }
+  }
+
+  function showPushOptInBanner(reg) {
+    // Ne pas afficher si deja dismiss dans les 7 derniers jours
+    if (document.cookie.indexOf('veridian_push_dismissed=1') !== -1) return;
+
+    var banner = document.createElement('div');
+    banner.id = 'veridian-push-banner';
+    banner.style.cssText =
+      'position:fixed;top:0;left:0;right:0;z-index:9999;' +
+      'background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;' +
+      'padding:12px 16px;display:flex;align-items:center;gap:12px;' +
+      'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
+      'font-size:14px;box-shadow:0 2px 12px rgba(0,0,0,0.2);' +
+      'transform:translateY(-100%);transition:transform 0.3s ease;';
+
+    banner.innerHTML =
+      '<span style="font-size:20px">\uD83D\uDD14</span>' +
+      '<span style="flex:1">Activez les notifications pour ne rien manquer</span>' +
+      '<button id="veridian-push-accept" style="' +
+        'background:#fff;color:#2563eb;border:none;border-radius:8px;' +
+        'padding:8px 16px;font-weight:600;font-size:13px;cursor:pointer;' +
+        'white-space:nowrap;-webkit-tap-highlight-color:transparent' +
+      '">Activer</button>' +
+      '<button id="veridian-push-dismiss" style="' +
+        'background:transparent;color:rgba(255,255,255,0.7);border:none;' +
+        'font-size:18px;cursor:pointer;padding:4px 8px;' +
+        '-webkit-tap-highlight-color:transparent' +
+      '">\u2715</button>';
+
+    document.body.appendChild(banner);
+
+    // Animation d'entree
+    requestAnimationFrame(function () {
+      banner.style.transform = 'translateY(0)';
+    });
+
+    function removeBanner() {
+      banner.style.transform = 'translateY(-100%)';
+      setTimeout(function () {
+        if (banner.parentNode) banner.parentNode.removeChild(banner);
+      }, 350);
+    }
+
+    document.getElementById('veridian-push-accept').addEventListener('click', function () {
+      // Le click utilisateur autorise l'appel a Notification.requestPermission()
+      // sur iOS (et tous les autres browsers). C'est le geste explicite requis.
+      Notification.requestPermission().then(function (perm) {
+        if (perm === 'granted') {
+          subscribePush(reg);
+        }
+        removeBanner();
+      });
+    });
+
+    document.getElementById('veridian-push-dismiss').addEventListener('click', function () {
+      document.cookie = 'veridian_push_dismissed=1;max-age=604800;path=/;SameSite=Lax';
+      removeBanner();
+    });
   }
 
   function subscribePush(reg) {
@@ -223,7 +283,7 @@
       .then(function (data) {
         if (!data.publicKey) return;
         return reg.pushManager.subscribe({
-          userVisuallyIndicatesUserInteraction: true,
+          userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(data.publicKey),
         });
       })
