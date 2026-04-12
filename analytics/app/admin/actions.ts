@@ -117,13 +117,69 @@ export async function sendMagicLinkAction(formData: FormData) {
   }
   const targetUser = tenant.memberships[0].user;
 
-  // Import dynamique pour la lib magic-link (garde /admin leger).
+  // Import dynamique pour garder /admin leger.
   const { createMagicLink, sendMagicLinkEmail } = await import(
     '@/lib/magic-link'
   );
+  const { buildTenantStatus } = await import('@/lib/tenant-status');
+  const { computeScore, scoreLabel } = await import('@/lib/user-tenant');
+
   const { token, url } = await createMagicLink(targetUser.email);
+
+  // On charge le status du tenant pour injecter les metriques dans le
+  // mail. Le client voit un apercu de ses performances avant meme de
+  // cliquer → suscite la curiosite, augmente le taux de clic.
+  let metrics: import('@/lib/magic-link').MagicLinkMetrics | undefined;
   try {
-    await sendMagicLinkEmail(targetUser.email, url, tenant.name);
+    const fullTenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: {
+        memberships: {
+          include: { user: { select: { id: true, email: true } } },
+        },
+        sites: {
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+          include: {
+            gscProperty: {
+              select: { propertyUrl: true, lastSyncAt: true },
+            },
+          },
+        },
+      },
+    });
+    if (fullTenant) {
+      const status = await buildTenantStatus(fullTenant);
+      // On agrege les counts de tous les sites du tenant.
+      let gscClicks = 0, gscImpressions = 0, pageviews = 0,
+        formSubmissions = 0, sipCalls = 0;
+      for (const s of status.sites) {
+        gscClicks += s.counts28d.gscClicks;
+        gscImpressions += s.counts28d.gscImpressions;
+        pageviews += s.counts28d.pageviews;
+        formSubmissions += s.counts28d.formSubmissions;
+        sipCalls += s.counts28d.sipCalls;
+      }
+      const scoreInfo = computeScore(
+        status.sites.flatMap((s) => s.activeServices),
+      );
+      const label = scoreLabel(scoreInfo.score);
+      metrics = {
+        gscClicks,
+        gscImpressions,
+        pageviews,
+        formSubmissions,
+        sipCalls,
+        score: scoreInfo.score,
+        scoreLabel: label.label,
+      };
+    }
+  } catch {
+    // Si le fetch des metriques fail, on envoie quand meme le mail sans.
+  }
+
+  try {
+    await sendMagicLinkEmail(targetUser.email, url, tenant.name, metrics);
     return { ok: true, sentTo: targetUser.email, token };
   } catch (e) {
     return {

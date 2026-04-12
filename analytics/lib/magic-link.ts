@@ -97,15 +97,32 @@ export async function consumeMagicLink(
 }
 
 /**
- * Envoie un email magic link via Brevo. Simple template HTML inline — pas
- * besoin de MJML pour un mail transactionnel 1-liner. Si BREVO_API_KEY
- * n'est pas set, on log et on return OK (dev mode : Robert copie le lien
- * depuis les logs).
+ * Metriques a injecter dans le template email pour donner un apercu des
+ * performances au client avant meme qu'il clique. Le but est de susciter
+ * la curiosite : "ah tiens j'ai eu 42 clics et 3 formulaires cette
+ * semaine, je vais voir le detail".
+ */
+export interface MagicLinkMetrics {
+  gscClicks?: number;
+  gscImpressions?: number;
+  pageviews?: number;
+  formSubmissions?: number;
+  sipCalls?: number;
+  score?: number;
+  scoreLabel?: string;
+}
+
+/**
+ * Envoie un email magic link via Brevo. Le template inclut un apercu des
+ * metriques du tenant si fournies (clicks GSC, pageviews, formulaires,
+ * score Veridian). Si BREVO_API_KEY n'est pas set, on log et on return OK
+ * (dev mode : Robert copie le lien depuis les logs).
  */
 export async function sendMagicLinkEmail(
   email: string,
   url: string,
   tenantName: string,
+  metrics?: MagicLinkMetrics,
 ): Promise<void> {
   const apiKey = process.env.BREVO_API_KEY;
   const sender = process.env.BREVO_SENDER_EMAIL || 'contact@veridian.site';
@@ -120,7 +137,7 @@ export async function sendMagicLinkEmail(
     return;
   }
 
-  const html = buildMagicLinkHtml(url, tenantName);
+  const html = buildMagicLinkHtml(url, tenantName, metrics);
 
   const res = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
@@ -132,7 +149,9 @@ export async function sendMagicLinkEmail(
     body: JSON.stringify({
       sender: { email: sender, name: senderName },
       to: [{ email }],
-      subject: `Votre dashboard Veridian Analytics — ${tenantName}`,
+      subject: metrics?.gscClicks
+        ? `${tenantName} — ${metrics.gscClicks} clics SEO cette semaine`
+        : `Votre dashboard Veridian Analytics — ${tenantName}`,
       htmlContent: html,
       textContent: buildMagicLinkText(url, tenantName),
     }),
@@ -144,18 +163,57 @@ export async function sendMagicLinkEmail(
   }
 }
 
-export function buildMagicLinkHtml(url: string, tenantName: string): string {
+export function buildMagicLinkHtml(
+  url: string,
+  tenantName: string,
+  metrics?: MagicLinkMetrics,
+): string {
+  // Bloc metriques : on ne l'affiche que si au moins une valeur est > 0.
+  // Le but est de susciter la curiosite du client : "ah tiens j'ai eu
+  // 42 clics, je vais voir le detail".
+  const hasMetrics = metrics && (
+    (metrics.gscClicks ?? 0) > 0 ||
+    (metrics.pageviews ?? 0) > 0 ||
+    (metrics.formSubmissions ?? 0) > 0 ||
+    (metrics.sipCalls ?? 0) > 0
+  );
+
+  const metricsBlock = hasMetrics ? `
+  <table style="width:100%;border-collapse:collapse;margin:16px 0 24px;" cellpadding="0" cellspacing="0">
+    <tr>
+      ${metrics!.gscClicks ? `<td style="text-align:center;padding:12px 8px;background:#f0f9ff;border-radius:8px 0 0 8px;">
+        <div style="font-size:24px;font-weight:700;color:#2563eb;">${metrics!.gscClicks}</div>
+        <div style="font-size:11px;color:#666;margin-top:2px;">clics SEO</div>
+      </td>` : ''}
+      ${metrics!.pageviews ? `<td style="text-align:center;padding:12px 8px;background:#f0f9ff;">
+        <div style="font-size:24px;font-weight:700;color:#2563eb;">${metrics!.pageviews}</div>
+        <div style="font-size:11px;color:#666;margin-top:2px;">visites</div>
+      </td>` : ''}
+      ${metrics!.formSubmissions ? `<td style="text-align:center;padding:12px 8px;background:#f0f9ff;">
+        <div style="font-size:24px;font-weight:700;color:#059669;">${metrics!.formSubmissions}</div>
+        <div style="font-size:11px;color:#666;margin-top:2px;">formulaires</div>
+      </td>` : ''}
+      ${metrics!.sipCalls ? `<td style="text-align:center;padding:12px 8px;background:#f0f9ff;border-radius:0 8px 8px 0;">
+        <div style="font-size:24px;font-weight:700;color:#7c3aed;">${metrics!.sipCalls}</div>
+        <div style="font-size:11px;color:#666;margin-top:2px;">appels</div>
+      </td>` : ''}
+    </tr>
+  </table>
+  ${metrics!.score !== undefined ? `<p style="margin:0 0 16px;font-size:13px;color:#666;">Score Veridian : <strong style="color:#111;">${metrics!.score}/100</strong>${metrics!.scoreLabel ? ` — ${metrics!.scoreLabel}` : ''}</p>` : ''}
+  ` : '';
+
   return `<!DOCTYPE html>
 <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;">
   <h2 style="margin:0 0 16px;font-size:20px;">Bonjour ${escapeHtml(tenantName)},</h2>
   <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">
-    Votre dashboard Veridian Analytics est pret. Cliquez sur le bouton
-    ci-dessous pour acceder a vos donnees de trafic, formulaires, appels
-    et Search Console :
+    ${hasMetrics
+      ? 'Voici un apercu de vos performances cette semaine :'
+      : 'Votre dashboard Veridian Analytics est pret. Cliquez sur le bouton ci-dessous pour acceder a vos donnees de trafic, formulaires, appels et Search Console :'}
   </p>
+  ${metricsBlock}
   <p style="margin:24px 0;">
     <a href="${url}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:500;font-size:14px;">
-      Acceder a mon dashboard
+      ${hasMetrics ? 'Voir le detail complet' : 'Acceder a mon dashboard'}
     </a>
   </p>
   <p style="margin:16px 0;font-size:12px;color:#666;line-height:1.6;">

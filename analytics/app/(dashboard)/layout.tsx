@@ -71,6 +71,7 @@ export default async function DashboardLayout({
         userEmail={session.user.email}
         signOutAction={signOutAction}
         lockedHrefs={lockedHrefs}
+        isSuperadmin={isSuperadmin(session)}
       />
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl p-8">{children}</div>

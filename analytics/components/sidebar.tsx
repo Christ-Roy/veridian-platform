@@ -9,6 +9,7 @@ import {
   Search,
   LogOut,
   Lock,
+  Shield,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +30,7 @@ export function Sidebar({
   userEmail,
   signOutAction,
   lockedHrefs = [],
+  isSuperadmin = false,
 }: {
   userEmail?: string | null;
   signOutAction: () => Promise<void>;
@@ -40,6 +42,8 @@ export function Sidebar({
    * restent cliquables (le click mene a la page lockee qui affiche le CTA).
    */
   lockedHrefs?: string[];
+  /** Affiche le lien /admin si le user est SUPERADMIN. */
+  isSuperadmin?: boolean;
 }) {
   const pathname = usePathname();
   const lockedSet = new Set(lockedHrefs);
@@ -97,6 +101,23 @@ export function Sidebar({
             </Link>
           );
         })}
+        {isSuperadmin && (
+          <div className="mt-4 border-t border-sidebar-border pt-3">
+            <Link
+              href="/admin"
+              data-testid="nav-admin"
+              className={cn(
+                'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+                pathname === '/admin'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  : 'text-amber-500/80 hover:bg-sidebar-accent hover:text-amber-500',
+              )}
+            >
+              <Shield className="h-4 w-4" />
+              <span className="flex-1">Admin</span>
+            </Link>
+          </div>
+        )}
       </nav>
 
       <div className="border-t border-sidebar-border p-3">
