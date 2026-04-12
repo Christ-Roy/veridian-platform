@@ -25,7 +25,7 @@ const prisma = new PrismaClient();
 
 try {
   const existing = await prisma.user.findUnique({ where: { email } });
-  const data = { role: 'SUPERADMIN' };
+  const data = { platformRole: 'SUPERADMIN' };
   if (password) {
     data.passwordHash = await bcrypt.hash(password, 10);
   }
