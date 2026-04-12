@@ -26,6 +26,7 @@ export default function Home() {
           <div className="mt-8 flex justify-center gap-4">
             <a
               href="/contact"
+              data-veridian-cta="devis-hero"
               className="rounded-md bg-veridian-600 px-6 py-3 text-white font-medium hover:bg-veridian-700"
             >
               Demander un devis
@@ -110,6 +111,7 @@ export default function Home() {
             </a>
             <a
               href="/contact"
+              data-veridian-cta="contact-footer"
               className="rounded-md border border-gray-300 px-6 py-3 text-gray-700 font-medium hover:bg-gray-50"
             >
               Formulaire de contact
