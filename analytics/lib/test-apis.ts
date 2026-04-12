@@ -17,9 +17,14 @@ import { NextResponse } from 'next/server';
  * Le Dockerfile prod n'exporte jamais cette variable → production-safe.
  */
 export function requireTestApisEnabled(): NextResponse | null {
-  if (process.env.NODE_ENV === 'production') {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  }
+  // On se base UNIQUEMENT sur ENABLE_TEST_APIS (pas sur NODE_ENV) parce que
+  // Next.js inline process.env.NODE_ENV au build time via DefinePlugin :
+  // meme si on set NODE_ENV=test au runtime, le code compile contient deja
+  // la string 'production'. ENABLE_TEST_APIS est lu au runtime via le
+  // runtime config de Next (pas inline) donc c'est fiable.
+  //
+  // En prod, ne JAMAIS mettre ENABLE_TEST_APIS=true dans les env du container.
+  // Le Dockerfile ne l'exporte pas, donc production-safe par defaut.
   if (process.env.ENABLE_TEST_APIS !== 'true') {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
