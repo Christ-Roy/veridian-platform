@@ -89,7 +89,7 @@ export function Sidebar({
               {locked && (
                 <Lock
                   className="h-3 w-3 text-sidebar-foreground/40 group-hover:text-sidebar-foreground/60"
-                  aria-label="Service verrouille"
+                  aria-hidden="true"
                 />
               )}
             </Link>

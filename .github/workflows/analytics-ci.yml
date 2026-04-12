@@ -238,15 +238,16 @@ jobs:
           cp -r .next/static .next/standalone/.next/static
 
       - name: Start analytics in prod mode (background)
+        # NODE_ENV=test (pas production) pour que les /api/test/* endpoints
+        # soient actifs. `next build` set NODE_ENV=production pendant le
+        # build, mais on le force a test au demarrage pour les e2e.
         run: |
           nohup node .next/standalone/server.js > /tmp/analytics.log 2>&1 &
           echo $! > /tmp/analytics.pid
         env:
           HOSTNAME: 127.0.0.1
           PORT: '3200'
-          # ENABLE_TEST_APIS est re-export ici pour etre sur qu'il est bien
-          # present dans l'environnement du process node (les env du job sont
-          # herites mais on prefere etre explicite pour les vars securitaires).
+          NODE_ENV: test
           ENABLE_TEST_APIS: 'true'
 
       - name: Wait for /api/health
