@@ -43,7 +43,7 @@ describe('ROUTE_TO_SERVICE', () => {
 
 describe('computeLockedHrefs', () => {
   it('aucune route lockee si tous les services concernes sont actifs', () => {
-    const locked = computeLockedHrefs(['forms', 'calls', 'gsc']);
+    const locked = computeLockedHrefs(['forms', 'calls', 'gsc', 'push']);
     expect(locked).toEqual([]);
   });
 
@@ -63,12 +63,13 @@ describe('computeLockedHrefs', () => {
         '/dashboard/gsc',
       ]),
     );
-    expect(locked.length).toBe(3);
+    // 4 routes lockees : forms, calls, gsc, push
+    expect(locked.length).toBe(4);
   });
 
   it('lock toutes les routes quand activeServices est null (fallback DB error)', () => {
     const locked = computeLockedHrefs(null);
-    expect(locked.length).toBeGreaterThanOrEqual(3);
+    expect(locked.length).toBeGreaterThanOrEqual(4);
     expect(locked).toContain('/dashboard/forms');
     expect(locked).toContain('/dashboard/calls');
     expect(locked).toContain('/dashboard/gsc');

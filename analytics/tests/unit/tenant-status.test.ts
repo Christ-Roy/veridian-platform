@@ -70,16 +70,29 @@ describe('detectServices', () => {
     expect(c.active).not.toContain('gsc');
   });
 
-  it('ads et pagespeed sont toujours inactifs pour le moment', () => {
+  it('ads, pagespeed et push sont inactifs quand pas de data correspondante', () => {
     const { active, inactive } = detectServices({
       pageviews: 100,
       formSubmissions: 5,
       sipCalls: 2,
       gscRows: 50,
       hasGscProperty: true,
+      pushSubscriptions: 0,
     });
     expect(active).toEqual(['pageviews', 'forms', 'calls', 'gsc']);
-    expect(inactive).toEqual(['ads', 'pagespeed']);
+    expect(inactive).toEqual(['ads', 'pagespeed', 'push']);
+  });
+
+  it('push est actif quand des abonnements existent', () => {
+    const { active } = detectServices({
+      pageviews: 0,
+      formSubmissions: 0,
+      sipCalls: 0,
+      gscRows: 0,
+      hasGscProperty: false,
+      pushSubscriptions: 3,
+    });
+    expect(active).toContain('push');
   });
 
   it("active + inactive couvrent bien l'ensemble des KNOWN_SERVICES sans duplication", () => {

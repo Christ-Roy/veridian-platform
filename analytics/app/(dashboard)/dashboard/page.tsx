@@ -120,6 +120,7 @@ export default async function DashboardPage({
       gsc: c.gscClicks,
       ads: 0,
       pagespeed: 0,
+      push: 0, // Le count push est au niveau tenant, pas 28j par site
     };
     return {
       value: valueMap[s] ?? 0,

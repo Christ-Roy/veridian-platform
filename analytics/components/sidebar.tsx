@@ -7,6 +7,7 @@ import {
   FileText,
   Phone,
   Search,
+  Bell,
   LogOut,
   Lock,
   Shield,
@@ -24,6 +25,7 @@ const NAV: NavItem[] = [
   { href: '/dashboard/forms', label: 'Formulaires', icon: FileText },
   { href: '/dashboard/calls', label: 'Appels', icon: Phone },
   { href: '/dashboard/gsc', label: 'Search Console', icon: Search },
+  { href: '/dashboard/push', label: 'Notifications', icon: Bell },
 ];
 
 export function Sidebar({

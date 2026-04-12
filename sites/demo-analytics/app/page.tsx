@@ -1,6 +1,15 @@
 export default function Home() {
   return (
     <main>
+      {/* Bouton d'installation PWA — rendu visible par pwa-install.js */}
+      <button
+        data-veridian-install
+        hidden
+        className="fixed bottom-4 right-4 z-50 rounded-lg bg-veridian-600 px-4 py-2 text-white shadow-lg hover:bg-veridian-700 font-medium text-sm"
+      >
+        Installer l&apos;app
+      </button>
+
       {/* Hero */}
       <section className="bg-gradient-to-b from-veridian-50 to-white py-20">
         <div className="mx-auto max-w-5xl px-6 text-center">

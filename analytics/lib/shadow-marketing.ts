@@ -21,7 +21,8 @@ export type ShadowIconKey =
   | 'line-chart'
   | 'search'
   | 'megaphone'
-  | 'gauge';
+  | 'gauge'
+  | 'bell';
 
 export interface ShadowMarketingEntry {
   title: string;
@@ -92,6 +93,16 @@ export const SHADOW_MARKETING: Record<ServiceKey, ShadowMarketingEntry> = {
     emailBodyTemplate: (domain) =>
       `Bonjour Robert,\n\nJe souhaite activer le monitoring de vitesse de site pour ${domain}.\nMerci de me donner les details du service.\n\n--\nEnvoye depuis mon dashboard Veridian`,
     icon: 'gauge',
+  },
+  push: {
+    title: 'Envoyez des notifications push a vos visiteurs',
+    description:
+      "Installez la PWA Veridian sur votre site pour que vos visiteurs puissent l'ajouter a leur ecran d'accueil. Envoyez-leur ensuite des notifications push (promotions, nouveautes, rappels) directement sur leur telephone.",
+    ctaLabel: 'Activer les notifications push',
+    emailSubject: 'Veridian Analytics — activer les notifications push',
+    emailBodyTemplate: (domain) =>
+      `Bonjour Robert,\n\nJe souhaite activer les notifications push pour ${domain}.\nMerci de me dire comment installer la PWA sur mon site.\n\n--\nEnvoye depuis mon dashboard Veridian`,
+    icon: 'bell',
   },
 };
 

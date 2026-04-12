@@ -6,6 +6,7 @@ import {
   Search,
   Megaphone,
   Gauge,
+  Bell,
   ArrowUpRight,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -34,6 +35,7 @@ const ICON_MAP: Record<ShadowIconKey, React.ComponentType<{ className?: string }
   search: Search,
   megaphone: Megaphone,
   gauge: Gauge,
+  bell: Bell,
 };
 
 export function ShadowMarketingBlock({

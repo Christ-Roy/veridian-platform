@@ -24,7 +24,12 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <head>
-        <link rel="manifest" href="/manifest.json" />
+        {/* Manifest PWA dynamique servi par Analytics, brande au nom du tenant */}
+        <link
+          rel="manifest"
+          href={`${analyticsUrl}/api/manifest?tenant=demo-analytics&mode=client`}
+          crossOrigin="anonymous"
+        />
         <meta name="theme-color" content="#16a34a" />
       </head>
       <body className="min-h-screen bg-white text-gray-900 antialiased">
@@ -76,6 +81,14 @@ export default function RootLayout({
           src={`${analyticsUrl}/tracker.js`}
           data-site-key={siteKey}
           data-veridian-track="auto"
+          strategy="afterInteractive"
+        />
+        {/* PWA Veridian — install prompt + push subscribe */}
+        <Script
+          src={`${analyticsUrl}/pwa-install.js`}
+          data-site-key={siteKey}
+          data-tenant="demo-analytics"
+          data-veridian-pwa="auto"
           strategy="afterInteractive"
         />
       </body>

@@ -291,6 +291,28 @@ function TestPwaContent() {
         )}
       </section>
 
+      {/* --- Section PWA Client Install (simule un site client) --- */}
+      <section className="space-y-2 rounded border border-blue-500/40 p-4">
+        <h2 className="font-semibold">PWA Client Install (site client simule)</h2>
+        <p className="text-xs text-muted-foreground">
+          Cette section charge <code>pwa-install.js</code> comme le ferait un vrai
+          site client. Le bouton ci-dessous sera rendu visible par le script quand
+          le prompt d&apos;installation se declenche (Android uniquement — sur iOS,
+          un guide Safari apparait automatiquement).
+        </p>
+        <button
+          data-veridian-install
+          hidden
+          className="rounded bg-blue-600 px-4 py-1.5 text-white hover:bg-blue-700"
+        >
+          Installer l&apos;app (data-veridian-install)
+        </button>
+        <div className="mt-2 text-xs text-muted-foreground">
+          <p>SW : {typeof window !== 'undefined' && 'serviceWorker' in navigator ? 'supporte' : 'non supporte'}</p>
+          <p>Push : {typeof window !== 'undefined' && 'PushManager' in window ? 'supporte' : 'non supporte'}</p>
+        </div>
+      </section>
+
       {/* --- Section Push Notifications --- */}
       <section className="space-y-2 rounded border p-4">
         <h2 className="font-semibold">Push Notifications</h2>

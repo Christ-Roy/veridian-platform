@@ -7,6 +7,7 @@ import {
   Inbox,
   LineChart,
   Search,
+  Bell,
   CheckCircle2,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -69,6 +70,12 @@ const SERVICE_META: Record<
     metricLabel: 'score moyen',
     icon: LineChart,
     href: '/dashboard',
+  },
+  push: {
+    label: 'Notifications',
+    metricLabel: 'abonnes',
+    icon: Bell,
+    href: '/dashboard/push',
   },
 };
 

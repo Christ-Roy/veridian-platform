@@ -18,6 +18,7 @@ export const KNOWN_SERVICES = [
   'gsc',
   'ads',
   'pagespeed',
+  'push',
 ] as const;
 
 export type ServiceKey = (typeof KNOWN_SERVICES)[number];
@@ -132,6 +133,7 @@ export function detectServices(counts: {
   sipCalls: number;
   gscRows: number;
   hasGscProperty: boolean;
+  pushSubscriptions?: number;
 }): { active: ServiceKey[]; inactive: ServiceKey[] } {
   const active: ServiceKey[] = [];
 
@@ -141,6 +143,9 @@ export function detectServices(counts: {
   // On considere gsc "actif" seulement si la propriete est attachee ET on a
   // au moins une ligne de data ingeree. Sinon c'est juste brancheun pas sync.
   if (counts.hasGscProperty && counts.gscRows > 0) active.push('gsc');
+  // Push est actif si au moins 1 abonnement existe (pas lie au 28j, un
+  // abonnement push est permanent tant que le visiteur ne le revoque pas).
+  if ((counts.pushSubscriptions ?? 0) > 0) active.push('push');
 
   const inactive = KNOWN_SERVICES.filter((s) => !active.includes(s));
   return { active, inactive };
@@ -302,6 +307,7 @@ export async function buildTenantStatus(
         sipCalls: counts.sipCalls,
         gscRows: counts.gscRows,
         hasGscProperty: Boolean(site.gscProperty),
+        pushSubscriptions: pushSubscriptionsCount,
       });
       const nextSteps = buildNextSteps(site, counts);
 

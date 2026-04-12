@@ -155,6 +155,7 @@ export const ROUTE_TO_SERVICE: Record<string, ServiceKey> = {
   '/dashboard/forms': 'forms',
   '/dashboard/calls': 'calls',
   '/dashboard/gsc': 'gsc',
+  '/dashboard/push': 'push',
   // futurs :
   // '/dashboard/ads': 'ads',
   // '/dashboard/pagespeed': 'pagespeed',

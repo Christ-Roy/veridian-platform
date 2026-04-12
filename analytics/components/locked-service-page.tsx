@@ -6,6 +6,7 @@ import {
   Search,
   Megaphone,
   Gauge,
+  Bell,
   ArrowUpRight,
   RefreshCw,
 } from 'lucide-react';
@@ -40,6 +41,7 @@ const ICON_MAP: Record<ShadowIconKey, React.ComponentType<{ className?: string }
   search: Search,
   megaphone: Megaphone,
   gauge: Gauge,
+  bell: Bell,
 };
 
 // Titre long/vendeur pour l'ecran plein, dérivé de la table shadow-marketing
@@ -51,6 +53,7 @@ const LOCKED_TITLE: Record<ServiceKey, string> = {
   gsc: 'Google Search Console verrouille',
   ads: 'Suivi Google Ads verrouille',
   pagespeed: 'Monitoring PageSpeed verrouille',
+  push: 'Notifications push verroullees',
 };
 
 export function LockedServicePage({
