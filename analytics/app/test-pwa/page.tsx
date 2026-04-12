@@ -12,10 +12,20 @@
  * Cette page est un client component pour gerer les APIs browser (SW, Push, beforeinstallprompt).
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { Suspense, useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 
+// Wrapper Suspense obligatoire pour useSearchParams en Next 15
+// (sinon le build static fail avec "useSearchParams() should be wrapped in a suspense boundary").
 export default function TestPwaPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-400">Chargement...</div>}>
+      <TestPwaContent />
+    </Suspense>
+  );
+}
+
+function TestPwaContent() {
   const searchParams = useSearchParams();
   const siteKey = searchParams.get('siteKey') || 'demo-key';
 
