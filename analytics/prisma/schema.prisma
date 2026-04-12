@@ -30,12 +30,26 @@ model User {
   image         String?
   emailVerified DateTime?
   passwordHash  String? // pour credentials provider
+  // Nom explicite `platformRole` pour eviter la confusion avec MembershipRole
+  // qui est scope tenant (OWNER/ADMIN/MEMBER/VIEWER au niveau d'un tenant).
+  // platformRole est scope plateforme : MEMBER = user normal, SUPERADMIN = Robert.
+  platformRole  UserRole  @default(MEMBER)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   accounts    Account[]
   sessions    Session[]
   memberships Membership[]
+
+  @@schema("analytics")
+}
+
+// Role plateforme (distinct de MembershipRole qui est scope tenant).
+// MEMBER = user normal, SUPERADMIN = Robert qui peut voir tous les tenants
+// via /admin et impersonner un tenant via cookie veridian_admin_as_tenant.
+enum UserRole {
+  MEMBER
+  SUPERADMIN
 
   @@schema("analytics")
 }

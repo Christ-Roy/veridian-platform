@@ -245,6 +245,35 @@ async function computeCounts28d(siteId: string) {
  * Point d'entree principal : prend un tenant (deja charge avec ses sites
  * et memberships) et renvoie le snapshot complet pret a serialiser.
  */
+/**
+ * Charge tous les tenants actifs depuis la DB et construit le snapshot
+ * complet de chacun. Utilise par la console /admin de Robert pour afficher
+ * la liste globale. Pas de pagination — on a < 100 tenants pour plusieurs
+ * annees, un simple findMany suffit. Si ca devient lourd on ajoutera
+ * pagination + counts legers.
+ */
+export async function listAllTenantsStatus(): Promise<TenantStatus[]> {
+  const tenants = await prisma.tenant.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      memberships: {
+        include: { user: { select: { id: true, email: true } } },
+      },
+      sites: {
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+        include: {
+          gscProperty: {
+            select: { propertyUrl: true, lastSyncAt: true },
+          },
+        },
+      },
+    },
+  });
+  return Promise.all(tenants.map((t) => buildTenantStatus(t)));
+}
+
 export async function buildTenantStatus(
   tenant: TenantInput,
   req?: Request,

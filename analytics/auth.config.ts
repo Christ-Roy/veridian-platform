@@ -20,6 +20,9 @@ export const authConfig = {
   },
   session: {
     strategy: 'jwt',
-    maxAge: 60 * 60 * 24 * 90, // 90 jours, meme pattern que le Hub
+    // 9 mois — Robert envoie un magic link aux clients, ils cliquent une
+    // fois et restent loggues toute la saison. Evite la friction d'un
+    // "reconnectez-vous" qui tue le SaaS cadeau.
+    maxAge: 60 * 60 * 24 * 30 * 9,
   },
 } satisfies NextAuthConfig;

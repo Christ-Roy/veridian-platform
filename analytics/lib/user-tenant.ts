@@ -16,12 +16,62 @@ import {
  */
 
 /**
+ * Options pour `getUserTenantStatus` — permet l'impersonation cote
+ * superadmin : Robert consulte /dashboard?asTenant=<slug> et voit le
+ * dashboard du client comme si c'etait le sien.
+ *
+ * Contrat :
+ *   - `asTenantSlug` est applique UNIQUEMENT si `requesterRole === 'SUPERADMIN'`.
+ *     Toute autre valeur (MEMBER, null, undefined) ignore `asTenantSlug`
+ *     et retombe sur le tenant du user par email. C'est le seul choke point
+ *     d'autorisation — pas de test supplementaire a faire cote caller.
+ *   - La signature reste retrocompatible : `getUserTenantStatus(email)` sans
+ *     options fonctionne comme avant (appels existants dans layout/page).
+ */
+export interface GetUserTenantStatusOptions {
+  asTenantSlug?: string | null;
+  requesterRole?: string | null;
+}
+
+/**
  * Resout le tenant principal d'un user par son email (Auth.js v5 stocke
  * l'email sur la session). Renvoie null si pas de tenant attache.
+ *
+ * Si `options.asTenantSlug` est fourni ET que `options.requesterRole` est
+ * `SUPERADMIN`, resout ce tenant (par slug) au lieu du tenant du user —
+ * c'est le mode impersonation pour Robert depuis /admin.
  */
 export async function getUserTenantStatus(
   email: string,
+  options: GetUserTenantStatusOptions = {},
 ): Promise<TenantStatus | null> {
+  const canImpersonate =
+    options.requesterRole === 'SUPERADMIN' && !!options.asTenantSlug;
+
+  if (canImpersonate) {
+    // Resolution directe par slug : on bypass la relation via memberships
+    // car Robert n'est pas forcement membre du tenant qu'il impersonne.
+    const tenant = await prisma.tenant.findUnique({
+      where: { slug: options.asTenantSlug! },
+      include: {
+        memberships: {
+          include: { user: { select: { id: true, email: true } } },
+        },
+        sites: {
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+          include: {
+            gscProperty: {
+              select: { propertyUrl: true, lastSyncAt: true },
+            },
+          },
+        },
+      },
+    });
+    if (!tenant || tenant.deletedAt) return null;
+    return buildTenantStatus(tenant);
+  }
+
   const user = await prisma.user.findUnique({
     where: { email },
     include: {

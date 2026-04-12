@@ -8,6 +8,8 @@ import {
 } from '@/components/service-score-block';
 import { getUserTenantStatus, computeScore, scoreLabel } from '@/lib/user-tenant';
 import { KNOWN_SERVICES, type ServiceKey } from '@/lib/tenant-status';
+import { isSuperadmin } from '@/lib/admin-guard';
+import { ImpersonationBanner } from '@/components/impersonation-banner';
 import { cn } from '@/lib/utils';
 
 // On ne veut AUCUN cache Next ici : chaque reload doit refleter l'etat
@@ -29,16 +31,28 @@ export const revalidate = 0;
  * exige la clef admin de toute facon) et pour beneficier du rendering
  * React streaming.
  */
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ asTenant?: string }>;
+}) {
   const session = await auth();
   if (!session?.user?.email) {
     redirect('/login');
   }
 
+  const params = searchParams ? await searchParams : {};
+  const role = (session.user as { role?: string }).role;
+  const canImpersonate = !!params.asTenant && isSuperadmin(session);
+  const asTenantSlug = canImpersonate ? (params.asTenant ?? null) : null;
+
   let status = null;
   let dbError: string | null = null;
   try {
-    status = await getUserTenantStatus(session.user.email);
+    status = await getUserTenantStatus(session.user.email, {
+      asTenantSlug,
+      requesterRole: role,
+    });
   } catch (e) {
     dbError = e instanceof Error ? e.message : 'DB error';
   }
@@ -116,6 +130,12 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      {canImpersonate && status && (
+        <ImpersonationBanner
+          tenantName={status.tenant.name}
+          tenantSlug={status.tenant.slug}
+        />
+      )}
       {/* Header + score global */}
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
