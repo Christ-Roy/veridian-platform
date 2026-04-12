@@ -39,11 +39,13 @@ test.describe('Tenant status endpoint', () => {
   });
 
   test.afterAll(async ({ request }) => {
-    if (tenantId) {
-      await request.delete(`/api/admin/tenants/${tenantId}`, {
-        headers: { 'x-admin-key': ADMIN_KEY },
-      });
-    }
+    if (!tenantId) return;
+    // Hard delete via /api/test/cleanup-tenant pour eviter de laisser des
+    // sites orphelins (le DELETE admin fait un soft delete sur le tenant
+    // mais les sites restent avec deletedAt NULL).
+    await request.post('/api/test/cleanup-tenant', {
+      data: { id: tenantId },
+    });
   });
 
   test('refuse sans clé admin', async ({ request }) => {

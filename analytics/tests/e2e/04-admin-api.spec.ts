@@ -146,7 +146,7 @@ test.describe('Admin API end-to-end', () => {
     expect(body.site.siteKey).toMatch(/^sk_/);
   });
 
-  test('soft deletes the tenant (cleanup)', async ({ request }) => {
+  test('soft deletes the tenant', async ({ request }) => {
     test.skip(!createdTenantId, 'tenant creation failed');
     const res = await request.delete(
       `/api/admin/tenants/${createdTenantId}`,
@@ -163,5 +163,16 @@ test.describe('Admin API end-to-end', () => {
     const data = await list.json();
     const slugs = data.tenants.map((t: { slug: string }) => t.slug);
     expect(slugs).not.toContain(slug);
+  });
+
+  // afterAll hard-nuke via /api/test/cleanup-tenant pour garantir 0 pollution DB
+  // meme si un test precedent a crashed. Le soft-delete laisse les sites et
+  // data associee en DB, ce qui pollue les tests suivants (sites[0] dans la
+  // page GSC inclut les sites de tenants soft-deleted).
+  test.afterAll(async ({ request }) => {
+    if (!createdTenantId) return;
+    await request.post('/api/test/cleanup-tenant', {
+      data: { id: createdTenantId },
+    });
   });
 });

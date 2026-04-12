@@ -1,63 +1,78 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 
 const ADMIN_KEY = process.env.ADMIN_API_KEY || '';
 
 /**
  * Test du tracker.js dans un vrai browser :
- * 1. Cree un tenant/site via admin API, recupere le siteKey
- * 2. Sert une page HTML minimale via data: URL (ou route.fulfill) qui charge
- *    le tracker.js et contient un <form>
- * 3. Soumet le form → verifie que le POST /api/ingest/form est envoye
- * 4. Verifie que le pageview initial a bien ete envoye au load
+ *   1. On cree un tenant + site via admin API pour obtenir un siteKey valide
+ *   2. On charge une page HTML minimale avec le <script src="/tracker.js">
+ *   3. On verifie que le POST /api/ingest/pageview part au load
+ *   4. On declenche un form submit et on verifie que /api/ingest/form part
+ *   5. On cleanup le tenant cree (hard delete via /api/test/cleanup-tenant)
+ *
+ * Pas de sleeps arbitraires : on utilise page.waitForRequest avec predicate
+ * pour detecter exactement le POST attendu, avec un timeout raisonnable.
  */
 test.describe('Tracker.js in browser', () => {
   test.skip(!ADMIN_KEY, 'ADMIN_API_KEY not set');
 
   let siteKey = '';
   let tenantId = '';
-  const slug = `tracker-${Date.now().toString(36)}`;
+  let tenantSlug = '';
+
+  async function hardCleanup(request: APIRequestContext) {
+    if (!tenantId) return;
+    await request.post('/api/test/cleanup-tenant', {
+      data: { id: tenantId },
+    });
+  }
 
   test.beforeAll(async ({ request }) => {
+    tenantSlug = `tracker-${Date.now().toString(36)}`;
     const t = await request.post('/api/admin/tenants', {
       headers: { 'x-admin-key': ADMIN_KEY },
-      data: { slug, name: slug, ownerEmail: `${slug}@example.com` },
+      data: {
+        slug: tenantSlug,
+        name: tenantSlug,
+        ownerEmail: `${tenantSlug}@example.com`,
+      },
     });
+    expect(t.ok(), 'admin tenant create failed').toBe(true);
     tenantId = (await t.json()).tenant.id;
 
     const s = await request.post(`/api/admin/tenants/${tenantId}/sites`, {
       headers: { 'x-admin-key': ADMIN_KEY },
-      data: { domain: `${slug}.local`, name: slug },
+      data: { domain: `${tenantSlug}.local`, name: tenantSlug },
     });
+    expect(s.ok(), 'admin site create failed').toBe(true);
     siteKey = (await s.json()).integration.siteKey;
   });
 
   test.afterAll(async ({ request }) => {
-    if (tenantId) {
-      await request.delete(`/api/admin/tenants/${tenantId}`, {
-        headers: { 'x-admin-key': ADMIN_KEY },
-      });
-    }
+    await hardCleanup(request);
   });
 
   test('pageview is sent on load and form submit is intercepted', async ({
     page,
     baseURL,
   }) => {
-    const postedPaths: string[] = [];
+    // On prepare DEUX promises d'attente AVANT d'injecter le tracker, pour
+    // eviter toute race condition entre le script load et notre listener.
+    const waitPageview = page.waitForRequest(
+      (req) =>
+        req.url().includes('/api/ingest/pageview') && req.method() === 'POST',
+      { timeout: 10_000 },
+    );
 
-    // Intercepte les appels /api/ingest/* pour verifier qu'ils partent bien.
-    page.on('request', (req) => {
-      const url = req.url();
-      if (url.includes('/api/ingest/')) postedPaths.push(url);
-    });
+    // On log les erreurs console cote browser pour aider le debug CI.
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         console.log('[browser err]', msg.text());
       }
     });
 
-    // On navigue d'abord sur /login (qui existe) pour avoir une origin valide,
-    // puis on remplace le document avec notre page de test.
+    // On navigue d'abord sur /login (origin valide sur notre instance),
+    // puis on remplace le document par notre page de test.
     await page.goto('/login');
 
     await page.evaluate(
@@ -84,21 +99,26 @@ test.describe('Tracker.js in browser', () => {
       { base: baseURL, key: siteKey },
     );
 
-    // Attente longue pour laisser le tracker charger + envoyer le pageview.
-    // En dev mode Next peut mettre 2-3s pour le 1er compile de /api/ingest/*.
-    await page.waitForTimeout(3000);
+    // Le pageview initial doit partir dans les secondes qui suivent le load.
+    const pageviewReq = await waitPageview;
+    expect(pageviewReq.url()).toContain('/api/ingest/pageview');
 
-    expect(postedPaths.some((u) => u.includes('/api/ingest/pageview'))).toBe(
-      true,
+    // Verification bonus : le header x-site-key est bien dans la requete.
+    const pvHeaders = pageviewReq.headers();
+    expect(pvHeaders['x-site-key']).toBe(siteKey);
+
+    // Maintenant on prepare l'attente du POST form AVANT le click, puis
+    // on declenche le submit.
+    const waitForm = page.waitForRequest(
+      (req) =>
+        req.url().includes('/api/ingest/form') && req.method() === 'POST',
+      { timeout: 10_000 },
     );
-
-    // Le tracker attache son listener apres le load → on declenche un submit
-    // apres son load. Le form a onsubmit="return false" donc pas de navigation.
-    await page.waitForTimeout(500);
     await page.click('button[type="submit"]');
-    await page.waitForTimeout(2000);
-
-    expect(postedPaths.some((u) => u.includes('/api/ingest/form'))).toBe(true);
+    const formReq = await waitForm;
+    expect(formReq.url()).toContain('/api/ingest/form');
+    const fmHeaders = formReq.headers();
+    expect(fmHeaders['x-site-key']).toBe(siteKey);
   });
 
   test('tracker with invalid site key returns 401 from /api/ingest/pageview', async ({

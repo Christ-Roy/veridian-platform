@@ -99,6 +99,11 @@ jobs:
       E2E_EMAIL: robert@veridian.site
       E2E_PASSWORD: test1234
       ANALYTICS_E2E_URL: http://127.0.0.1:3200
+      # Active les routes /api/test/* (reset, seed-gsc, cleanup-tenant) pour
+      # que les e2e puissent gerer leur propre data de fa¢con isolee. La prod
+      # n'exporte jamais cette variable — voir lib/test-apis.ts pour le guard
+      # qui retourne 404 en prod meme si quelqu'un la settait par erreur.
+      ENABLE_TEST_APIS: 'true'
 
     steps:
       - uses: actions/checkout@v4
@@ -117,22 +122,102 @@ jobs:
       - name: Prisma db push
         run: pnpm exec prisma db push --skip-generate
 
-      - name: Seed test user (robert@veridian.site / test1234)
+      - name: Seed test user + tenant veridian + GSC data
         # Le script doit tourner depuis `analytics/` (via defaults.run.working-directory)
         # pour que Node resolve bcryptjs + @prisma/client depuis `analytics/node_modules`.
         # On ecrit donc le script dans le cwd, pas dans /tmp.
+        #
+        # Contenu du seed :
+        #   - User robert@veridian.site (credentials pour les tests)
+        #   - Tenant "veridian" (slug=veridian-ci) + Membership OWNER
+        #   - Site analytics.veridian.site + GscProperty attachee
+        #   - 10 rows GscDaily sur les 7 derniers jours => service gsc actif
+        # IMPORTANT : pas de seed Pageview/FormSubmission/SipCall — ainsi les
+        # pages /dashboard/forms et /dashboard/calls restent lockees pour que
+        # le test 08-locked-pages voie au moins un item lock dans la sidebar.
         run: |
           cat > ci-seed.mjs <<'JS'
           import bcrypt from 'bcryptjs';
           import { PrismaClient } from '@prisma/client';
           const prisma = new PrismaClient();
           const hash = await bcrypt.hash('test1234', 10);
-          await prisma.user.upsert({
+
+          const user = await prisma.user.upsert({
             where: { email: 'robert@veridian.site' },
             create: { email: 'robert@veridian.site', passwordHash: hash },
             update: { passwordHash: hash },
           });
-          console.log('seeded robert@veridian.site');
+
+          const tenant = await prisma.tenant.upsert({
+            where: { slug: 'veridian-ci' },
+            create: { slug: 'veridian-ci', name: 'Veridian (CI)' },
+            update: {},
+          });
+
+          await prisma.membership.upsert({
+            where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
+            create: { tenantId: tenant.id, userId: user.id, role: 'OWNER' },
+            update: { role: 'OWNER' },
+          });
+
+          // Site + GscProperty (upsert par domain via findFirst puis create/update)
+          let site = await prisma.site.findFirst({
+            where: { tenantId: tenant.id, domain: 'analytics.veridian.site' },
+          });
+          if (!site) {
+            site = await prisma.site.create({
+              data: {
+                tenantId: tenant.id,
+                domain: 'analytics.veridian.site',
+                name: 'Analytics Veridian',
+              },
+            });
+          }
+
+          await prisma.gscProperty.upsert({
+            where: { siteId: site.id },
+            create: {
+              siteId: site.id,
+              propertyUrl: 'sc-domain:veridian.site',
+              lastSyncAt: new Date(),
+            },
+            update: { lastSyncAt: new Date() },
+          });
+
+          // 10 rows GscDaily sur les 7 derniers jours (web + desktop + fra)
+          // Unique sur (siteId, day, query, page, country, device, searchType)
+          // createMany avec skipDuplicates pour etre idempotent.
+          const now = new Date();
+          const rows = [];
+          const queries = ['serrurier lyon', 'depannage serrurerie', 'cle perdue'];
+          const pages = ['/', '/contact', '/tarifs'];
+          for (let d = 0; d < 7; d++) {
+            const day = new Date(now);
+            day.setUTCHours(0, 0, 0, 0);
+            day.setUTCDate(day.getUTCDate() - d - 2);
+            for (let i = 0; i < 3; i++) {
+              const q = queries[i % queries.length];
+              const p = pages[i % pages.length];
+              const clicks = 10 + i + d;
+              const impressions = 100 + i * 10 + d * 5;
+              rows.push({
+                siteId: site.id,
+                day,
+                query: q,
+                page: p,
+                country: 'fra',
+                device: 'desktop',
+                searchType: 'web',
+                clicks,
+                impressions,
+                ctr: clicks / impressions,
+                position: 3 + (i + d) * 0.5,
+              });
+            }
+          }
+          await prisma.gscDaily.createMany({ data: rows, skipDuplicates: true });
+
+          console.log('seeded robert@veridian.site + tenant veridian-ci + ' + rows.length + ' GscDaily rows');
           await prisma.$disconnect();
           JS
           node ci-seed.mjs
@@ -141,6 +226,17 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Copy public/ and .next/static into standalone
+        # Next.js standalone output n'embarque PAS automatiquement public/ ni
+        # .next/static/ — c'est documente (bug historique). Le Dockerfile le
+        # gere via COPY, mais quand on lance `node .next/standalone/server.js`
+        # directement en CI il faut recopier manuellement sinon :
+        #   - /tracker.js retourne 404 (fix tests 01-health + 05-tracker)
+        #   - les assets _next/static/* 404 aussi (CSS/JS manquants)
+        run: |
+          cp -r public .next/standalone/public
+          cp -r .next/static .next/standalone/.next/static
+
       - name: Start analytics in prod mode (background)
         run: |
           nohup node .next/standalone/server.js > /tmp/analytics.log 2>&1 &
@@ -148,6 +244,10 @@ jobs:
         env:
           HOSTNAME: 127.0.0.1
           PORT: '3200'
+          # ENABLE_TEST_APIS est re-export ici pour etre sur qu'il est bien
+          # present dans l'environnement du process node (les env du job sont
+          # herites mais on prefere etre explicite pour les vars securitaires).
+          ENABLE_TEST_APIS: 'true'
 
       - name: Wait for /api/health
         run: |
