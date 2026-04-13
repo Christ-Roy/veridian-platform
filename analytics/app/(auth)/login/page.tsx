@@ -8,8 +8,11 @@ import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { generateOtp, sendOtpEmail } from '@/lib/otp';
 
-// 5 tentatives par minute par IP
-const loginLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
+// 5 tentatives par minute par IP en prod, 1000 en CI (les e2e font beaucoup de logins)
+const loginLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: process.env.ENABLE_TEST_APIS === 'true' ? 1000 : 5,
+});
 
 export default async function LoginPage({
   searchParams,
