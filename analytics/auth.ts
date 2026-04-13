@@ -8,11 +8,12 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
+import { consumeOtpVerifiedToken } from '@/lib/otp';
 import { authConfig } from './auth.config';
 
 const credentialsSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6),
+  password: z.string().min(1),
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -35,10 +36,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!user || !user.passwordHash) {
           return null;
         }
-        const ok = await bcrypt.compare(password, user.passwordHash);
-        if (!ok) {
-          return null;
+
+        // Support 2FA : si le password commence par "otp-verified:", c'est
+        // un token one-shot prouvant que l'OTP email a été validé. Le mot
+        // de passe a déjà été vérifié en step 1 (page /login).
+        if (password.startsWith('otp-verified:')) {
+          const token = password.slice('otp-verified:'.length);
+          const valid = await consumeOtpVerifiedToken(email, token);
+          if (!valid) return null;
+        } else {
+          const ok = await bcrypt.compare(password, user.passwordHash);
+          if (!ok) return null;
         }
+
         return {
           id: user.id,
           email: user.email,

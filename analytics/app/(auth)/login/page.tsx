@@ -1,10 +1,13 @@
-import { signIn } from '@/auth';
+import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { createRateLimiter } from '@/lib/rate-limit';
+import { prisma } from '@/lib/prisma';
+import bcrypt from 'bcryptjs';
+import { generateOtp, sendOtpEmail } from '@/lib/otp';
 
-// 5 tentatives par minute par IP — protection brute-force
+// 5 tentatives par minute par IP
 const loginLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 
 export default async function LoginPage({
@@ -25,15 +28,48 @@ export default async function LoginPage({
       'unknown';
 
     if (!loginLimiter.check(ip)) {
-      const { redirect } = await import('next/navigation');
       redirect('/login?error=rate-limit');
     }
 
-    await signIn('credentials', {
-      email: formData.get('email'),
-      password: formData.get('password'),
-      redirectTo: callbackUrl,
-    });
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+
+    if (!email || !password) {
+      redirect('/login?error=credentials');
+    }
+
+    // Vérifier credentials manuellement (sans signIn)
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || !user.passwordHash) {
+      redirect('/login?error=credentials');
+    }
+
+    const ok = await bcrypt.compare(password, user.passwordHash);
+    if (!ok) {
+      redirect('/login?error=credentials');
+    }
+
+    const cb = formData.get('callbackUrl') as string || '/dashboard';
+
+    // En test/CI (ENABLE_TEST_APIS=true), skip le 2FA — login direct
+    if (process.env.ENABLE_TEST_APIS === 'true') {
+      const { signIn } = await import('@/auth');
+      await signIn('credentials', {
+        email,
+        password,
+        redirectTo: cb,
+      });
+      return;
+    }
+
+    // Credentials OK → générer OTP et envoyer par email
+    const code = await generateOtp(email);
+    await sendOtpEmail(email, code);
+
+    // Rediriger vers la page de vérification
+    redirect(
+      `/login/verify?email=${encodeURIComponent(email)}&callbackUrl=${encodeURIComponent(cb)}`,
+    );
   }
 
   return (
@@ -54,6 +90,7 @@ export default async function LoginPage({
           </CardHeader>
           <CardContent>
             <form action={login} className="space-y-3">
+              <input type="hidden" name="callbackUrl" value={callbackUrl} />
               <input
                 name="email"
                 type="email"
@@ -76,7 +113,12 @@ export default async function LoginPage({
                   Trop de tentatives. Réessayez dans une minute.
                 </p>
               )}
-              {error && error !== 'rate-limit' && (
+              {error === 'credentials' && (
+                <p className="text-sm text-destructive">
+                  Identifiants invalides
+                </p>
+              )}
+              {error && error !== 'rate-limit' && error !== 'credentials' && (
                 <p className="text-sm text-destructive">
                   Identifiants invalides
                 </p>
