@@ -69,7 +69,12 @@ export async function getUserTenantStatus(
       },
     });
     if (!tenant || tenant.deletedAt) return null;
-    return buildTenantStatus(tenant);
+    // Charger le count push subscriptions pour que le service 'push'
+    // soit correctement detecte comme actif/inactif.
+    const pushCount = await prisma.pushSubscription.count({
+      where: { tenantId: tenant.id },
+    });
+    return buildTenantStatus(tenant, undefined, pushCount);
   }
 
   const user = await prisma.user.findUnique({
@@ -103,7 +108,10 @@ export async function getUserTenantStatus(
   const first = user.memberships.find((m) => m.tenant.deletedAt === null);
   if (!first) return null;
 
-  return buildTenantStatus(first.tenant);
+  const pushCount = await prisma.pushSubscription.count({
+    where: { tenantId: first.tenant.id },
+  });
+  return buildTenantStatus(first.tenant, undefined, pushCount);
 }
 
 /**
