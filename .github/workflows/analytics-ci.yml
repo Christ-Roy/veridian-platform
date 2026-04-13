@@ -419,25 +419,25 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
 
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << 'DEPLOY'
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s <<DEPLOY
             # Tag current image as rollback BEFORE pulling new one
-            CURRENT_ID=$(docker images ghcr.io/christ-roy/analytics:latest --format '{{.ID}}' 2>/dev/null)
-            if [ -n "$CURRENT_ID" ]; then
-              docker tag "$CURRENT_ID" ghcr.io/christ-roy/analytics:rollback
-              echo "Tagged current image as :rollback ($CURRENT_ID)"
+            CURRENT_ID=\$(docker images ghcr.io/christ-roy/analytics:latest --format '{{.ID}}' 2>/dev/null)
+            if [ -n "\$CURRENT_ID" ]; then
+              docker tag "\$CURRENT_ID" ghcr.io/christ-roy/analytics:rollback
+              echo "Tagged current image as :rollback (\$CURRENT_ID)"
             fi
 
             # Pull new image
             docker pull ghcr.io/christ-roy/analytics:latest
-            NEW_ID=$(docker images ghcr.io/christ-roy/analytics:latest --format '{{.ID}}')
-            echo "New image: $NEW_ID"
+            NEW_ID=\$(docker images ghcr.io/christ-roy/analytics:latest --format '{{.ID}}')
+            echo "New image: \$NEW_ID"
 
             # Redeploy via Dokploy
-            DKEY=$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
+            DKEY=\$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
             curl -sf -X POST \
-              -H "x-api-key: $DKEY" \
+              -H "x-api-key: \$DKEY" \
               -H "Content-Type: application/json" \
-              -d '{"json":{"composeId":"'"$COMPOSE_ID"'"}}' \
+              -d '{"json":{"composeId":"$COMPOSE_ID"}}' \
               http://localhost:3000/api/trpc/compose.redeploy && echo "Analytics prod redeploy triggered"
           DEPLOY
 
@@ -476,23 +476,23 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
 
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << 'ROLLBACK'
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s <<ROLLBACK
             echo "ROLLING BACK analytics to previous image..."
 
-            ROLLBACK_ID=$(docker images ghcr.io/christ-roy/analytics:rollback --format '{{.ID}}' 2>/dev/null)
-            if [ -z "$ROLLBACK_ID" ]; then
+            ROLLBACK_ID=\$(docker images ghcr.io/christ-roy/analytics:rollback --format '{{.ID}}' 2>/dev/null)
+            if [ -z "\$ROLLBACK_ID" ]; then
               echo "No :rollback image found — cannot rollback"
               exit 1
             fi
 
             docker tag ghcr.io/christ-roy/analytics:rollback ghcr.io/christ-roy/analytics:latest
-            echo "Tagged :rollback ($ROLLBACK_ID) as :latest"
+            echo "Tagged :rollback (\$ROLLBACK_ID) as :latest"
 
-            DKEY=$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
+            DKEY=\$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
             curl -sf -X POST \
-              -H "x-api-key: $DKEY" \
+              -H "x-api-key: \$DKEY" \
               -H "Content-Type: application/json" \
-              -d '{"json":{"composeId":"'"$COMPOSE_ID"'"}}' \
+              -d '{"json":{"composeId":"$COMPOSE_ID"}}' \
               http://localhost:3000/api/trpc/compose.redeploy
 
             echo "Rolled back analytics to previous image"
