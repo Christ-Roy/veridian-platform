@@ -450,7 +450,7 @@ jobs:
   # ── Phase 6 : Rollback auto si prod cassé ─────────────────────────
   rollback-prod:
     needs: deploy-prod
-    if: failure() && github.ref == 'refs/heads/main'
+    if: failure() && needs.deploy-prod.result == 'failure' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Rollback to previous image

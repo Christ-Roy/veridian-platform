@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
+import { signIn } from '@/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { createRateLimiter } from '@/lib/rate-limit';
@@ -53,7 +54,6 @@ export default async function LoginPage({
 
     // En test/CI (ENABLE_TEST_APIS=true), skip le 2FA — login direct
     if (process.env.ENABLE_TEST_APIS === 'true') {
-      const { signIn } = await import('@/auth');
       await signIn('credentials', {
         email,
         password,
