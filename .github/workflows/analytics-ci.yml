@@ -433,7 +433,7 @@ jobs:
             echo "New image: $NEW_ID"
 
             # Redeploy via Dokploy
-            DKEY=$(grep '^DOKPLOY_OVH_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
+            DKEY=$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
             curl -sf -X POST \
               -H "x-api-key: $DKEY" \
               -H "Content-Type: application/json" \
@@ -488,7 +488,7 @@ jobs:
             docker tag ghcr.io/christ-roy/analytics:rollback ghcr.io/christ-roy/analytics:latest
             echo "Tagged :rollback ($ROLLBACK_ID) as :latest"
 
-            DKEY=$(grep '^DOKPLOY_OVH_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
+            DKEY=$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
             curl -sf -X POST \
               -H "x-api-key: $DKEY" \
               -H "Content-Type: application/json" \
