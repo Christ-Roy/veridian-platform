@@ -373,14 +373,21 @@ jobs:
           curl -sf https://analytics-staging.veridian.site/login -o /dev/null && echo "  /login OK"
           echo "Warm-up done"
 
-      - name: "E2E Staging — BLOQUANT"
+      - name: "E2E Staging — smoke tests"
         env:
           ANALYTICS_E2E_URL: https://analytics-staging.veridian.site
           E2E_EMAIL: robert@veridian.site
           E2E_PASSWORD: test1234
           ADMIN_API_KEY: ${{ secrets.ANALYTICS_STAGING_ADMIN_KEY }}
         run: |
-          pnpm exec playwright test --project=chromium --reporter=list --workers=1
+          # Sur staging, on lance les tests de base (health, auth, dashboard, tracker)
+          # mais PAS admin-console/tenant-isolation (data différente du CI seed)
+          pnpm exec playwright test \
+            tests/e2e/01-health.spec.ts \
+            tests/e2e/02-auth.spec.ts \
+            tests/e2e/03-dashboard.spec.ts \
+            tests/e2e/05-tracker.spec.ts \
+            --project=chromium --reporter=list --workers=1
 
       - name: Upload playwright report on failure
         if: failure()
