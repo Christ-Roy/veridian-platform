@@ -20,7 +20,14 @@ export default async function CallsPage() {
     redirect('/login');
   }
 
-  const status = await getUserTenantStatus(session.user.email);
+  const { cookies } = await import('next/headers');
+  const cookieJar = await cookies();
+  const asTenant = cookieJar.get('veridian_admin_as_tenant')?.value || null;
+  const platformRole = (session.user as { platformRole?: string }).platformRole || null;
+  const status = await getUserTenantStatus(session.user.email, {
+    asTenantSlug: asTenant,
+    requesterRole: platformRole,
+  });
   const active = aggregateActiveServices(status);
   // Narrowing : si status est null, active est [] donc le guard trigger.
   // Le check explicite `!status` permet a TS de narrow pour la query plus bas.
@@ -48,27 +55,25 @@ export default async function CallsPage() {
       <div>
         <h1 className="text-2xl font-semibold">Appels</h1>
         <p className="text-sm text-muted-foreground">
-          Call tracking — appels entrants et sortants sur les numéros Veridian.
+          {calls.length > 0
+            ? `${calls.length} appel${calls.length > 1 ? 's' : ''} (50 derniers)`
+            : 'Aucun appel enregistre. Configurez le call tracking pour commencer.'}
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Intégration</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>
-            Les logs d&apos;appels sont poussés par le webhook OVH/Telnyx vers :
-          </p>
-          <pre className="overflow-x-auto rounded bg-muted p-3 text-xs text-foreground">
-{`POST /api/ingest/call
-Headers: x-site-key: <ton_site_key>
-Body: { "callId": "...", "fromNum": "+33...", "toNum": "+33...",
-         "direction": "inbound", "status": "answered",
-         "duration": 120, "startedAt": "2026-04-11T10:00:00Z" }`}
-          </pre>
-        </CardContent>
-      </Card>
+      {calls.length === 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Integration</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>
+              Les logs d&apos;appels sont poussés par le webhook OVH/Telnyx vers
+              l&apos;API d&apos;ingestion.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {dbError && (
         <Card>
@@ -108,9 +113,23 @@ Body: { "callId": "...", "fromNum": "+33...", "toNum": "+33...",
                       </td>
                       <td className="py-2 tabular-nums">{c.fromNum}</td>
                       <td className="py-2 tabular-nums">{c.toNum}</td>
-                      <td className="py-2">{c.direction}</td>
-                      <td className="py-2">{c.status}</td>
-                      <td className="py-2 tabular-nums">{c.duration}s</td>
+                      <td className="py-2">
+                        <span className={c.direction === 'inbound' ? 'text-emerald-500' : 'text-blue-500'}>
+                          {c.direction === 'inbound' ? '↙ Entrant' : '↗ Sortant'}
+                        </span>
+                      </td>
+                      <td className="py-2">
+                        <span className={
+                          c.status === 'answered' ? 'rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-500' :
+                          c.status === 'missed' ? 'rounded bg-rose-500/10 px-1.5 py-0.5 text-xs text-rose-500' :
+                          'rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-500'
+                        }>
+                          {c.status === 'answered' ? 'Repondu' : c.status === 'missed' ? 'Manque' : 'Messagerie'}
+                        </span>
+                      </td>
+                      <td className="py-2 tabular-nums">
+                        {Math.floor(c.duration / 60)}:{String(c.duration % 60).padStart(2, '0')}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

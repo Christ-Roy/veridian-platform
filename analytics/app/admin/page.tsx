@@ -271,14 +271,34 @@ function TenantCard({
 
         {/* Actions tenant-wide */}
         <div className="flex flex-wrap gap-2 border-t border-border/40 pt-4">
-          <Link
-            href={`/dashboard?asTenant=${encodeURIComponent(tenant.tenant.slug)}`}
-            data-testid={`open-dashboard-${tenant.tenant.slug}`}
+          <form
+            action={async () => {
+              'use server';
+              const { cookies } = await import('next/headers');
+              const { redirect } = await import('next/navigation');
+              // Pose un cookie d'impersonation (1h) pour que le layout
+              // dashboard resout ce tenant au lieu de celui de Robert.
+              // Le cookie est plus fiable qu'un query param car il
+              // persiste en naviguant entre les pages du dashboard.
+              const jar = await cookies();
+              jar.set('veridian_admin_as_tenant', tenant.tenant.slug, {
+                path: '/',
+                maxAge: 3600,
+                httpOnly: true,
+                sameSite: 'lax',
+              });
+              redirect('/dashboard');
+            }}
           >
-            <Button variant="default" className="h-8 text-xs">
+            <Button
+              type="submit"
+              variant="default"
+              className="h-8 text-xs"
+              data-testid={`open-dashboard-${tenant.tenant.slug}`}
+            >
               Ouvrir le dashboard client
             </Button>
-          </Link>
+          </form>
           <form action={sendMagic}>
             <input type="hidden" name="tenantId" value={tenant.tenant.id} />
             <Button

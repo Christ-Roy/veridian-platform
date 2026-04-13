@@ -41,17 +41,24 @@ export default async function DashboardPage({
     redirect('/login');
   }
 
+  // Impersonation : lire le cookie d'impersonation (pose par /admin) en
+  // priorite sur le query param ?asTenant. Le cookie persiste en navigation.
+  const { cookies } = await import('next/headers');
+  const cookieJar = await cookies();
   const params = searchParams ? await searchParams : {};
-  const role = (session.user as { role?: string }).role;
-  const canImpersonate = !!params.asTenant && isSuperadmin(session);
-  const asTenantSlug = canImpersonate ? (params.asTenant ?? null) : null;
+  const platformRole = (session.user as { platformRole?: string }).platformRole || null;
+  const asTenantSlug =
+    cookieJar.get('veridian_admin_as_tenant')?.value ||
+    params.asTenant ||
+    null;
+  const canImpersonate = !!asTenantSlug && isSuperadmin(session);
 
   let status = null;
   let dbError: string | null = null;
   try {
     status = await getUserTenantStatus(session.user.email, {
-      asTenantSlug,
-      requesterRole: role,
+      asTenantSlug: canImpersonate ? asTenantSlug : null,
+      requesterRole: platformRole,
     });
   } catch (e) {
     dbError = e instanceof Error ? e.message : 'DB error';

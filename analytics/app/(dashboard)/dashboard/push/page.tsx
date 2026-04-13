@@ -18,7 +18,14 @@ export default async function PushPage() {
     redirect('/login');
   }
 
-  const status = await getUserTenantStatus(session.user.email);
+  const { cookies } = await import('next/headers');
+  const cookieJar = await cookies();
+  const asTenant = cookieJar.get('veridian_admin_as_tenant')?.value || null;
+  const platformRole = (session.user as { platformRole?: string }).platformRole || null;
+  const status = await getUserTenantStatus(session.user.email, {
+    asTenantSlug: asTenant,
+    requesterRole: platformRole,
+  });
   const active = aggregateActiveServices(status);
 
   if (!status || !isServiceActive(active, 'push')) {
