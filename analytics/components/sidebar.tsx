@@ -11,6 +11,7 @@ import {
   LogOut,
   Lock,
   Shield,
+  Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -126,6 +127,19 @@ export function Sidebar({
         <div className="mb-2 px-2 text-xs text-sidebar-foreground/60 truncate">
           {userEmail ?? '—'}
         </div>
+        <Link
+          href="/dashboard/settings"
+          data-testid="nav-settings"
+          className={cn(
+            'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors mb-1',
+            pathname === '/dashboard/settings'
+              ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+              : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+          )}
+        >
+          <Settings className="h-4 w-4" />
+          Paramètres
+        </Link>
         <form action={signOutAction}>
           <button
             type="submit"

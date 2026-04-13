@@ -1,17 +1,18 @@
-# Analytics CI/CD
-# Pattern identique a hub-ci.yml : test (cloud) → docker (self-hosted) → deploy prod
+# Analytics CI/CD — Pipeline complet avec staging + rollback
 #
-# Jobs :
-#  1. test      — lint, typecheck, vitest, next build (cloud runner)
-#  2. e2e       — playwright browser tests contre next start + postgres service
-#  3. docker    — build + push GHCR (self-hosted runner, cache local)
-#  4. deploy    — redeploy Dokploy + health check (rollback si KO)
+# Flow push main :
+#  1. test          — lint, typecheck, vitest, build (cloud)
+#  2. e2e           — playwright contre instance locale CI (cloud + postgres)
+#  3. docker        — build + push GHCR (self-hosted, cache local)
+#  4. deploy-staging — pull image sur dev-server, e2e staging
+#  5. deploy-prod   — redeploy Dokploy + health check
+#  6. rollback-prod — si deploy-prod fail, retour image précédente
 
 name: Analytics CI/CD
 
 on:
   push:
-    branches: [main, staging]
+    branches: [main]
     paths:
       - 'analytics/**'
       - '.github/workflows/analytics-ci.yml'
@@ -34,6 +35,7 @@ defaults:
     working-directory: analytics
 
 jobs:
+  # ── Phase 1 : Tests rapides (cloud, ~90s) ─────────────────────────
   test:
     runs-on: ubuntu-latest
     steps:
@@ -72,6 +74,7 @@ jobs:
           NEXTAUTH_URL: http://localhost:3000
           ADMIN_API_KEY: fake-admin-key-for-build-at-least-32-chars-xx
 
+  # ── Phase 2 : E2E contre instance locale CI (cloud, ~3min) ────────
   e2e:
     needs: test
     runs-on: ubuntu-latest
@@ -99,10 +102,6 @@ jobs:
       E2E_EMAIL: robert@veridian.site
       E2E_PASSWORD: test1234
       ANALYTICS_E2E_URL: http://127.0.0.1:3200
-      # Active les routes /api/test/* (reset, seed-gsc, cleanup-tenant) pour
-      # que les e2e puissent gerer leur propre data de fa¢con isolee. La prod
-      # n'exporte jamais cette variable — voir lib/test-apis.ts pour le guard
-      # qui retourne 404 en prod meme si quelqu'un la settait par erreur.
       ENABLE_TEST_APIS: 'true'
 
     steps:
@@ -122,19 +121,7 @@ jobs:
       - name: Prisma db push
         run: pnpm exec prisma db push --skip-generate
 
-      - name: Seed test user + tenant veridian + GSC data
-        # Le script doit tourner depuis `analytics/` (via defaults.run.working-directory)
-        # pour que Node resolve bcryptjs + @prisma/client depuis `analytics/node_modules`.
-        # On ecrit donc le script dans le cwd, pas dans /tmp.
-        #
-        # Contenu du seed :
-        #   - User robert@veridian.site (credentials pour les tests)
-        #   - Tenant "veridian" (slug=veridian-ci) + Membership OWNER
-        #   - Site analytics.veridian.site + GscProperty attachee
-        #   - 10 rows GscDaily sur les 7 derniers jours => service gsc actif
-        # IMPORTANT : pas de seed Pageview/FormSubmission/SipCall — ainsi les
-        # pages /dashboard/forms et /dashboard/calls restent lockees pour que
-        # le test 08-locked-pages voie au moins un item lock dans la sidebar.
+      - name: Seed test data
         run: |
           cat > ci-seed.mjs <<'JS'
           import bcrypt from 'bcryptjs';
@@ -160,7 +147,6 @@ jobs:
             update: { role: 'OWNER' },
           });
 
-          // Site + GscProperty (upsert par domain via findFirst puis create/update)
           let site = await prisma.site.findFirst({
             where: { tenantId: tenant.id, domain: 'analytics.veridian.site' },
           });
@@ -184,9 +170,6 @@ jobs:
             update: { lastSyncAt: new Date() },
           });
 
-          // 10 rows GscDaily sur les 7 derniers jours (web + desktop + fra)
-          // Unique sur (siteId, day, query, page, country, device, searchType)
-          // createMany avec skipDuplicates pour etre idempotent.
           const now = new Date();
           const rows = [];
           const queries = ['serrurier lyon', 'depannage serrurerie', 'cle perdue'];
@@ -227,20 +210,11 @@ jobs:
         run: pnpm build
 
       - name: Copy public/ and .next/static into standalone
-        # Next.js standalone output n'embarque PAS automatiquement public/ ni
-        # .next/static/ — c'est documente (bug historique). Le Dockerfile le
-        # gere via COPY, mais quand on lance `node .next/standalone/server.js`
-        # directement en CI il faut recopier manuellement sinon :
-        #   - /tracker.js retourne 404 (fix tests 01-health + 05-tracker)
-        #   - les assets _next/static/* 404 aussi (CSS/JS manquants)
         run: |
           cp -r public .next/standalone/public
           cp -r .next/static .next/standalone/.next/static
 
       - name: Start analytics in prod mode (background)
-        # NODE_ENV=test (pas production) pour que les /api/test/* endpoints
-        # soient actifs. `next build` set NODE_ENV=production pendant le
-        # build, mais on le force a test au demarrage pour les e2e.
         run: |
           nohup node .next/standalone/server.js > /tmp/analytics.log 2>&1 &
           echo $! > /tmp/analytics.pid
@@ -271,7 +245,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-ci
           path: analytics/playwright-report
           retention-days: 7
 
@@ -279,6 +253,7 @@ jobs:
         if: always()
         run: kill $(cat /tmp/analytics.pid) 2>/dev/null || true
 
+  # ── Phase 3 : Docker build + push GHCR (self-hosted, ~30s) ────────
   docker:
     needs: [test, e2e]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -286,6 +261,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -297,7 +274,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version
+      - name: Extract version (auto-increment patch)
         id: version
         run: |
           PACKAGE_NAME="analytics"
@@ -329,11 +306,97 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-  deploy-prod:
+  # ── Phase 4 : Deploy staging (dev-server) + E2E staging ───────────
+  deploy-staging:
     needs: docker
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: [self-hosted, veridian]
+    steps:
+      - name: Stop dev service + start staging compose
+        run: |
+          # Stopper le service next dev pour liberer le port 3100
+          systemctl --user stop analytics-dev 2>/dev/null || true
+          sleep 2
+
+          cd ~/analytics-test
+
+          # S'assurer que les env vars CI sont dans le .env
+          grep -q '^ENABLE_TEST_APIS=' .env 2>/dev/null || echo 'ENABLE_TEST_APIS=true' >> .env
+          grep -q '^ADMIN_API_KEY=' .env 2>/dev/null || echo 'ADMIN_API_KEY=staging-admin-key-for-e2e-tests-32ch' >> .env
+
+          docker compose pull
+          docker compose up -d --wait
+          echo "Staging container restarted with new image"
+
+          # Attendre que le health check passe (port 3100)
+          echo "Waiting for staging health..."
+          for i in $(seq 1 18); do
+            if curl -sf http://127.0.0.1:3100/api/health | grep -q ok; then
+              echo "Staging healthy after ${i}0s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "ERROR: staging health check failed after 3min"
+          docker compose logs --tail=50
+          exit 1
+        working-directory: /home/ubuntu
+
+  e2e-staging:
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: [self-hosted, veridian]
+    defaults:
+      run:
+        working-directory: analytics
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: analytics/pnpm-lock.yaml
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+
+      - name: Install Playwright chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Warm-up staging pages
+        run: |
+          echo "Warming up staging..."
+          curl -sf https://analytics-staging.veridian.site/api/health -o /dev/null && echo "  /api/health OK"
+          curl -sf https://analytics-staging.veridian.site/login -o /dev/null && echo "  /login OK"
+          echo "Warm-up done"
+
+      - name: "E2E Staging — BLOQUANT"
+        env:
+          ANALYTICS_E2E_URL: https://analytics-staging.veridian.site
+          E2E_EMAIL: robert@veridian.site
+          E2E_PASSWORD: test1234
+          ADMIN_API_KEY: ${{ secrets.ANALYTICS_STAGING_ADMIN_KEY }}
+        run: |
+          pnpm exec playwright test --project=chromium --reporter=list --workers=1
+
+      - name: Upload playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-staging
+          path: analytics/playwright-report
+          retention-days: 7
+
+  # ── Phase 5 : Deploy prod (VPS Dokploy) ───────────────────────────
+  deploy-prod:
+    needs: e2e-staging
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy prod
+      - name: Deploy prod (with rollback tag)
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           VPS_HOST: ${{ vars.VPS_HOST }}
@@ -341,29 +404,101 @@ jobs:
           COMPOSE_ID: ${{ vars.ANALYTICS_COMPOSE_ID_PROD }}
         run: |
           if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ] || [ -z "$COMPOSE_ID" ]; then
-            echo "Prod deploy not configured — skipping (ANALYTICS_COMPOSE_ID_PROD missing?)"
-            exit 0
+            echo "ERROR: Prod deploy not configured — ANALYTICS_COMPOSE_ID_PROD missing"
+            exit 1
           fi
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s <<DEPLOY
+
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << 'DEPLOY'
+            # Tag current image as rollback BEFORE pulling new one
+            CURRENT_ID=$(docker images ghcr.io/christ-roy/analytics:latest --format '{{.ID}}' 2>/dev/null)
+            if [ -n "$CURRENT_ID" ]; then
+              docker tag "$CURRENT_ID" ghcr.io/christ-roy/analytics:rollback
+              echo "Tagged current image as :rollback ($CURRENT_ID)"
+            fi
+
+            # Pull new image
             docker pull ghcr.io/christ-roy/analytics:latest
-            DKEY=\$(grep '^DOKPLOY_OVH_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
+            NEW_ID=$(docker images ghcr.io/christ-roy/analytics:latest --format '{{.ID}}')
+            echo "New image: $NEW_ID"
+
+            # Redeploy via Dokploy
+            DKEY=$(grep '^DOKPLOY_OVH_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
             curl -sf -X POST \
-              -H "x-api-key: \$DKEY" \
+              -H "x-api-key: $DKEY" \
               -H "Content-Type: application/json" \
-              -d '{"json":{"composeId":"'$COMPOSE_ID'"}}' \
+              -d '{"json":{"composeId":"'"$COMPOSE_ID"'"}}' \
               http://localhost:3000/api/trpc/compose.redeploy && echo "Analytics prod redeploy triggered"
           DEPLOY
-          echo "Waiting for analytics health..."
-          for i in \$(seq 1 12); do
+
+          # Health check post-deploy (wait up to 2 min)
+          echo "Waiting for prod health..."
+          for i in $(seq 1 12); do
             if curl -sf https://analytics.app.veridian.site/api/health | grep -q ok; then
-              echo "Analytics prod healthy after \${i}0s"
+              echo "Prod healthy after ${i}0s"
               exit 0
             fi
             sleep 10
           done
-          echo "WARNING: analytics health check timed out"
+          echo "ERROR: prod health check failed after 2min"
+          exit 1
+        working-directory: .
+
+  # ── Phase 6 : Rollback auto si prod cassé ─────────────────────────
+  rollback-prod:
+    needs: deploy-prod
+    if: failure() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rollback to previous image
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          COMPOSE_ID: ${{ vars.ANALYTICS_COMPOSE_ID_PROD }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ] || [ -z "$COMPOSE_ID" ]; then
+            echo "Cannot rollback — vars not configured"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
+
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << 'ROLLBACK'
+            echo "ROLLING BACK analytics to previous image..."
+
+            ROLLBACK_ID=$(docker images ghcr.io/christ-roy/analytics:rollback --format '{{.ID}}' 2>/dev/null)
+            if [ -z "$ROLLBACK_ID" ]; then
+              echo "No :rollback image found — cannot rollback"
+              exit 1
+            fi
+
+            docker tag ghcr.io/christ-roy/analytics:rollback ghcr.io/christ-roy/analytics:latest
+            echo "Tagged :rollback ($ROLLBACK_ID) as :latest"
+
+            DKEY=$(grep '^DOKPLOY_OVH_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
+            curl -sf -X POST \
+              -H "x-api-key: $DKEY" \
+              -H "Content-Type: application/json" \
+              -d '{"json":{"composeId":"'"$COMPOSE_ID"'"}}' \
+              http://localhost:3000/api/trpc/compose.redeploy
+
+            echo "Rolled back analytics to previous image"
+          ROLLBACK
+
+          # Verify rollback health (wait up to 90s)
+          echo "Verifying rollback health..."
+          for i in $(seq 1 9); do
+            if curl -sf https://analytics.app.veridian.site/api/health | grep -q ok; then
+              echo "Rollback healthy after ${i}0s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "WARNING: rollback health check timed out"
         working-directory: .

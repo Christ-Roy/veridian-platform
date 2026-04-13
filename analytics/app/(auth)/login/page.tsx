@@ -1,6 +1,11 @@
 import { signIn } from '@/auth';
+import { headers } from 'next/headers';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { createRateLimiter } from '@/lib/rate-limit';
+
+// 5 tentatives par minute par IP — protection brute-force
+const loginLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 
 export default async function LoginPage({
   searchParams,
@@ -13,6 +18,17 @@ export default async function LoginPage({
 
   async function login(formData: FormData) {
     'use server';
+    const hdrs = await headers();
+    const ip =
+      hdrs.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      hdrs.get('x-real-ip') ||
+      'unknown';
+
+    if (!loginLimiter.check(ip)) {
+      const { redirect } = await import('next/navigation');
+      redirect('/login?error=rate-limit');
+    }
+
     await signIn('credentials', {
       email: formData.get('email'),
       password: formData.get('password'),
@@ -55,7 +71,12 @@ export default async function LoginPage({
               <Button type="submit" className="w-full">
                 Se connecter
               </Button>
-              {error && (
+              {error === 'rate-limit' && (
+                <p className="text-sm text-destructive">
+                  Trop de tentatives. Réessayez dans une minute.
+                </p>
+              )}
+              {error && error !== 'rate-limit' && (
                 <p className="text-sm text-destructive">
                   Identifiants invalides
                 </p>
