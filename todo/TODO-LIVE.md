@@ -9,69 +9,76 @@
 
 ---
 
-## 🎯 PRIORITE ABSOLUE — Analytics UP en prod + tests donnees reelles
+## 🎯 PRIORITE 1 — Hub × Analytics : synchronisation tenants + Stripe trial
 
-**Tout le reste attend.** Analytics est la priorite unique jusqu'a ce qu'il soit
-deploye en prod et qu'on teste avec des cas reels (Robert va detailler les
-scenarios).
+> **Analytics POC est TERMINE et en prod** (2026-04-13). La priorite suivante est
+> l'integration Hub ↔ Analytics : synchronisation tenants, Stripe trial intelligent,
+> et data bridge vers Twenty CRM.
 
-### Analytics — Objectif : de staging dev-server a prod stable
+### Analytics — Etat actuel (DONE 2026-04-13)
 
-**Etat actuel (2026-04-11)** :
-- ✅ Scaffold code complet (Next.js 15, Prisma 6 schema `analytics` sur veridian-core-db)
-- ✅ Image Docker buildee et sur GHCR (`ghcr.io/christ-roy/analytics:latest`)
-- ✅ Instance de test sur dev-server, accessible via Tailscale : `http://100.92.215.42:3100`
-- ✅ Login fonctionnel : `robert@veridian.site` / `test1234`
-- ✅ DB dediee Postgres 16 + 7 tables Prisma + seed user/tenant
-- ❌ Pas encore deploye en prod (pas de stack Dokploy, pas de DNS, pas de cert)
-- ❌ Pas de flow metier concret (juste dashboard vide avec "viens bientot...")
+- ✅ **En prod** : `https://analytics.app.veridian.site` (Dokploy, GHCR, healthy)
+- ✅ **CI/CD 6 phases** : test → e2e → docker → staging → e2e staging → prod + rollback auto
+- ✅ **Login** : `robert.brunon@veridian.site` + 2FA email OTP (Brevo)
+- ✅ **Page Settings** : changement email + mot de passe
+- ✅ **Rate limiting login** : 5 tentatives/min par IP
+- ✅ **5 tenants** : Tramtech, Morel Volailles, Veridian, Arnaudcapitaine, App Veridian
+- ✅ **GSC** : 3162 rows, dashboards fonctionnels
+- ✅ **Call tracking SIP** : sync OVH voiceConsumption → cron 15min → 2 appels Tramtech synced
+- ✅ **Renvoi d'appel** : 04 82 53 04 29 → 04 37 37 40 21 (fixe Tramtech) actif
+- ✅ **118 unit tests + 11 e2e specs** verts
+- ⏸️ **Polish UI** : a traiter en session standalone (voir `todo/apps/analytics/UI-REVIEW.md`)
 
-### Ce qui bloque le "prod" (a traiter en sequence)
+### Ce qui doit etre fait maintenant (P1 operationnel)
 
-1. **Scenarios metier reels a implementer** (priorite numero 1)
-   - Robert detaille ce qu'il veut voir/faire concretement dans Analytics
-   - Exemples possibles (a confirmer par Robert) :
-     - Ingestion pageviews d'un ou plusieurs sites vitrine (siteKey)
-     - Dashboard metrics 30j par site (pageviews, top pages, UTM sources)
-     - Google Search Console API : connecter un domaine perso, voir impressions/clics/CTR
-     - Formulaires HTML natifs trackes (snippet JS a installer sur sites clients)
-     - Upload CSV OVH voiceConsumption pour call tracking manuel
-   - **Robert : remplir cette section avec les cas d'usage precis et les ordonner**
+> Architecture de synchronisation Hub ↔ Apps. C'est le coeur du SaaS.
+> **Voir `tmp/PROMPT-RESUME-HUB-SYNC.md` pour le prompt de reprise detaille.**
 
-2. **Iteration + polish UI** sur Tailscale dev-server
-   - A chaque feature : code → push staging → pull image sur dev-server → tester
-   - `todo/apps/analytics/UI-REVIEW.md` pour tracer les points a polish
-   - Pas de deploy prod tant que le flow metier n'est pas stable
+1. **Synchronisation tenants Hub → Apps**
+   - Quand un user s'inscrit sur le Hub, il ne devrait PAS declencher le trial Stripe
+     tant qu'il n'a pas active une app (Prospection, Analytics, etc.)
+   - Le Hub est le registre central des tenants. Chaque app a sa propre DB tenants.
+   - Il faut un mecanisme de provisioning a la demande : Hub → POST API provisioning app
+   - Challenge : pas de duplication de tenants, pas de trial gaspille
 
-3. **Deploy prod** (seulement quand les flows sont stables)
-   - Creer stack Dokploy `analytics-prod` en sourceType git (Option C2 validee)
-   - Compose isole : `infra/docker-compose.analytics.yml` (deja cree)
-   - Env vars Dokploy : `ANALYTICS_IMAGE_TAG`, `AUTH_SECRET`, `NEXTAUTH_URL`, `DATABASE_URL`
-   - DNS : `analytics.app.veridian.site` (Cloudflare wildcard deja en place)
-   - Migrations Prisma appliquees sur `veridian-core-db` schema `analytics` (deja fait en dev)
-   - Health check verifie
-   - Card BETA ajoutee sur la home Hub (`hub/components/AppCard.tsx` + badge BETA)
+2. **Stripe trial intelligent**
+   - Periode d'essai commence quand le tenant **utilise** une app, pas quand il cree son compte
+   - Chaque app a son propre webhook Stripe (standard P1.1)
+   - Le Hub orchestre : "ce tenant a active Analytics le 15/04 → trial Analytics = 14j a partir de la"
 
-### Commandes dev-server utiles
+3. **Data bridge Analytics → Twenty CRM**
+   - Quand un tenant Twenty est cree, pousser les data pertinentes d'Analytics
+     (contacts forms, appels, metriques GSC) comme activites/contacts dans Twenty
+   - API Twenty deja en place, il faut juste le mapping
+
+4. **Magic link cross-app**
+   - Le Hub genere un magic link qui connecte le user directement dans Analytics
+     (ou Prospection, ou Twenty) avec le bon tenant
+   - Evite de gerer des mots de passe synchronises entre apps
+   - Le Hub connait l'email du user → il genere un magic link Analytics avec cet email
+
+5. **Card Analytics dans le Hub**
+   - Ajouter Analytics dans la home Hub avec badge BETA
+   - Lien vers `analytics.app.veridian.site`
+
+### Commandes prod utiles
 
 ```bash
-# Acces Tailscale
-http://100.92.215.42:3100
+# Analytics prod
+curl -sf https://analytics.app.veridian.site/api/health
+ssh prod-pub 'docker logs compose-synthesize-virtual-transmitter-i9bv43-analytics-1 -f'
 
-# Login test
-robert@veridian.site / test1234
+# Dokploy compose ID analytics
+Ri8lnog40Jgxn5xWOhaQg
 
-# Logs
-ssh dev-pub 'docker logs analytics-test -f'
+# Sync OVH calls manuellement
+ssh prod-pub 'python3 ~/analytics-sync/sync-ovh-calls.py'
 
-# Update image apres push main
-ssh dev-pub 'cd ~/analytics-test && docker compose pull && docker compose up -d'
+# DB analytics prod
+ssh prod-pub 'docker exec compose-parse-multi-byte-feed-ywg73b-veridian-core-db-1 psql -U veridian -d veridian -c "SELECT * FROM analytics.\"Tenant\";"'
 
-# Reset DB (perte donnees)
-ssh dev-pub 'cd ~/analytics-test && docker compose down -v'
-
-# Acces DB direct
-ssh dev-pub 'docker exec -it analytics-test-db psql -U analytics -d analytics'
+# Staging (dev-server)
+curl -sf https://analytics-staging.veridian.site/api/health
 ```
 
 ---
@@ -215,6 +222,19 @@ A chaque livraison UI → entree dans `UI-REVIEW.md`. A la fin → archiver en "
 ### P0.5 — CVE next@15.3.3 (prospection) [RESOLU 2026-04-10]
 - [x] `npm install next@15.5.14` — fait le 7 avril
 - [x] Build CI vert avec `next@^15.5.14` (confirme dans `prospection/package.json:33` + derniers runs `gh run list -w prospection-ci.yml`)
+
+### P0.7 — Pipeline Open Data Prospection (CRITIQUE)
+> La data entreprise est le coeur du produit. Aujourd'hui elle est eparpillee
+> (DuckDB local, PG local, JSONL, tables legacy) sans pipeline ni backup.
+> **Voir `todo/apps/prospection/open-data/TODO.md` pour le detail.**
+>
+> Regle : plus aucun enrichissement en local. Tout tourne sur PROD avec backup avant.
+- [ ] Backup quotidien DB prod (pg_dump cron Dokploy, rotation 7j, stockage dev server)
+- [ ] Migrer scripts d'enrichissement sur PROD (plus de tunnel SSH fragile)
+- [ ] Enrichissement tresorerie liquide via API INPI (killer feature pricing)
+- [ ] Migrer solocal_tier vers entreprises (argument commercial)
+- [x] web_agency migre (33K leads, Solocal 11K) — 2026-04-13
+- [ ] Enrichissement naissance/etat/etablissements EN COURS — ETA ~90h
 
 ### P0.6 — Finir le plan pricing Prospection
 - [x] Module lead-quota.ts cree, SQL teste
