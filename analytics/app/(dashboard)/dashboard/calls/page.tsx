@@ -37,15 +37,29 @@ export default async function CallsPage() {
   }
 
   let calls: Awaited<ReturnType<typeof prisma.sipCall.findMany>> = [];
+  // Clics CTA : pageviews avec referrer qui commence par "cta:" (tel:, mailto:, boutons)
+  let ctaClicks: Awaited<ReturnType<typeof prisma.pageview.findMany>> = [];
   let dbError: string | null = null;
+  const siteIds = status.sites.map((s) => s.id);
   try {
-    // Isolation tenant : filtre par la relation site.tenantId.
-    calls = await prisma.sipCall.findMany({
-      where: { site: { tenantId: status.tenant.id } },
-      orderBy: { startedAt: 'desc' },
-      take: 50,
-      include: { site: true },
-    });
+    const [callsResult, ctaResult] = await Promise.all([
+      prisma.sipCall.findMany({
+        where: { site: { tenantId: status.tenant.id } },
+        orderBy: { startedAt: 'desc' },
+        take: 50,
+        include: { site: true },
+      }),
+      prisma.pageview.findMany({
+        where: {
+          siteId: { in: siteIds },
+          referrer: { startsWith: 'cta:' },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+    ]);
+    calls = callsResult;
+    ctaClicks = ctaResult;
   } catch (e) {
     dbError = e instanceof Error ? e.message : 'DB error';
   }
@@ -83,33 +97,105 @@ export default async function CallsPage() {
         </Card>
       )}
 
+      {/* Section CTA clics — clics sur les numeros de telephone, emails, boutons */}
       <Card>
         <CardHeader>
-          <CardTitle>Derniers appels</CardTitle>
+          <CardTitle>
+            Clics CTA
+            {ctaClicks.length > 0 && (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                ({ctaClicks.length})
+              </span>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          {calls.length === 0 ? (
+          {ctaClicks.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Aucun appel enregistré.
+              Aucun clic CTA enregistre. Les clics sur les numeros de telephone,
+              emails et boutons tagués <code>data-veridian-cta</code> apparaitront ici.
             </p>
           ) : (
+            <div className="space-y-2">
+              {ctaClicks.map((click) => {
+                const ref = click.referrer || '';
+                const isTel = ref.startsWith('cta:tel:');
+                const isMailto = ref.startsWith('cta:mailto');
+                const ctaName = ref.replace('cta:', '');
+                return (
+                  <div
+                    key={click.id}
+                    className="flex items-center gap-3 rounded border border-border/40 px-3 py-2 text-sm"
+                  >
+                    <span className="text-lg">
+                      {isTel ? '📞' : isMailto ? '📧' : '👆'}
+                    </span>
+                    <div className="flex-1">
+                      <span className="font-medium">
+                        {isTel
+                          ? ctaName.replace('tel:', '')
+                          : isMailto
+                            ? 'Email'
+                            : ctaName}
+                      </span>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        sur <span className="font-mono">{click.path}</span>
+                      </span>
+                    </div>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {new Date(click.createdAt).toLocaleDateString('fr-FR', {
+                        day: 'numeric',
+                        month: 'short',
+                      })}{' '}
+                      {new Date(click.createdAt).toLocaleTimeString('fr-FR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Section SIP Calls — appels telephoniques reels */}
+      {calls.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              Appels telephoniques
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                ({calls.length})
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-left text-xs uppercase text-muted-foreground">
                   <tr>
-                    <th className="pb-2">Début</th>
+                    <th className="pb-2">Date</th>
                     <th className="pb-2">De</th>
                     <th className="pb-2">Vers</th>
                     <th className="pb-2">Direction</th>
                     <th className="pb-2">Statut</th>
-                    <th className="pb-2">Durée</th>
+                    <th className="pb-2">Duree</th>
                   </tr>
                 </thead>
                 <tbody>
                   {calls.map((c) => (
                     <tr key={c.id} className="border-t border-border">
                       <td className="py-2 tabular-nums text-muted-foreground">
-                        {new Date(c.startedAt).toLocaleString('fr-FR')}
+                        {new Date(c.startedAt).toLocaleDateString('fr-FR', {
+                          day: 'numeric',
+                          month: 'short',
+                        })}{' '}
+                        {new Date(c.startedAt).toLocaleTimeString('fr-FR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
                       </td>
                       <td className="py-2 tabular-nums">{c.fromNum}</td>
                       <td className="py-2 tabular-nums">{c.toNum}</td>
@@ -135,9 +221,32 @@ export default async function CallsPage() {
                 </tbody>
               </table>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : (
+        /* Shadow marketing SIP — propose de brancher un numero dedie */
+        <Card className="border-dashed border-muted-foreground/20 bg-muted/5">
+          <CardContent className="pt-6 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+              <span className="text-2xl">📱</span>
+            </div>
+            <h3 className="text-sm font-semibold text-muted-foreground">
+              Mesurez precisement vos appels telephoniques
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground/70">
+              Branchez un numero SIP dedie Veridian pour savoir exactement combien
+              d&apos;appels arrivent, lesquels sont manques, et depuis quelles pages
+              vos visiteurs appellent. A partir de 15€/mois.
+            </p>
+            <a
+              href="mailto:contact@veridian.site?subject=Call%20tracking%20SIP&body=Je%20souhaite%20activer%20le%20suivi%20des%20appels%20telephoniques%20pour%20mon%20site."
+              className="mt-3 inline-block rounded bg-primary/10 px-4 py-2 text-xs font-medium text-primary hover:bg-primary/20"
+            >
+              Activer le call tracking
+            </a>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

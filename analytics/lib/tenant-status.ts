@@ -37,6 +37,7 @@ export interface SiteStatus {
     pageviews: number;
     formSubmissions: number;
     sipCalls: number;
+    ctaClicks: number;
     gscRows: number;
     gscClicks: number;
     gscImpressions: number;
@@ -131,6 +132,7 @@ export function detectServices(counts: {
   pageviews: number;
   formSubmissions: number;
   sipCalls: number;
+  ctaClicks?: number;
   gscRows: number;
   hasGscProperty: boolean;
   pushSubscriptions?: number;
@@ -139,7 +141,10 @@ export function detectServices(counts: {
 
   if (counts.pageviews > 0) active.push('pageviews');
   if (counts.formSubmissions > 0) active.push('forms');
-  if (counts.sipCalls > 0) active.push('calls');
+  // Le service "calls" est actif si on a des SipCalls OU des clics CTA
+  // tel: (intentions d'appel trackees par le tracker). Ca permet de
+  // deverrouiller la page meme sans SIP branche.
+  if (counts.sipCalls > 0 || (counts.ctaClicks ?? 0) > 0) active.push('calls');
   // On considere gsc "actif" seulement si la propriete est attachee ET on a
   // au moins une ligne de data ingeree. Sinon c'est juste brancheun pas sync.
   if (counts.hasGscProperty && counts.gscRows > 0) active.push('gsc');
@@ -220,6 +225,7 @@ async function computeCounts28d(siteId: string) {
     pageviews,
     formSubmissions,
     sipCalls,
+    ctaClicks,
     gscRows,
     gscAgg,
   ] = await Promise.all([
@@ -229,6 +235,10 @@ async function computeCounts28d(siteId: string) {
     }),
     prisma.sipCall.count({
       where: { siteId, startedAt: { gte: since } },
+    }),
+    // Clics CTA : pageviews dont le referrer commence par "cta:" (tel:, mailto:, data-veridian-cta)
+    prisma.pageview.count({
+      where: { siteId, createdAt: { gte: since }, referrer: { startsWith: 'cta:' } },
     }),
     prisma.gscDaily.count({ where: { siteId, day: { gte: sinceDay } } }),
     prisma.gscDaily.aggregate({
@@ -241,6 +251,7 @@ async function computeCounts28d(siteId: string) {
     pageviews,
     formSubmissions,
     sipCalls,
+    ctaClicks,
     gscRows,
     gscClicks: gscAgg._sum.clicks ?? 0,
     gscImpressions: gscAgg._sum.impressions ?? 0,
@@ -305,6 +316,7 @@ export async function buildTenantStatus(
         pageviews: counts.pageviews,
         formSubmissions: counts.formSubmissions,
         sipCalls: counts.sipCalls,
+        ctaClicks: counts.ctaClicks,
         gscRows: counts.gscRows,
         hasGscProperty: Boolean(site.gscProperty),
         pushSubscriptions: pushSubscriptionsCount,

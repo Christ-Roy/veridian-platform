@@ -109,6 +109,7 @@ describe('aggregateActiveServices', () => {
           pageviews: 0,
           formSubmissions: 0,
           sipCalls: 0,
+            ctaClicks: 0,
           gscRows: 0,
           gscClicks: 0,
           gscImpressions: 0,
