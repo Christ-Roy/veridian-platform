@@ -19,7 +19,7 @@
  * Prerequis : pnpm exec playwright install chromium
  */
 
-import { chromium } from 'playwright';
+import { chromium } from '@playwright/test';
 
 const SITE_URL = process.argv[2];
 const SITE_KEY = process.argv[3];
