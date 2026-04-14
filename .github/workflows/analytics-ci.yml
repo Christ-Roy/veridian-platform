@@ -380,12 +380,13 @@ jobs:
           E2E_PASSWORD: test1234
           ADMIN_API_KEY: ${{ secrets.ANALYTICS_STAGING_ADMIN_KEY }}
         run: |
-          # Sur staging, on lance les tests de base (health, auth, dashboard, tracker)
-          # mais PAS admin-console/tenant-isolation (data différente du CI seed)
+          # Sur staging, on teste la connectivité et l'auth — PAS le dashboard
+          # (03-dashboard.spec.ts) car les données staging diffèrent de prod
+          # (pas de tenants avec data, les data-testid du score ne rendent pas).
+          # Le dashboard est testé en e2e CI (avec seed) et en e2e prod.
           pnpm exec playwright test \
             tests/e2e/01-health.spec.ts \
             tests/e2e/02-auth.spec.ts \
-            tests/e2e/03-dashboard.spec.ts \
             tests/e2e/05-tracker.spec.ts \
             --project=chromium --reporter=list --workers=1
 
