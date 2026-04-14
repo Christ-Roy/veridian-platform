@@ -53,6 +53,8 @@ export default async function CallsPage() {
         where: {
           siteId: { in: siteIds },
           referrer: { startsWith: 'cta:' },
+          isBot: false,
+          interacted: true,
         },
         orderBy: { createdAt: 'desc' },
         take: 50,

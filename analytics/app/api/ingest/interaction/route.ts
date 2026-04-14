@@ -5,14 +5,15 @@ import { corsHeaders, resolveSiteKey, checkIngestRateLimit } from '@/lib/ingest'
 
 export const runtime = 'nodejs';
 
+/**
+ * Le tracker envoie ce beacon quand il détecte une interaction humaine
+ * (scroll, mousemove, click, touch, keypress). On le croit — pas de
+ * validation forensic côté serveur. On marque simplement interacted=true
+ * sur le pageview le plus récent de cette session.
+ */
 const schema = z.object({
-  formName: z.string().min(1).max(100),
-  path: z.string().max(500).optional().nullable(),
-  payload: z.record(z.unknown()).default({}),
-  email: z.string().email().max(200).optional().nullable(),
-  phone: z.string().max(50).optional().nullable(),
-  utmSource: z.string().max(100).optional().nullable(),
-  sessionId: z.string().max(100).optional().nullable(),
+  sessionId: z.string().max(100),
+  type: z.string().max(20), // mousemove, scroll, click, touch, keypress — informatif seulement
 });
 
 export async function OPTIONS() {
@@ -50,39 +51,27 @@ export async function POST(req: Request) {
     );
   }
 
-  // Extraire email/phone du payload s'ils n'ont pas été passés explicitement.
-  const p = parsed.data.payload as Record<string, unknown>;
-  const email =
-    parsed.data.email ??
-    (typeof p.email === 'string' ? p.email : null) ??
-    null;
-  const phone =
-    parsed.data.phone ??
-    (typeof p.phone === 'string'
-      ? p.phone
-      : typeof p.tel === 'string'
-        ? p.tel
-        : typeof p.telephone === 'string'
-          ? p.telephone
-          : null) ??
-    null;
-
-  const submission = await prisma.formSubmission.create({
-    data: {
+  // Marquer le pageview le plus récent de cette session comme interacted
+  const pageview = await prisma.pageview.findFirst({
+    where: {
       siteId: site.siteId,
-      formName: parsed.data.formName,
-      path: parsed.data.path ?? null,
-      payload: parsed.data.payload as object,
-      email,
-      phone,
-      utmSource: parsed.data.utmSource ?? null,
-      sessionId: parsed.data.sessionId ?? null,
+      sessionId: parsed.data.sessionId,
+      interacted: false,
+      isBot: false,
     },
-    select: { id: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
   });
 
+  if (pageview) {
+    await prisma.pageview.update({
+      where: { id: pageview.id },
+      data: { interacted: true },
+    });
+  }
+
   return NextResponse.json(
-    { ok: true, id: submission.id },
+    { ok: true, matched: !!pageview },
     { headers: corsHeaders() },
   );
 }

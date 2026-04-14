@@ -80,9 +80,9 @@ export async function getDashboardMetrics(): Promise<MetricCard[]> {
     callDaily,
     gscDaily,
   ] = await Promise.all([
-    prisma.pageview.count({ where: { createdAt: { gte: d30 } } }),
+    prisma.pageview.count({ where: { createdAt: { gte: d30 }, isBot: false, interacted: true } }),
     prisma.pageview.count({
-      where: { createdAt: { gte: d60, lt: d30 } },
+      where: { createdAt: { gte: d60, lt: d30 }, isBot: false, interacted: true },
     }),
     prisma.formSubmission.count({ where: { createdAt: { gte: d30 } } }),
     prisma.formSubmission.count({
@@ -104,7 +104,7 @@ export async function getDashboardMetrics(): Promise<MetricCard[]> {
       SELECT TO_CHAR("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
              COUNT(*)::bigint AS value
       FROM analytics."Pageview"
-      WHERE "createdAt" >= ${d30}
+      WHERE "createdAt" >= ${d30} AND "isBot" = false AND "interacted" = true
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw<Array<{ day: string; value: bigint }>>`

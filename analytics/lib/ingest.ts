@@ -4,14 +4,21 @@ import { createRateLimiter } from '@/lib/rate-limit';
 
 /**
  * Rate limiter par siteKey pour les endpoints d'ingestion.
- * 100 req/min par siteKey — suffisant pour un site client normal
- * (meme un site avec 50 pages/min en SPA genere ~50 req/min max).
- * Protege contre le spam de pageviews/forms/calls par un attaquant
- * qui aurait recupere un siteKey depuis le HTML source d'un client.
+ * 100 req/min par siteKey — protège contre le spam massif d'un siteKey volé.
  */
 export const ingestRateLimiter = createRateLimiter({
   windowMs: 60_000,
   max: 100,
+});
+
+/**
+ * Rate limiter par IP — 20 req/min.
+ * Un humain réel ne génère jamais plus de ~5 pageviews/min sur un site vitrine PME.
+ * Protège contre le spam programmatique même si l'attaquant forge un bon UA.
+ */
+export const ipRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 20,
 });
 
 /**
@@ -32,24 +39,39 @@ export async function resolveSiteKey(
 }
 
 /**
- * Verifie le rate limit pour un endpoint d'ingestion.
- * Retourne une Response 429 si la limite est depassee, null sinon.
- * A appeler APRES resolveSiteKey (on rate-limit par siteKey, pas par IP,
- * car les siteKeys sont publiques et l'IP peut varier avec les CDN).
+ * Extrait l'IP du visiteur depuis les headers (CF → X-Forwarded-For → X-Real-IP).
  */
-export function checkIngestRateLimit(siteKey: string): NextResponse | null {
+export function getClientIp(req: Request): string {
+  return req.headers.get('cf-connecting-ip')
+    ?? req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    ?? req.headers.get('x-real-ip')
+    ?? 'unknown';
+}
+
+/**
+ * Vérifie le rate limit pour un endpoint d'ingestion.
+ * Double check : par siteKey ET par IP.
+ */
+export function checkIngestRateLimit(siteKey: string, req?: Request): NextResponse | null {
   if (!ingestRateLimiter.check(siteKey)) {
     return NextResponse.json(
       { error: 'rate_limited', retryAfterSec: 60 },
       { status: 429, headers: { ...corsHeaders(), 'Retry-After': '60' } },
     );
   }
+  if (req) {
+    const ip = getClientIp(req);
+    if (ip !== 'unknown' && !ipRateLimiter.check(ip)) {
+      return NextResponse.json(
+        { error: 'rate_limited', retryAfterSec: 60 },
+        { status: 429, headers: { ...corsHeaders(), 'Retry-After': '60' } },
+      );
+    }
+  }
   return null;
 }
 
 export function corsHeaders(): HeadersInit {
-  // POC : on ouvre grand pour que les sites clients puissent POST depuis le browser.
-  // TODO prod : whitelister les origins via la table Site.
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',

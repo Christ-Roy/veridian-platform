@@ -1232,35 +1232,50 @@ FormSchema {
 
 ## En cours / blockers
 
-- 🔄 **Audit UI `/dashboard/gsc`** — agent Claude en background en ce moment,
-  fix les filtres cassés + fetches manquants (2026-04-11)
-- ⏸️ **50+ fichiers untracked** dans le repo, à batcher en commits propres
-  avant de push
+- 🔄 **Deploy tracker v2 + nouvelles routes sur staging** — le backend est
+  prêt localement (build + 264 unit tests + 11 E2E tests passent), mais le
+  tracker v2 et les routes `/api/ingest/interaction`, `/api/ingest/session-end`
+  ne sont pas encore sur `analytics-staging.veridian.site`. 5 tests E2E
+  en skip attendent ce deploy pour passer.
+- ⏸️ **Migration Prisma** — le schema enrichi (55+ champs Pageview, FormSchema,
+  Lead/LeadSession) est validé localement mais pas encore appliqué sur la DB
+  dev/staging. Nécessite : `prisma migrate dev` sur le serveur.
+- ⏸️ **Env var `VISITOR_HASH_SALT`** — à générer (`openssl rand -hex 32`) et
+  ajouter aux env vars dev + prod avant deploy.
+- ⏸️ **Fichiers untracked** dans le repo, à batcher en commits propres
 
-## Recently shipped (2026-04-14)
+## Recently shipped (2026-04-14 soir)
 
-- ✅ **Schema Prisma enrichi** (F.1.0 + F.4.1 + F.3 + F.7) : Pageview avec
-  60+ champs (visitor hash, browser/OS/device parsed, geo, locale, réseau,
-  UTM complets, quality scoring, status pending/validated/abandoned/bot),
-  FormSchema pour views contextuelles, Lead/LeadSession pour funnel
-- ✅ **Quality scoring** (`lib/quality.ts`) : computeQuality() avec bot UA
-  regex (40+ patterns incluant crawlers IA), webdriver detection,
-  incohérences techniques, burst detection, ASN cloud, cohérence locale.
-  validateInteraction() pour mousemove/scroll/touch/click/keypress.
-  categorizeReferrer(). computeVisitorHash().
+- ✅ **Schema Prisma enrichi** : Pageview avec 55+ champs (visitorHash salé,
+  IP brute, deviceHash multi-device, browser/OS/device parsés via ua-parser-js,
+  geo CF headers, locale, réseau, UTM complets + gclid/fbclid, comportement
+  session-end). 2 booléens simples : `isBot` + `interacted` (pas d'enum,
+  pas de cron). FormSchema (F.7) pour views contextuelles. Lead/LeadSession (F.3).
+- ✅ **Bot detection** (`lib/quality.ts`) : `checkBot()` binaire (40+ patterns
+  UA incluant crawlers IA, webdriver, viewport 0, fake mobile, empty UA).
+  `isSpamReferrer()` blocklist (30+ domaines spam connus). `categorizeReferrer()`
+  (search/social/directory/email/ads/referral). `computeVisitorHash()` salé.
+  `computeDeviceHash()` pour multi-device derrière même IP.
 - ✅ **Tracker.js v2** : payload enrichi (screen, viewport, locale, réseau,
-  signaux bot, UTM complets + gclid/fbclid), détection d'interaction humaine
-  (mousemove non-linéaire, scroll >= 200px, touch > 30px, click humain,
-  keypress variance), beacon session-end au unload (timeOnPage, scrollDepthMax),
-  mode debug `?veridian_debug=1`
-- ✅ **Routes ingestion enrichies** :
-  - `POST /api/ingest/pageview` refactoré (UA parsing, geo CF headers,
-    visitor hash, quality scoring, status pending/bot)
-  - `POST /api/ingest/interaction` (nouveau — valide interactions humaines,
-    passe pageview de pending à validated)
-  - `POST /api/ingest/abandoned` (nouveau — marque pageview sans interaction)
+  signaux bot, UTM complets + gclid/fbclid). Détection d'interaction simple
+  (scroll >= 200px, mousemove >= 50px, click > 100ms, touch > 30px, keypress
+  → 1 seul beacon). Session-end beacon au unload. Mode debug `?veridian_debug=1`.
+- ✅ **Routes ingestion** :
+  - `POST /api/ingest/pageview` refactoré (UA parsing, geo CF, visitor hash,
+    device hash, IP brute, bot check, spam referrer drop, rate limit IP 20/min)
+  - `POST /api/ingest/interaction` (nouveau — marque `interacted = true`)
   - `POST /api/ingest/session-end` (nouveau — timeOnPage, scrollDepthMax)
   - `POST /api/ingest/form` enrichi avec sessionId
+  - Route `/api/ingest/abandoned` supprimée (plus besoin, simplification)
+- ✅ **Rate limit par IP** : 20 req/min par IP sur toutes les routes ingest
+  (en plus du 100 req/min par siteKey existant)
+- ✅ **Dashboard filtré** : toutes les queries Pageview (metrics.ts,
+  tenant-status.ts, calls page) filtrent `isBot=false AND interacted=true`
+- ✅ **Tests** : 264 unit tests (15 fichiers, 0 échec) + 11 E2E tests sur
+  le vrai demo.veridian.site (6 passent, 5 skip en attente deploy v2)
+- ✅ **Analyse Plausible** : comparé avec le code source Plausible Analytics,
+  validé que notre approche est plus stricte (interaction obligatoire, eux
+  comptent tout) et cohérente avec les standards de l'industrie
 
 ### Précédemment shipped (2026-04-11)
 

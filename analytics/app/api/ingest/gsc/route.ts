@@ -30,7 +30,7 @@ export async function OPTIONS() {
 
 export async function POST(req: Request) {
   const siteKey = req.headers.get('x-site-key') ?? '';
-  const rateLimited = checkIngestRateLimit(siteKey);
+  const rateLimited = checkIngestRateLimit(siteKey, req);
   if (rateLimited) return rateLimited;
 
   const site = await resolveSiteKey(req);

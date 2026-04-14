@@ -107,6 +107,7 @@ model Tenant {
 
   memberships       Membership[]
   sites              Site[]
+  leads              Lead[]
   pushSubscriptions  PushSubscription[]
 
   @@schema("analytics")
@@ -153,7 +154,9 @@ model Site {
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   pageviews       Pageview[]
   formSubmissions FormSubmission[]
+  formSchemas     FormSchema[]
   sipCalls        SipCall[]
+  leads           Lead[]
   gscDaily        GscDaily[]
   gscProperty     GscProperty?
 
@@ -169,18 +172,95 @@ model Pageview {
   id        String   @id @default(cuid())
   siteId    String
   path      String
-  referrer  String?
-  utmSource String?
-  utmMedium String?
-  utmTerm   String?
-  country   String?
-  userAgent String?  @db.Text
   sessionId String?
+
+  // Identité visiteur
+  visitorHash String?   // sha256(SALT + siteId + ip + ua) — pour compter les uniques dans le dashboard
+  ip          String?   // IP brute — pour multi-device, réconciliation form, enrichissement. Purgée après 90j.
+  // Fingerprint device = hash(ua + screenW + screenH + pixelRatio + lang + tz)
+  // Permet de distinguer les devices derrière une même IP (entreprise/foyer)
+  deviceHash  String?
+
+  // Trafic source
+  referrer         String?
+  referrerDomain   String?   // domaine extrait du referrer
+  referrerCategory String?   // search / social / directory / direct / email / ads
+  utmSource        String?
+  utmMedium        String?
+  utmCampaign      String?
+  utmTerm          String?
+  utmContent       String?
+  gclid            String?   // Google Ads click ID
+  fbclid           String?   // Facebook click ID
+
+  // Browser / OS / Device (parsés via ua-parser-js côté serveur)
+  browserName    String?
+  browserVersion String?
+  osName         String?
+  osVersion      String?
+  deviceType     String?   // mobile, tablet, desktop
+  deviceVendor   String?
+  deviceModel    String?
+  isMobile       Boolean   @default(false)
+  isTablet       Boolean   @default(false)
+  isDesktop      Boolean   @default(false)
+
+  // Écran / Viewport (envoyés par le tracker)
+  screenWidth      Int?
+  screenHeight     Int?
+  viewportWidth    Int?
+  viewportHeight   Int?
+  devicePixelRatio Float?
+  colorDepth       Int?
+
+  // Locale
+  language       String?   // fr-FR, en-US
+  timezone       String?   // Europe/Paris
+  timezoneOffset Int?      // minutes vs UTC
+
+  // Réseau (NetworkInformation API côté client)
+  connectionType String?   // 4g, 3g, wifi, ethernet
+  effectiveType  String?   // slow-2g, 2g, 3g, 4g
+  saveData       Boolean?
+
+  // Géolocalisation (Cloudflare headers — gratuit, précision ville)
+  country    String?
+  region     String?   // code région CF : FR-ARA
+  city       String?
+  postalCode String?
+  latitude   Float?
+  longitude  Float?
+  continent  String?
+  asn        Int?      // Autonomous System Number
+  asnOrg     String?   // "OVH SAS", "Amazon.com"
+  isEuCountry Boolean  @default(false)
+
+  // Comportement (mis à jour via beacon session-end)
+  timeOnPage       Int?    // millisecondes
+  scrollDepthMax   Int?    // % scroll max atteint
+  interactionCount Int     @default(0)
+
+  // Filtrage — 2 booléens simples, pas d'enum, pas de cron
+  // isBot : détecté à l'ingestion (UA regex + signaux techniques). Définitif.
+  // interacted : mis à true quand le tracker envoie un beacon d'interaction.
+  //   Si le beacon n'arrive jamais → reste false → pas compté. On accepte ~1% de faux négatifs.
+  // Dashboard filtre : WHERE isBot = false AND interacted = true
+  isBot      Boolean @default(false)
+  interacted Boolean @default(false)
+
+  // Flags de détection (pour debug admin, pas pour scoring complexe)
+  botFlags   String[]   // raisons du flag bot : bot_ua, webdriver, zero_viewport, etc.
+
   createdAt DateTime @default(now())
 
   site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
   @@index([siteId, createdAt])
+  @@index([siteId, isBot, interacted, createdAt])
+  @@index([visitorHash, createdAt])
+  @@index([siteId, ip, createdAt])      // réconciliation multi-device + form linking
+  @@index([siteId, deviceHash, createdAt]) // compter les devices distincts par IP
+  @@index([sessionId])
   @@schema("analytics")
 }
 
@@ -193,11 +273,99 @@ model FormSubmission {
   email     String?
   phone     String?
   utmSource String?
+  sessionId String?
+
+  // Qualité (même logique que Pageview, simplifié)
+  quality      Int      @default(80)   // form submit = probablement humain, score de base plus élevé
+  qualityFlags String[]
+
+  // Lien vers Lead (F.3) — rempli au post-processing
+  leadId    String?
+
   createdAt DateTime @default(now())
 
   site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  lead Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
   @@index([siteId, createdAt])
+  @@index([sessionId])
+  @@index([leadId])
+  @@schema("analytics")
+}
+
+// ============================================================================
+// Form Schema — structure déclarative des formulaires par site (F.7)
+// ============================================================================
+// Permet de définir les champs attendus d'un formulaire sur un site donné,
+// et les views/agrégats contextuels à afficher dans le dashboard du client.
+
+model FormSchema {
+  id       String @id @default(cuid())
+  siteId   String
+  formName String  // "contact", "commande", "devis" — correspond à FormSubmission.formName
+
+  // Définition des champs structurés (JSON array)
+  // Ex: [{ key: "produit", label: "Produit", type: "enum", role: "category", values: ["poulet","dinde"] }]
+  fields   Json   @default("[]")
+
+  // Views contextuelles auto-générées dans le dashboard
+  // Ex: [{ name: "Top produits", groupBy: "produit", metric: "count" }]
+  views    Json   @default("[]")
+
+  // Valeur de conversion : "form_submit" (chaque submit = 1 conversion) | "calculated" (basé sur champ)
+  conversionType String @default("form_submit")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, formName])
+  @@schema("analytics")
+}
+
+// ============================================================================
+// Leads — identification des visiteurs par email/phone (F.3)
+// ============================================================================
+
+model Lead {
+  id         String   @id @default(cuid())
+  tenantId   String
+  siteId     String
+  email      String?
+  phone      String?
+  name       String?
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  sessions LeadSession[]
+  forms    FormSubmission[]
+  calls    SipCall[]
+
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@unique([tenantId, phone])
+  @@index([tenantId, siteId, lastSeenAt])
+  @@schema("analytics")
+}
+
+model LeadSession {
+  id           String   @id @default(cuid())
+  leadId       String
+  sessionId    String   // le sessionId du tracker
+  siteId       String
+  firstSeenAt  DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+  pageviewCount Int     @default(0)
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([leadId, sessionId])
+  @@index([sessionId])
   @@schema("analytics")
 }
 
@@ -212,11 +380,14 @@ model SipCall {
   duration  Int       @default(0)
   startedAt DateTime
   endedAt   DateTime?
+  leadId    String?
   createdAt DateTime  @default(now())
 
   site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  lead Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
   @@index([siteId, startedAt])
+  @@index([leadId])
   @@schema("analytics")
 }
 

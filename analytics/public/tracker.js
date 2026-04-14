@@ -1,13 +1,15 @@
-/* Veridian Analytics — tracker.js
- * Snippet a coller sur les sites clients :
+/* Veridian Analytics — tracker.js v2
+ * Snippet :
  *   <script async src="https://analytics/tracker.js" data-site-key="XXX"
  *           data-veridian-track="auto"></script>
  *
- * Ce qu'il fait :
- *   1. Page view automatique au chargement (+ SPA navigation via pushState)
- *   2. Intercepte les <form> submit (si data-veridian-track="form-name")
- *   3. Tracke les clics CTA : liens tel:, mailto:, et data-veridian-cta="nom"
- *   4. Lit les utm_* depuis l'URL et les envoie avec chaque event
+ * Design : simple, robuste, low-maintenance.
+ *   1. Pageview enrichi au chargement (screen, locale, réseau, signaux bot)
+ *   2. SPA navigation (pushState / popstate)
+ *   3. Interaction detection : dès qu'on détecte scroll/mousemove/click/touch/keypress
+ *      → 1 beacon pour marquer le pageview comme "interacted". C'est tout.
+ *   4. Session-end beacon au unload (timeOnPage, scrollDepthMax)
+ *   5. Form + CTA tracking
  */
 (function () {
   'use strict';
@@ -15,12 +17,17 @@
   var SCRIPT = document.currentScript;
   if (!SCRIPT) return;
   var SITE_KEY = SCRIPT.getAttribute('data-site-key');
-  if (!SITE_KEY) {
-    console.warn('[veridian] missing data-site-key');
-    return;
-  }
-  // Derive le endpoint analytics depuis le src du script.
+  if (!SITE_KEY) return;
   var BASE = new URL(SCRIPT.src).origin;
+  var DEBUG = new URLSearchParams(window.location.search).has('veridian_debug');
+
+  function log() {
+    if (DEBUG) console.log.apply(console, ['[veridian]'].concat(Array.prototype.slice.call(arguments)));
+  }
+
+  // ============================================================================
+  // Helpers
+  // ============================================================================
 
   function utmParams() {
     try {
@@ -28,14 +35,15 @@
       return {
         utmSource: p.get('utm_source'),
         utmMedium: p.get('utm_medium'),
+        utmCampaign: p.get('utm_campaign'),
         utmTerm: p.get('utm_term'),
+        utmContent: p.get('utm_content'),
+        gclid: p.get('gclid'),
+        fbclid: p.get('fbclid'),
       };
-    } catch (e) {
-      return {};
-    }
+    } catch (e) { return {}; }
   }
 
-  // Session id simple stocke en sessionStorage (expire a la fermeture d'onglet).
   function sessionId() {
     try {
       var k = '_veridian_sid';
@@ -45,167 +53,270 @@
         sessionStorage.setItem(k, s);
       }
       return s;
-    } catch (e) {
-      return null;
-    }
+    } catch (e) { return null; }
   }
 
   function post(path, body) {
     try {
-      var data = JSON.stringify(body);
-      // navigator.sendBeacon est le plus fiable au unload, sinon fetch.
-      var url = BASE + path;
-      if (navigator.sendBeacon) {
-        var blob = new Blob([data], { type: 'application/json' });
-        // sendBeacon n'autorise pas de headers custom → on utilise fetch keepalive.
-      }
-      fetch(url, {
+      fetch(BASE + path, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-site-key': SITE_KEY,
-        },
-        body: data,
+        headers: { 'Content-Type': 'application/json', 'x-site-key': SITE_KEY },
+        body: JSON.stringify(body),
         keepalive: true,
         mode: 'cors',
         credentials: 'omit',
-      }).catch(function () {
-        /* swallow */
-      });
-    } catch (e) {
-      /* noop */
-    }
+      }).then(function (r) {
+        if (DEBUG && r.ok) r.json().then(function (d) { log(path, d); });
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  function beacon(path, body) {
+    try {
+      // sendBeacon can't set headers → embed siteKey in body
+      var data = JSON.parse(JSON.stringify(body));
+      data._siteKey = SITE_KEY;
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(BASE + path, new Blob([JSON.stringify(data)], { type: 'application/json' }));
+      }
+      // Also try fetch as fallback
+      fetch(BASE + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-site-key': SITE_KEY },
+        body: JSON.stringify(body),
+        keepalive: true,
+        mode: 'cors',
+        credentials: 'omit',
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  // ============================================================================
+  // Device signals (envoyés avec chaque pageview)
+  // ============================================================================
+
+  function collectSignals() {
+    var nav = navigator;
+    var scr = screen || {};
+    var conn = nav.connection || nav.mozConnection || nav.webkitConnection;
+    return {
+      screen: { width: scr.width || 0, height: scr.height || 0, pixelRatio: window.devicePixelRatio || 1, colorDepth: scr.colorDepth || 0 },
+      viewport: { width: window.innerWidth || 0, height: window.innerHeight || 0 },
+      lang: nav.language || null,
+      tz: (function () { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return null; } })(),
+      tzOffset: new Date().getTimezoneOffset(),
+      connection: conn ? { type: conn.type || null, effectiveType: conn.effectiveType || null, saveData: conn.saveData || false } : null,
+      webdriver: nav.webdriver === true,
+      plugins: nav.plugins ? nav.plugins.length : 0,
+      hardwareConcurrency: nav.hardwareConcurrency || 0,
+      maxTouchPoints: nav.maxTouchPoints || 0,
+    };
+  }
+
+  // ============================================================================
+  // Pageview
+  // ============================================================================
+
+  var pageStart = null;
+  var pagePath = null;
+  var scrollMax = 0;
+  var interactions = 0;
+  var interactionSent = false;
+
+  function resetPage() {
+    pageStart = Date.now();
+    pagePath = window.location.pathname + window.location.search;
+    scrollMax = 0;
+    interactions = 0;
+    interactionSent = false;
   }
 
   function trackPageview() {
+    resetPage();
     var u = utmParams();
     post('/api/ingest/pageview', {
-      path: window.location.pathname + window.location.search,
+      path: pagePath,
       referrer: document.referrer || null,
-      utmSource: u.utmSource,
-      utmMedium: u.utmMedium,
-      utmTerm: u.utmTerm,
       sessionId: sessionId(),
+      utmSource: u.utmSource, utmMedium: u.utmMedium, utmCampaign: u.utmCampaign,
+      utmTerm: u.utmTerm, utmContent: u.utmContent,
+      gclid: u.gclid, fbclid: u.fbclid,
+      signals: collectSignals(),
     });
+    log('pageview', pagePath);
   }
 
-  // Pageview initial
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     trackPageview();
   } else {
     window.addEventListener('DOMContentLoaded', trackPageview);
   }
 
-  // SPA navigation (Next.js, React Router, etc.)
+  // SPA
   var _push = history.pushState;
   history.pushState = function () {
+    sendSessionEnd('navigate');
     _push.apply(this, arguments);
     setTimeout(trackPageview, 0);
   };
-  window.addEventListener('popstate', trackPageview);
+  window.addEventListener('popstate', function () {
+    sendSessionEnd('back');
+    trackPageview();
+  });
 
-  // Form tracking : sur submit d'un <form>, on envoie un FormSubmission.
-  // Opt-in via data-veridian-track="form-name" sur le <form>, OU attribut
-  // data-veridian-track="auto" sur le <script> lui-meme pour tout capturer.
+  // ============================================================================
+  // Interaction detection — simple. Dès qu'on voit un geste humain, on envoie
+  // un seul beacon. Pas de forensic, pas de validation de trajectoire.
+  // ============================================================================
+
+  function markInteracted(type) {
+    if (interactionSent) return;
+    interactionSent = true;
+    log('interacted', type);
+    post('/api/ingest/interaction', {
+      sessionId: sessionId(),
+      type: type,
+    });
+  }
+
+  // Scroll : 2+ events et 200+ px cumulés
+  var scrollTotal = 0;
+  var scrollEvents = 0;
+  var lastScrollY = window.scrollY || 0;
+  document.addEventListener('scroll', function () {
+    var cur = window.scrollY || 0;
+    scrollTotal += Math.abs(cur - lastScrollY);
+    lastScrollY = cur;
+    scrollEvents++;
+    interactions++;
+
+    // Update scroll depth
+    var docH = Math.max(document.body.scrollHeight || 0, document.documentElement.scrollHeight || 0);
+    var pct = docH > 0 ? Math.round(((cur + window.innerHeight) / docH) * 100) : 0;
+    if (pct > scrollMax) scrollMax = Math.min(100, pct);
+
+    if (scrollEvents >= 2 && scrollTotal >= 200) markInteracted('scroll');
+  }, { passive: true });
+
+  // Mousemove : 50+ px cumulés
+  var mouseTotal = 0;
+  var lastMX = null, lastMY = null;
+  document.addEventListener('mousemove', function (e) {
+    interactions++;
+    if (lastMX !== null) {
+      mouseTotal += Math.abs(e.clientX - lastMX) + Math.abs(e.clientY - lastMY);
+    }
+    lastMX = e.clientX;
+    lastMY = e.clientY;
+    if (mouseTotal >= 50) markInteracted('mousemove');
+  }, { passive: true });
+
+  // Click sur élément interactif (> 100ms après pageload)
+  document.addEventListener('click', function (e) {
+    interactions++;
+    if (pageStart && Date.now() - pageStart > 100) {
+      markInteracted('click');
+    }
+  }, { passive: true });
+
+  // Touch
+  var touchStartPos = null;
+  document.addEventListener('touchstart', function (e) {
+    var t = e.touches[0];
+    if (t) touchStartPos = { x: t.clientX, y: t.clientY };
+  }, { passive: true });
+  document.addEventListener('touchmove', function (e) {
+    interactions++;
+    if (!touchStartPos) return;
+    var t = e.touches[0];
+    if (!t) return;
+    var d = Math.sqrt(Math.pow(t.clientX - touchStartPos.x, 2) + Math.pow(t.clientY - touchStartPos.y, 2));
+    if (d > 30) markInteracted('touch');
+  }, { passive: true });
+
+  // Keypress (skip Tab/Escape)
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Tab' || e.key === 'Escape') return;
+    interactions++;
+    markInteracted('keypress');
+  }, { passive: true });
+
+  // ============================================================================
+  // Session-end beacon (timeOnPage, scrollDepthMax)
+  // ============================================================================
+
+  function sendSessionEnd(leftVia) {
+    if (!pageStart) return;
+    beacon('/api/ingest/session-end', {
+      sessionId: sessionId(),
+      lastPath: pagePath,
+      timeOnPage: Date.now() - pageStart,
+      scrollDepthMax: scrollMax,
+      interactionCount: interactions,
+      leftVia: leftVia || 'close',
+    });
+  }
+
+  window.addEventListener('beforeunload', function () { sendSessionEnd('close'); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') sendSessionEnd('close');
+  });
+
+  // ============================================================================
+  // Form tracking
+  // ============================================================================
+
   var autoCapture = SCRIPT.getAttribute('data-veridian-track') === 'auto';
 
   function serializeForm(form) {
     var out = {};
     try {
       var fd = new FormData(form);
-      fd.forEach(function (v, k) {
-        // Skip passwords et fichiers.
-        if (typeof v === 'string') out[k] = v;
-      });
+      fd.forEach(function (v, k) { if (typeof v === 'string') out[k] = v; });
     } catch (e) {}
     return out;
   }
 
-  document.addEventListener(
-    'submit',
-    function (e) {
-      var form = e.target;
-      if (!form || form.tagName !== 'FORM') return;
-      // Nom du formulaire : priorite au data-veridian-track explicite,
-      // sinon l'attribut name du <form>, sinon le pathname de la page.
-      // En mode auto on capture TOUT, le nom est derive automatiquement.
-      // Ex: /contact → "contact", /devis → "devis", / → "accueil"
-      var name =
-        form.getAttribute('data-veridian-track') ||
-        (autoCapture
-          ? form.getAttribute('name') ||
-            window.location.pathname.replace(/^\//, '').replace(/\/$/, '') ||
-            'accueil'
-          : null);
-      if (!name) return;
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form || form.tagName !== 'FORM') return;
+    var name = form.getAttribute('data-veridian-track') ||
+      (autoCapture ? form.getAttribute('name') || window.location.pathname.replace(/^\//, '').replace(/\/$/, '') || 'accueil' : null);
+    if (!name) return;
+    var payload = serializeForm(form);
+    var u = utmParams();
+    post('/api/ingest/form', {
+      formName: name, path: window.location.pathname, payload: payload,
+      email: payload.email || null,
+      phone: payload.phone || payload.tel || payload.telephone || null,
+      utmSource: u.utmSource, sessionId: sessionId(),
+    });
+  }, true);
 
-      var payload = serializeForm(form);
-      var u = utmParams();
-      post('/api/ingest/form', {
-        formName: name,
-        path: window.location.pathname,
-        payload: payload,
-        email: payload.email || null,
-        phone: payload.phone || payload.tel || payload.telephone || null,
-        utmSource: u.utmSource,
-      });
-    },
-    true,
-  );
+  // ============================================================================
+  // CTA click tracking
+  // ============================================================================
 
-  // CTA click tracking — tracke automatiquement :
-  //   1. Les elements avec data-veridian-cta="nom" (ex: <button data-veridian-cta="devis">)
-  //   2. Les liens tel: (clics sur un numero de telephone)
-  //   3. Les liens mailto: (clics sur un email)
-  // En mode auto (data-veridian-track="auto" sur le script), on tracke aussi
-  // les boutons avec role="button" ou type="submit" hors formulaire.
-  document.addEventListener(
-    'click',
-    function (e) {
-      // Remonte le DOM pour trouver l'element cliquable le plus proche
-      var el = e.target;
-      var maxDepth = 5;
-      while (el && maxDepth-- > 0) {
-        // 1. Attribut explicite data-veridian-cta
-        var ctaName = el.getAttribute && el.getAttribute('data-veridian-cta');
-        if (ctaName) {
-          post('/api/ingest/pageview', {
-            path: window.location.pathname,
-            referrer: 'cta:' + ctaName,
-            sessionId: sessionId(),
-            utmSource: utmParams().utmSource,
-          });
+  document.addEventListener('click', function (e) {
+    var el = e.target;
+    var d = 5;
+    while (el && d-- > 0) {
+      var cta = el.getAttribute && el.getAttribute('data-veridian-cta');
+      if (cta) {
+        post('/api/ingest/pageview', { path: window.location.pathname, referrer: 'cta:' + cta, sessionId: sessionId(), utmSource: utmParams().utmSource });
+        return;
+      }
+      if (el.tagName === 'A' && el.href) {
+        if (el.href.indexOf('tel:') === 0) {
+          post('/api/ingest/pageview', { path: window.location.pathname, referrer: 'cta:tel:' + el.href.replace('tel:', '').replace(/\s/g, ''), sessionId: sessionId(), utmSource: utmParams().utmSource });
           return;
         }
-
-        // 2. Lien tel: (clic sur numero de telephone)
-        if (el.tagName === 'A' && el.href) {
-          if (el.href.indexOf('tel:') === 0) {
-            var phone = el.href.replace('tel:', '').replace(/\s/g, '');
-            post('/api/ingest/pageview', {
-              path: window.location.pathname,
-              referrer: 'cta:tel:' + phone,
-              sessionId: sessionId(),
-              utmSource: utmParams().utmSource,
-            });
-            return;
-          }
-
-          // 3. Lien mailto:
-          if (el.href.indexOf('mailto:') === 0) {
-            post('/api/ingest/pageview', {
-              path: window.location.pathname,
-              referrer: 'cta:mailto',
-              sessionId: sessionId(),
-              utmSource: utmParams().utmSource,
-            });
-            return;
-          }
+        if (el.href.indexOf('mailto:') === 0) {
+          post('/api/ingest/pageview', { path: window.location.pathname, referrer: 'cta:mailto', sessionId: sessionId(), utmSource: utmParams().utmSource });
+          return;
         }
-
-        el = el.parentElement;
       }
-    },
-    true,
-  );
+      el = el.parentElement;
+    }
+  }, true);
 })();

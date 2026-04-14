@@ -229,7 +229,7 @@ async function computeCounts28d(siteId: string) {
     gscRows,
     gscAgg,
   ] = await Promise.all([
-    prisma.pageview.count({ where: { siteId, createdAt: { gte: since } } }),
+    prisma.pageview.count({ where: { siteId, createdAt: { gte: since }, isBot: false, interacted: true } }),
     prisma.formSubmission.count({
       where: { siteId, createdAt: { gte: since } },
     }),
@@ -238,7 +238,7 @@ async function computeCounts28d(siteId: string) {
     }),
     // Clics CTA : pageviews dont le referrer commence par "cta:" (tel:, mailto:, data-veridian-cta)
     prisma.pageview.count({
-      where: { siteId, createdAt: { gte: since }, referrer: { startsWith: 'cta:' } },
+      where: { siteId, createdAt: { gte: since }, referrer: { startsWith: 'cta:' }, isBot: false, interacted: true },
     }),
     prisma.gscDaily.count({ where: { siteId, day: { gte: sinceDay } } }),
     prisma.gscDaily.aggregate({
