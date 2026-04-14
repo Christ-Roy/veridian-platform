@@ -53,9 +53,12 @@ via `ssh prod-pub` + `docker compose pull && up -d` dans
 - [x] ~~CORS `navigator.sendBeacon` casse sur les sites clients~~ — fix :
   retiré sendBeacon (force credentials:include), gardé fetch avec
   keepalive:true + credentials:omit (2026-04-15)
-- [ ] **Ecart forms trackes vs forms envoyes** sur Morel (6 trackees, 2
-  delivrees Brevo). Verifier que le Worker Cloudflare appelle
-  `trackVeridianForm` apres envoi Brevo OK, pas avant
+- [ ] **Ecart forms Morel (6 vs 2)** — ROOT CAUSE TROUVEE : le site a
+  `data-veridian-track="auto"` + Worker server-to-server = double tracking.
+  Le tracker client intercepte le submit DOM AVANT Turnstile → forms fantomes.
+  **Fix** : retirer `data-veridian-track="auto"` dans
+  `www.morel-volailles.com/site/src/app/layout.tsx:82` (fichier déjà modifié
+  localement, à committer dans le repo Morel + redeploy CF Pages)
 - [ ] **CI e2e-staging flaky** `03-dashboard.spec.ts` — soit fixer le test,
   soit le marquer non-bloquant pour debloquer le deploy auto
 
