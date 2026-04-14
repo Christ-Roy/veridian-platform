@@ -1,12 +1,17 @@
 # Analytics — Vision & plan en langage naturel
 
+> ⚠️ **Pour la stratégie produit long terme (24-36 mois)** : voir
+> [`LONG-TERM-VISION.md`](./LONG-TERM-VISION.md) — pivot business des 3 flux
+> (sites vitrines / SaaS / infra), horizons temporels, règles non-négociables,
+> anti-patterns à bannir, articulation avec Prospection et Hub.
+>
 > Ce fichier est la source de vérité "pourquoi" de l'app Analytics. Toutes les
 > décisions techniques et de priorité doivent être cohérentes avec ce document.
 > Quand Robert dicte une nouvelle orientation, on met à jour ce fichier *avant*
 > de toucher au code ou au TODO. L'IDEAS.md à côté reçoit les propositions
 > hors sprint que Claude fait en avançant.
 >
-> Dernière mise à jour : 2026-04-11
+> Dernière mise à jour : 2026-04-14
 
 ## Ce que c'est, en une phrase
 
@@ -323,6 +328,15 @@ feature est une étape indépendante qu'on peut shipper sans casser le reste.
   (exemple : "votre trafic stagne, testez une campagne Ads").
 - **Rapport mensuel PDF**. Un bouton qui génère un PDF propre avec les
   métriques du mois, à envoyer au client en email récap.
+
+### Phase F.7 — Form schemas et views contextuelles
+
+Chaque client a des formulaires différents (Morel = commandes produits,
+Tramtech = demandes d'intervention, Apical = devis IT). Table `FormSchema`
+qui déclare les champs attendus par formName/siteId, et des `views`
+auto-rendues dans le dashboard (groupBy, agrégats). Claude peut auto-
+découvrir les champs à partir des premiers form submits et proposer un
+schema. Ça rend le funnel (F.3) pertinent par métier, pas juste pageview→form.
 
 ### Phase D — Si pertinent
 

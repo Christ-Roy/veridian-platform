@@ -1,14 +1,19 @@
 # Analytics — TODO sprint courant
 
-> **Lire avant de bosser sur Analytics** :
-> 1. [`VISION.md`](./VISION.md) — le "pourquoi" et la roadmap langage naturel
-> 2. Ce fichier — les checkboxes actionnables du sprint en cours
-> 3. [`IDEAS.md`](./IDEAS.md) — propositions Claude hors sprint (à reviewer)
-> 4. [`UI-REVIEW.md`](./UI-REVIEW.md) — file d'attente UI polish solo
+> **Lire avant de bosser sur Analytics** (ordre recommandé) :
+> 1. [`LONG-TERM-VISION.md`](./LONG-TERM-VISION.md) — **LA STRATÉGIE PRODUIT
+>    LONG TERME** : pourquoi Analytics est le pivot business, les 4 horizons
+>    temporels, les règles non-négociables, les anti-patterns à bannir. Chaque
+>    feature doit s'inscrire dans cette vision. À lire en priorité pour les
+>    décisions structurantes (schema, API, factorisation).
+> 2. [`VISION.md`](./VISION.md) — le "pourquoi" court terme et la roadmap phase par phase
+> 3. Ce fichier — les checkboxes actionnables du sprint en cours
+> 4. [`IDEAS.md`](./IDEAS.md) — propositions Claude hors sprint (à reviewer)
+> 5. [`UI-REVIEW.md`](./UI-REVIEW.md) — file d'attente UI polish solo
 >
 > Source de vérité strategique globale : [`../../TODO-LIVE.md`](../../TODO-LIVE.md)
 >
-> Dernière mise à jour : 2026-04-14 (ajout Phase F — Data quality & effet wow)
+> Dernière mise à jour : 2026-04-14 (F.1/F.3/F.4/F.7 implémentés — schema + quality + tracker + routes)
 
 ## État actuel
 
@@ -1146,6 +1151,74 @@ Paramètre `?mode=quick|full|nightly` sur l'endpoint.
 9. **F.5 (intégration skills Claude)** à la fin, une fois que F.1-F.6
    roulent.
 
+### F.7 — Form schemas et views contextuelles par client
+
+> **Contexte** : FormSubmission.payload est un Json libre. Morel envoie
+> `{nomComplet, objet, produit, category}`, un autre client enverra
+> `{company, budget, project_type}`. Sans schema déclaratif, impossible
+> de faire des breakdowns automatiques dans le dashboard sans coder du
+> custom à chaque client.
+
+#### Principe
+
+Table `FormSchema` (déjà dans Prisma) qui décrit pour un `formName`
+donné sur un `siteId` :
+- Les **champs attendus** avec type, label, et rôle sémantique
+  (`name`, `email`, `phone`, `category`, `money`, `text`, `enum`)
+- Les **views contextuelles** : agrégats auto-générés dans le dashboard
+  (`groupBy produit → count`, `avg(budget)`, etc.)
+
+#### Schema (déjà implémenté dans Prisma)
+
+```
+FormSchema {
+  siteId, formName,
+  fields: [
+    { key: "produit", label: "Produit commandé", type: "enum",
+      role: "category", values: ["poulet", "dinde", "pintade"] },
+    { key: "budget", label: "Budget estimé", type: "number",
+      role: "money", currency: "EUR" }
+  ],
+  views: [
+    { name: "Top produits", groupBy: "produit", metric: "count" },
+    { name: "Budget moyen", aggregate: "avg(budget)" }
+  ],
+  conversionType: "form_submit" | "calculated"
+}
+```
+
+#### Ce que ça débloque
+
+- [ ] Dashboard Morel affiche auto "Commandes par produit" (groupBy
+      `payload.produit`)
+- [ ] Dashboard d'un autre client affiche "Répartition par taille
+      d'entreprise" si le form a ce champ
+- [ ] Claude génère automatiquement les views pertinentes au
+      provisioning (skill analytics-provision)
+- [ ] Le funnel F.3 devient sensé métier : pas juste pageview→form
+      mais pageview→form "commande poulet" vs "devis dinde"
+
+#### Backend
+
+- [x] Table `FormSchema` dans Prisma (siteId + formName unique)
+- [ ] Endpoint `POST /api/admin/sites/:siteId/form-schemas` pour créer
+- [ ] Endpoint `GET /api/admin/sites/:siteId/form-schemas` pour lister
+- [ ] Endpoint `GET /api/forms/breakdown?siteId=X&formName=Y&groupBy=Z`
+      qui fait le groupBy dynamique sur `payload->>'Z'` avec count
+- [ ] Composant dashboard `FormBreakdownChart` qui lit les views d'un
+      FormSchema et rend les graphiques correspondants
+- [ ] Au provisioning, Claude propose des FormSchema basés sur les
+      champs détectés dans les premiers form submits (auto-discover)
+
+#### Mentions légales
+
+- [ ] Mettre à jour les mentions légales de `morel-volailles.com` avec :
+      "Veridian Analytics utilise un identifiant technique dérivé de
+      votre IP et navigateur, conservé 24 mois, pour distinguer les
+      visiteurs uniques. Aucun cookie n'est posé sur votre appareil."
+- [ ] Template de mention légale dans `analytics/docs/legal-template.md`
+      à coller sur chaque site client
+
 ### Métriques de succès Phase F
 
 - ✅ Taux de pageviews bot filtrés > 90% (vérifiable via manual check de
@@ -1164,7 +1237,32 @@ Paramètre `?mode=quick|full|nightly` sur l'endpoint.
 - ⏸️ **50+ fichiers untracked** dans le repo, à batcher en commits propres
   avant de push
 
-## Recently shipped (2026-04-11)
+## Recently shipped (2026-04-14)
+
+- ✅ **Schema Prisma enrichi** (F.1.0 + F.4.1 + F.3 + F.7) : Pageview avec
+  60+ champs (visitor hash, browser/OS/device parsed, geo, locale, réseau,
+  UTM complets, quality scoring, status pending/validated/abandoned/bot),
+  FormSchema pour views contextuelles, Lead/LeadSession pour funnel
+- ✅ **Quality scoring** (`lib/quality.ts`) : computeQuality() avec bot UA
+  regex (40+ patterns incluant crawlers IA), webdriver detection,
+  incohérences techniques, burst detection, ASN cloud, cohérence locale.
+  validateInteraction() pour mousemove/scroll/touch/click/keypress.
+  categorizeReferrer(). computeVisitorHash().
+- ✅ **Tracker.js v2** : payload enrichi (screen, viewport, locale, réseau,
+  signaux bot, UTM complets + gclid/fbclid), détection d'interaction humaine
+  (mousemove non-linéaire, scroll >= 200px, touch > 30px, click humain,
+  keypress variance), beacon session-end au unload (timeOnPage, scrollDepthMax),
+  mode debug `?veridian_debug=1`
+- ✅ **Routes ingestion enrichies** :
+  - `POST /api/ingest/pageview` refactoré (UA parsing, geo CF headers,
+    visitor hash, quality scoring, status pending/bot)
+  - `POST /api/ingest/interaction` (nouveau — valide interactions humaines,
+    passe pageview de pending à validated)
+  - `POST /api/ingest/abandoned` (nouveau — marque pageview sans interaction)
+  - `POST /api/ingest/session-end` (nouveau — timeOnPage, scrollDepthMax)
+  - `POST /api/ingest/form` enrichi avec sessionId
+
+### Précédemment shipped (2026-04-11)
 
 - ✅ Scaffold monorepo `analytics/` (Next.js 15 + Prisma + Auth.js v5)
 - ✅ Schema Prisma multitenant complet + GscDaily
