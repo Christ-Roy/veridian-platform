@@ -146,6 +146,68 @@ test.describe('Admin API end-to-end', () => {
     expect(body.site.siteKey).toMatch(/^sk_/);
   });
 
+  test('adds a member to the tenant', async ({ request }) => {
+    test.skip(!createdTenantId, 'tenant creation failed');
+    const res = await request.post(
+      `/api/admin/tenants/${createdTenantId}/members`,
+      {
+        headers: { 'x-admin-key': ADMIN_KEY },
+        data: { email: `member-${slug}@example.com`, role: 'MEMBER' },
+      },
+    );
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    expect(body.membership.role).toBe('MEMBER');
+    expect(body.membership.user.email).toBe(`member-${slug}@example.com`);
+  });
+
+  test('lists members of the tenant', async ({ request }) => {
+    test.skip(!createdTenantId, 'tenant creation failed');
+    const res = await request.get(
+      `/api/admin/tenants/${createdTenantId}/members`,
+      { headers: { 'x-admin-key': ADMIN_KEY } },
+    );
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    // Should have the original owner + the new member
+    expect(body.members.length).toBeGreaterThanOrEqual(2);
+    const emails = body.members.map((m: any) => m.user.email);
+    expect(emails).toContain(`${slug}@example.com`);
+    expect(emails).toContain(`member-${slug}@example.com`);
+  });
+
+  test('removes a member from the tenant', async ({ request }) => {
+    test.skip(!createdTenantId, 'tenant creation failed');
+    const res = await request.delete(
+      `/api/admin/tenants/${createdTenantId}/members?email=member-${slug}@example.com`,
+      { headers: { 'x-admin-key': ADMIN_KEY } },
+    );
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Verify member is gone
+    const listRes = await request.get(
+      `/api/admin/tenants/${createdTenantId}/members`,
+      { headers: { 'x-admin-key': ADMIN_KEY } },
+    );
+    const listBody = await listRes.json();
+    const emails = listBody.members.map((m: any) => m.user.email);
+    expect(emails).not.toContain(`member-${slug}@example.com`);
+  });
+
+  test('rejects adding member without email', async ({ request }) => {
+    test.skip(!createdTenantId, 'tenant creation failed');
+    const res = await request.post(
+      `/api/admin/tenants/${createdTenantId}/members`,
+      {
+        headers: { 'x-admin-key': ADMIN_KEY },
+        data: { role: 'MEMBER' },
+      },
+    );
+    expect(res.status()).toBe(400);
+  });
+
   test('soft deletes the tenant', async ({ request }) => {
     test.skip(!createdTenantId, 'tenant creation failed');
     const res = await request.delete(
