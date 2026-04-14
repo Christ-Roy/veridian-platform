@@ -21,10 +21,10 @@ import { checkIngestRateLimit, getClientIp } from '@/lib/ingest';
 // ============================================================================
 
 describe('rate limiting par IP', () => {
-  it('bloque après 20 requêtes de la même IP en 1 minute', () => {
+  it('bloque après 60 requêtes de la même IP en 1 minute', () => {
     const siteKey = 'test-rate-' + Date.now();
 
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 60; i++) {
       const req = new Request('http://localhost/api/ingest/pageview', {
         method: 'POST',
         headers: { 'x-forwarded-for': '1.2.3.99' },
@@ -33,12 +33,12 @@ describe('rate limiting par IP', () => {
       expect(result).toBeNull(); // autorisé
     }
 
-    // 21ème requête — doit être bloquée
-    const req21 = new Request('http://localhost/api/ingest/pageview', {
+    // 61ème requête — doit être bloquée
+    const req61 = new Request('http://localhost/api/ingest/pageview', {
       method: 'POST',
       headers: { 'x-forwarded-for': '1.2.3.99' },
     });
-    const result = checkIngestRateLimit(siteKey, req21);
+    const result = checkIngestRateLimit(siteKey, req61);
     expect(result).not.toBeNull();
     expect(result!.status).toBe(429);
   });
@@ -46,8 +46,8 @@ describe('rate limiting par IP', () => {
   it('autorise une IP différente même si la première est bloquée', () => {
     const siteKey = 'test-rate2-' + Date.now();
 
-    // Burn les 20 req de l'IP 1
-    for (let i = 0; i < 21; i++) {
+    // Burn les 60 req de l'IP 1
+    for (let i = 0; i < 61; i++) {
       const req = new Request('http://localhost', {
         headers: { 'x-forwarded-for': '10.0.0.1' },
       });

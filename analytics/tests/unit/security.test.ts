@@ -67,8 +67,8 @@ describe('ingest / checkIngestRateLimit', () => {
   });
 
   it('retourne une Response 429 au-dela de la limite', () => {
-    // Epuise la limite (100 par defaut).
-    for (let i = 0; i < 100; i++) {
+    // Epuise la limite (200 par defaut).
+    for (let i = 0; i < 200; i++) {
       ingestRateLimiter.check('flood-key');
     }
     const result = checkIngestRateLimit('flood-key');
