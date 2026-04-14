@@ -135,14 +135,25 @@ test.describe('Tenant status endpoint', () => {
 
   test('active pageviews apres ingestion', async ({ request }) => {
     // Ingest un pageview via x-site-key
+    const sessionId = 'e2e-status-' + Date.now();
     const ingest = await request.post('/api/ingest/pageview', {
       headers: {
         'Content-Type': 'application/json',
         'x-site-key': siteKey,
       },
-      data: { path: '/status-test', referrer: null },
+      data: { path: '/status-test', referrer: null, sessionId },
     });
     expect(ingest.status()).toBe(200);
+
+    // Marquer comme interacted (sinon le count filtre interacted=true)
+    const interact = await request.post('/api/ingest/interaction', {
+      headers: {
+        'Content-Type': 'application/json',
+        'x-site-key': siteKey,
+      },
+      data: { sessionId, type: 'scroll' },
+    });
+    expect(interact.status()).toBe(200);
 
     // Re-check status
     const res = await request.get(`/api/admin/tenants/${slug}/status`, {
