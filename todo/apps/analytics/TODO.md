@@ -1,1313 +1,220 @@
 # Analytics — TODO sprint courant
 
-> **Lire avant de bosser sur Analytics** (ordre recommandé) :
-> 1. [`LONG-TERM-VISION.md`](./LONG-TERM-VISION.md) — **LA STRATÉGIE PRODUIT
->    LONG TERME** : pourquoi Analytics est le pivot business, les 4 horizons
->    temporels, les règles non-négociables, les anti-patterns à bannir. Chaque
->    feature doit s'inscrire dans cette vision. À lire en priorité pour les
->    décisions structurantes (schema, API, factorisation).
-> 2. [`VISION.md`](./VISION.md) — le "pourquoi" court terme et la roadmap phase par phase
-> 3. Ce fichier — les checkboxes actionnables du sprint en cours
-> 4. [`IDEAS.md`](./IDEAS.md) — propositions Claude hors sprint (à reviewer)
+> **Lire avant de bosser sur Analytics** (ordre recommande) :
+> 1. [`LONG-TERM-VISION.md`](./LONG-TERM-VISION.md) — strategie produit long terme
+> 2. [`VISION.md`](./VISION.md) — le "pourquoi" court terme et la roadmap
+> 3. Ce fichier — les checkboxes actionnables
+> 4. [`IDEAS.md`](./IDEAS.md) — propositions Claude hors sprint (a reviewer)
 > 5. [`UI-REVIEW.md`](./UI-REVIEW.md) — file d'attente UI polish solo
 >
-> Source de vérité strategique globale : [`../../TODO-LIVE.md`](../../TODO-LIVE.md)
+> Source de verite strategique globale : [`../../TODO-LIVE.md`](../../TODO-LIVE.md)
 >
-> Dernière mise à jour : 2026-04-14 (F.1/F.3/F.4/F.7 implémentés — schema + quality + tracker + routes)
+> Derniere mise a jour : 2026-04-14
 
-## État actuel
+## Etat actuel
 
-- **Status** : 🟡 **PRIORITÉ ABSOLUE P0** — MVP en construction pour déploiement aux 3 premiers clients
-- **Instance dev** : `http://100.92.215.42:3100` (dev-server via Tailscale)
-- **Login dev** : `robert@veridian.site` / `test1234`
-- **Tenant admin dev** : `veridian` (role OWNER)
-- **URL prod cible** : `https://analytics.app.veridian.site` (pas encore déployé)
-- **Image Docker** : `analytics:poc-admin-local` (testée localement, pas push GHCR)
+- **Status** : 🟢 **EN PROD** — tracker v2 + bot detection + schema enrichi deployes
+- **URL prod** : `https://analytics.app.veridian.site`
+- **Dokploy compose ID** : `compose-synthesize-virtual-transmitter-i9bv43`
+- **Container** : `code-analytics-1` sur image `ghcr.io/christ-roy/analytics:latest`
+- **Image Docker** : build + push GHCR OK
+- **Tests** : 264 unit tests + 5 core E2E verts
+- **Auth** : Auth.js v5 credentials
+- **Env vars critiques** : `VISITOR_HASH_SALT`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` dans Dokploy
 
-### Data en DB (2026-04-11)
+### Data en DB
 
-| Tenant (slug) | Domaine | GSC rows 90j | Client réel ? |
+| Tenant (slug) | Domaine | GSC rows 90j | Client reel ? |
 |---|---|---|---|
 | `veridian` | veridian.site | 229 | Interne |
 | `arnaudcapitaine-com` | arnaudcapitaine.com | 15 | Interne |
 | `app-veridian-site` | app.veridian.site | 2 | Interne |
-| `tramtech-depannage-fr` | tramtech-depannage.fr | 2779 | ✅ **Client actif** |
-| `morel-volailles-com` | morel-volailles.com | 137 | ✅ **Client actif** |
-| ` ` (à créer) | apical-informatique.fr | - | ✅ **Client à provisionner** |
-
-## Sprint courant — Phase A (MVP déployable aux 3 clients)
-
-Objectif : livrer les dashboards aux 3 clients réels (Tramtech, Morel, Apical)
-avec une expérience scopée, gamifiée, et avec shadow marketing.
-
-### 1. Provisionner les 3 vrais clients
-
-- [ ] Confirmer que `tramtech-depannage-fr` est bien un tenant "client" et pas juste un tenant test
-- [ ] Confirmer que `morel-volailles-com` idem
-- [ ] Créer le tenant `apical-informatique` + site (domaine à confirmer avec Robert)
-- [ ] Créer un user client pour chacun (email Robert pour l'instant, change à la demande)
-- [ ] Attacher la propriété GSC pour Apical si elle existe
-- [ ] Sync GSC 90j pour chaque client → vérifier volumes
-
-### 2. Scope tenant strict dans les dashboards
-
-- [ ] Quand un user (non-admin) se loggue, les queries GSC/forms/calls/pageviews
-      sont automatiquement filtrées par son `tenantId` → liste de `siteId`
-- [ ] Robert (admin) garde l'accès multi-tenant : sélecteur de tenant dans le header
-- [ ] Tests e2e : login tramtech → ne voit QUE tramtech ; login veridian (admin)
-      → voit tout
-
-### 3. Page d'accueil gamifiée pour le client
-
-- [ ] Remplacer `/dashboard` par une page "Mon score Veridian"
-- [ ] Composant "Score de performance" (somme pondérée des services actifs)
-- [ ] Blocs service actif : trafic SEO, formulaires, appels, Google Ads, vitesse
-      → chaque bloc montre une métrique + tendance 28j + badge "actif"
-- [ ] Blocs service non actif : style muté avec CTA "contact@veridian.site
-      pour activer" (shadow marketing)
-- [ ] Pondération du score : décider une formule simple (à itérer)
-
-### 4. Skill Claude de provisioning
-
-- [ ] Créer un skill `~/.claude/skills/analytics-provision/` ou équivalent
-- [ ] Input : `{ nom, domaine, email client, numéro(s) appel, propriété GSC }`
-- [ ] Actions : create tenant → create site → attach GSC → sync initial →
-      génère snippet tracker → affiche le snippet à copier-coller
-- [ ] Doc dans le skill expliquant comment Robert l'appelle
-
-### 5. Call tracking basique
-
-- [ ] Choisir fournisseur : OVH voiceConsumption (déjà en place, gratuit)
-      vs Telnyx (plus moderne, payant) → **décision Robert attendue**
-- [ ] Script de sync : pull API → transform → POST `/api/ingest/call` avec
-      le `x-site-key` du client concerné
-- [ ] Mapping numéro → site (table `SipLineMapping` à ajouter ou via champ
-      `Site.trackedNumbers`)
-- [ ] Cron quotidien sur dev-server ou prod
-- [ ] Page `/dashboard/calls` scopée tenant → déjà existante, vérifier scope
-
-### 6. Doc d'intégration client
-
-- [ ] Créer `analytics/docs/integration.md`
-- [ ] Snippet tracker prêt à copier-coller (avec site-key en variable)
-- [ ] Comment taguer les formulaires (`data-veridian-track="contact"`)
-- [ ] Comment vérifier que le tracking fonctionne (devtools network tab)
-- [ ] Robert pourra copier-coller ça dans un mail au client
-
-### 7. Deploy prod
-
-- [ ] Dockerfile validé en build local (déjà fait)
-- [ ] Push image sur GHCR
-- [ ] Service Dokploy `analytics` sur VPS prod
-- [ ] DNS `analytics.app.veridian.site` → Traefik → container
-- [ ] **Env var `PUBLIC_TRACKER_URL=https://analytics.app.veridian.site`** (pour que le skill retourne le bon snippet URL prod dans `/status`)
-- [ ] Env var `ADMIN_API_KEY` (générer une nouvelle pour la prod, ≠ dev)
-- [ ] Env var `DATABASE_URL` sur un Postgres dédié prod
-- [ ] Env var `AUTH_SECRET` (nouveau, pas celui de dev)
-- [ ] Seed admin Robert + migration initiale
-- [ ] Badge BETA dans le header (pour les clients)
-- [ ] Mettre à jour `~/.claude/skills/analytics-provision/SKILL.md` avec la nouvelle BASE URL + nouvelle ADMIN_API_KEY prod
-
-## Phase F — Data quality & effet wow (ajoutée 2026-04-14)
-
-> **Contexte** : sur le site Morel Volailles, on a branché le tracking Veridian
-> server-to-server et on s'est rendu compte de deux choses :
-> 1. Les métriques risquent d'être polluées par les bots même après les filtres
->    UA côté tracker — on a pas de garantie côté serveur.
-> 2. Il n'existe aucune boucle de feedback qui dit à Robert/Claude "ce site
->    n'est pas bien branché, voilà ce qui manque". Aujourd'hui on livre à
->    l'aveugle, on croise les doigts, on regarde 3 semaines plus tard.
->
-> Cette Phase F **transforme Veridian Analytics en outil qui garantit la
-> qualité de la data entrante et qui force Robert à livrer des sites
-> proprement optimisés**. C'est le vrai moat concurrentiel vs GA4/Plausible.
-> Ordre d'exécution recommandé : F.1 → F.2 → F.3 (chaque step débloque le
-> suivant et on peut shipper en intermédiaire).
-
-### F.1 — Contrôles qualité à l'ingestion (priorité P0)
-
-Objectif : garantir que la data stockée est de la data humaine, taguer le
-niveau de confiance sur chaque event, et exposer ce niveau dans le
-dashboard pour que Robert et ses clients aient une métrique "fiabilité".
-
-**Tolérance à l'erreur définie par Robert (2026-04-14, durci) :**
-
-**Règle d'or : PAS D'INTERACTION = PAS COMPTÉ.** Un pageview sans aucun
-signe d'activité humaine réelle est traité comme un bot ou un bug de
-tracking. On préfère sous-compter le trafic que surcompter des bots.
-
-- ✅ **Bots grotesques** (crawlers connus, headless non-stealth, UA bot,
-  webdriver, burst IP, UA vs screen incohérents) → filtrés à 100%, zéro
-  tolérance, jamais comptés même partiellement.
-- ✅ **Bots headless stealth** (Puppeteer/Playwright stealth plugin,
-  BrightData IPs résidentielles, `webdriver` patché à false) → ciblés par
-  **exigence d'interaction humaine organique** (voir F.1.5). On accepte
-  de rater les bots qui simulent parfaitement un humain (rares, coûteux),
-  on attrape tous les autres.
-- ✅ **Humains qui ne font rien** (pageview sans interaction, fermeture
-  en < 10s sans scroll/clic) → **considérés comme bots ou bugs de
-  tracking**, non comptés. Robert assume cette décision : un visiteur
-  qui n'interagit pas n'a aucune valeur business et ressemble trop à un
-  bot pour être distingué fiablement.
-- ❌ **Zone grise** : un humain qui ouvre un onglet en arrière-plan pour
-  lire plus tard → passera en "no_interaction" et ne sera pas compté.
-  Acceptable, c'est un faux négatif rare et sans valeur métier.
-
-#### F.1.0 — Visiteurs uniques (décision Robert 2026-04-14)
-
-**Décision tranchée** : hash **stable sans salt rotatif** pour maximiser
-la précision cross-day/cross-month et éviter de surcompter les visiteurs
-qui reviennent (entourage du client qui regarde le site plusieurs fois
-par curiosité → 25% d'erreur sans hash stable, inacceptable pour la
-crédibilité produit).
-
-Formule :
-```
-visitorHash = sha256(siteId + ip + userAgent)
-```
-
-- ❌ Pas de salt journalier
-- ❌ Pas de salt mensuel
-- ✅ Hash stocké en DB dans `Pageview.visitorHash` (String, indexed)
-- ✅ Aucune IP brute stockée (seulement le hash)
-- ✅ Retention Pageview : 24 mois puis purge auto (cron) → au-delà,
-  agrégats seulement
-
-**Justification Robert** : pas de DPO ni client assez gros pour déclencher
-un audit CNIL. Le gain en précision (vrais uniques cross-day) dépasse
-largement le risque juridique à l'échelle actuelle. Si un jour on monte
-en taille avec des clients PME à DPO, on refactore vers un salt rotatif —
-en attendant, priorité à la qualité de data.
-
-À documenter dans les mentions légales de chaque site client :
-"Veridian Analytics utilise un identifiant technique dérivé de votre IP
-et navigateur, conservé 24 mois, pour distinguer les visiteurs uniques.
-Aucun cookie n'est posé sur votre appareil." Suffisant.
-
-Côté dashboard :
-- Home : `87 visiteurs uniques aujourd'hui · 245 pages vues · 2.8 pages/visiteur`
-- Breakdown : uniques / jour / semaine / mois / trimestre (via
-  `countDistinct('visitorHash')` sur la fenêtre)
-- Badge "% humains vérifiés" basé sur le quality score (voir F.1 suite)
-
-#### Backend — schema
-
-- [ ] Ajouter au schema Prisma :
-  - `Pageview.quality` (`Int 0-100`) — score de confiance humain/bot
-  - `Pageview.qualityFlags` (`String[]`) — liste des flags levés
-    (`missing_referrer`, `no_interaction`, `bot_ua_regex`, `dns_over_tor`,
-    `webdriver_detected`, `rapid_session_burst`, `headless_signals`, …)
-  - `Pageview.ipHash` (`String?`) — hash SHA-256 du IP + salt pour
-    détecter les bursts sans stocker l'IP réelle (RGPD-friendly)
-  - `Pageview.tlsFingerprint` (`String?`) — empreinte TLS envoyée par
-    Cloudflare (optionnel, dépend du proxy)
-  - Mêmes champs dupliqués sur `FormSubmission`, `SipCall` (dans la mesure
-    du possible — un form submit a déjà un humain derrière mais peut être
-    un spam bot)
-- [ ] Migration + backfill : marquer `quality=50` sur les events pré-F.1.
-- [ ] Index composite `(tenantId, siteId, quality)` pour pouvoir filtrer
-      rapidement sur "pageviews humains uniquement".
-
-#### Backend — ingestion `/api/ingest/pageview`
-
-- [ ] Extraire une fonction `computeQuality(event, req)` qui calcule un
-      score 0-100 basé sur :
-  - **Regex UA bot étendue** (−100 si match, `bot_ua_regex` flag,
-    jamais compté) — crawlers IA inclus :
-    `gptbot`, `chatgpt-user`, `claudebot`, `claude-web`, `perplexitybot`,
-    `cohere`, `anthropic`, `youbot`, `applebot-extended`, `bytespider`,
-    `ccbot`, `archive_org`, `ahrefsbot`, `semrushbot`, `mj12bot`,
-    `dotbot`, `blexbot`, `rogerbot`, `screaming frog`, `sitebulb`,
-    `httpclient`, `python-requests`, `curl`, `wget`, `go-http-client`,
-    `httpx`, `scrapy`, `phantomjs`, `headlesschrome` (sans stealth),
-    `puppeteer`, `playwright`, `selenium`, `chromedriver`, `webdriver`,
-    `okhttp`, `jakarta`, `axios/`, `node-fetch`
-  - **`navigator.webdriver`** présent dans le payload → −100 (jamais
-    compté)
-  - **Incohérences techniques impossibles chez un humain** :
-    - `viewport.width === 0` OU `screen.width === 0` → −100
-    - `plugins.length === 0` sur Chrome desktop hors mobile → −80
-    - `hardwareConcurrency === 1` sur desktop → −70 (vrais desktop = 2+)
-    - `maxTouchPoints === 0` sur device UA mobile → −100 (faux mobile)
-    - `devicePixelRatio === 0` ou négatif → −100
-    - `webGL` absent alors que `canvas` présent → −60 (headless partiel)
-  - **Burst IP / visitorHash** : > 10 events du même visitorHash en < 60s
-    → −80, `rapid_burst` flag
-  - **ASN cloud hyperscale** (AWS, GCP, Azure, OVH, Hetzner, DO, Linode)
-    → −40, `cloud_asn`. Pas −100 car VPN légitimes.
-  - **Cohérence locale** : `country=FR` + `lang=zh-CN` + `tz=Asia/Shanghai`
-    → −30, `locale_mismatch`
-  - **Language header `en-US` sur un site français**, **Timezone `UTC`
-    en plein milieu de la journée française** → signaux faibles, −10 chacun
-- [ ] Score < 40 → event stocké mais **jamais compté** dans les
-      métriques publiques (visible admin debug uniquement)
-- [ ] Score ≥ 40 MAIS `no_interaction` flag → **pas compté non plus**
-      (voir F.1.5 interaction obligatoire)
-- [ ] Score ≥ 40 ET interaction confirmée → compté.
-
-#### F.1.5 — Interaction humaine obligatoire (règle d'or)
-
-**Principe** : un pageview n'est **validé** qu'après confirmation d'une
-activité humaine organique. Tant qu'il n'y a pas d'interaction, le
-pageview est en `status='pending'` et n'apparaît nulle part.
-
-##### Signaux d'interaction acceptés
-
-Au moins UN de ces signaux dans les 60s suivant le pageview :
-
-- **Mouvement de souris réel** : trajectoire non-linéaire (coefficient
-  de courbure > seuil), au moins 50px cumulés, avec variations
-  d'accélération (pas de vitesse constante parfaite)
-- **Scroll significatif** : > 15% de la page OU > 200px cumulés, sur
-  au moins 2 events distincts (pas un scroll instantané programmé)
-- **Touch réel** : `touchstart` + `touchmove` avec > 30px de delta,
-  pression `force > 0` si dispo (Force Touch)
-- **Clic humain** : clic à coordonnées non-parfaitement-centrées sur
-  un élément interactif (`button`, `a`, `input`) avec délai
-  pré-click > 50ms depuis hover
-- **Saisie clavier** : au moins 1 keypress qui ne soit pas
-  `Tab`/`Escape`/`Enter` seul (ces touches sont utilisées par des
-  scripts automatiques)
-- **Focus sur un input** avec saisie non-instantanée (délai entre
-  focus et premier keypress > 100ms)
-
-##### Signaux d'interaction rejetés (bots simulant)
-
-- **Scroll unique de N px en 1 event** (bot programmé) → flag
-  `scroll_programmatic`, non compté
-- **Mouvement souris en ligne droite parfaite** (delta X et Y
-  proportionnels parfaitement sur toute la trajectoire) → flag
-  `cursor_robotic`, non compté
-- **Premier clic à < 100ms du pageview** → bot, flag `instant_click`,
-  non compté
-- **Clic à pixel-perfect centre** d'un élément (le bot lit le DOM
-  pour calculer) → flag `centered_click`, suspect, −30
-- **Vitesse de frappe trop régulière** (variance des intervalles
-  entre keypress < 20ms) → bot, flag `typing_robotic`
-
-##### Implémentation tracker
-
-- [ ] Le tracker envoie immédiatement le pageview mais avec
-      `status: 'pending'`
-- [ ] Le tracker **observe** mousemove/scroll/touch/keydown/click
-      pendant 60s
-- [ ] À la première interaction "humaine organique" qualifiée → beacon
-      `POST /api/ingest/interaction` avec `sessionId`, `pageviewId`,
-      type d'interaction + signature (ex: pour mousemove, échantillon de
-      points pour prouver la non-linéarité)
-- [ ] Si aucune interaction dans 60s → beacon `POST /api/ingest/abandoned`
-      pour marquer le pageview comme `no_interaction`
-
-##### Implémentation serveur
-
-- [ ] `Pageview.status` : `pending` (défaut) → `validated` (après
-      interaction) | `abandoned` (pas d'interaction 60s) | `bot`
-      (quality < 40)
-- [ ] Cron toutes les 2 min qui passe les `pending` > 90s à `abandoned`
-      (safety net si le beacon `abandoned` n'est pas reçu)
-- [ ] Compteurs dashboard filtrent sur `status = 'validated'` par défaut
-- [ ] Toggle admin "Inclure pageviews abandonnés" pour debug
-
-##### Validation de la qualité d'interaction (côté serveur)
-
-- [ ] Analyse statistique des signaux reçus dans la requête
-      `/api/ingest/interaction` :
-  - Mouvements souris : calcul de la courbure, variance de vitesse,
-    nombre d'inflexions → score de "naturalité"
-  - Scrolls : intervalles entre events, vitesse → naturel ou robotique
-- [ ] Score d'interaction < seuil → downgrade le pageview à
-      `status = 'abandoned'` (interaction détectée mais suspecte)
-
-#### Backend — post-processing
-
-- [ ] Cron toutes les 10 min qui recalcule le score des sessions récentes
-      (on reconnaît un bot avec plus de recul : session d'1 page sans
-      interaction → `no_interaction` flag, score baisse)
-- [ ] Cron quotidien qui purge les events `quality < 20` de plus de 30j
-      (on garde la trace 30j pour debug puis poubelle)
-
-#### Réponse API enrichie
-
-- [ ] `POST /api/ingest/pageview` renvoie désormais `{ ok, id, quality,
-      qualityFlags }` au lieu de juste `{ ok, id }`. Le tracker JS peut
-      logger en debug côté browser si `?veridian_debug=1`.
-- [ ] Idem pour `/api/ingest/form` : le worker Morel recevra `quality: 85`
-      dans la réponse et pourra décider de logguer ou pas.
-
-#### Dashboard — "Score de confiance"
-
-- [ ] Nouvelle metric dans `/dashboard` : **% humains vérifiés** (pageviews
-      avec quality ≥ 40 / total). Affiché à côté du compteur total.
-- [ ] Toggle "Inclure les pageviews douteux" (desactivé par défaut) pour
-      que le client voit ce qui est filtré.
-- [ ] Page `/dashboard/data-quality` (role SUPERADMIN) qui liste les
-      sessions suspectes récentes + leurs flags, pour que Robert puisse
-      vérifier que le filtre ne rejette pas des vrais humains.
-
-### F.2 — API d'audit qualité d'un site client
-
-Objectif : Claude (via skill `optimize-site` + un nouvel appel Veridian)
-peut lancer un scan automatique d'un site client et recevoir une checklist
-scorée. Boucle de feedback parfaite : je code → je lance l'audit → je vois
-ce qui manque → je corrige.
-
-#### Endpoint `POST /api/admin/sites/:siteId/audit`
-
-- [ ] Déclenche un audit serveur complet (playwright headless + fetches HTTP)
-      sur le domaine du site
-- [ ] Retourne un **rapport JSON structuré** :
-  ```json
-  {
-    "siteId": "cmnutiyp9000vuxnoudvrjzy2",
-    "domain": "morel-volailles.com",
-    "auditedAt": "2026-04-14T17:45:00Z",
-    "score": 78,
-    "checks": [
-      { "id": "tracker_loaded", "ok": true, "severity": "critical", "detail": "tracker.js chargé avec site-key valide" },
-      { "id": "tracker_key_match", "ok": true, "severity": "critical", "detail": "data-site-key correspond bien au site en DB" },
-      { "id": "tracker_bot_filter", "ok": true, "severity": "high", "detail": "Filtre UA + webdriver + interaction détecté" },
-      { "id": "meta_title_unique_per_page", "ok": false, "severity": "high", "detail": "2 pages ont le même title : /contact et /mentions-legales" },
-      { "id": "meta_description_unique", "ok": true, "severity": "high" },
-      { "id": "canonical_present", "ok": true, "severity": "high" },
-      { "id": "canonical_correct_domain", "ok": true, "severity": "critical" },
-      { "id": "jsonld_organization", "ok": true, "severity": "medium" },
-      { "id": "jsonld_localbusiness", "ok": true, "severity": "medium" },
-      { "id": "jsonld_breadcrumb_on_slugs", "ok": true, "severity": "medium" },
-      { "id": "jsonld_product_on_slugs", "ok": true, "severity": "medium" },
-      { "id": "jsonld_valid_schema", "ok": false, "severity": "high", "detail": "Schema Markup Validator renvoie 2 warnings sur /produits/poulet" },
-      { "id": "images_have_alt", "ok": false, "severity": "medium", "detail": "3 images sans alt descriptif : /images/hero/fresh-poultry-1.jpg, ..." },
-      { "id": "images_under_500kb", "ok": true, "severity": "low" },
-      { "id": "sitemap_present", "ok": true, "severity": "critical" },
-      { "id": "sitemap_all_pages_referenced", "ok": true, "severity": "high" },
-      { "id": "robots_txt_valid", "ok": true, "severity": "medium" },
-      { "id": "https_redirect", "ok": true, "severity": "critical" },
-      { "id": "forms_have_turnstile", "ok": true, "severity": "high", "detail": "Turnstile détecté sur /contact" },
-      { "id": "forms_backend_validates_mx", "ok": "unknown", "severity": "high", "detail": "Impossible à vérifier sans soumettre un form" },
-      { "id": "tracker_tests_not_polluting", "ok": true, "severity": "high", "detail": "Aucun event de test détecté avec UA `DryRun` récent" },
-      { "id": "lighthouse_perf_mobile", "ok": true, "severity": "medium", "detail": "Score 84 / cible > 80" },
-      { "id": "lighthouse_a11y", "ok": true, "severity": "medium", "detail": "Score 92" },
-      { "id": "favicon_multi_size", "ok": true, "severity": "low" },
-      { "id": "404_customized", "ok": true, "severity": "low" },
-      { "id": "legal_mentions_present", "ok": true, "severity": "critical" }
-    ],
-    "nextSteps": [
-      "2 titres dupliqués → corriger /contact vs /mentions-legales",
-      "3 images sans alt dans /images/hero → ajouter alt descriptif",
-      "JSON-LD Product sur /produits/poulet a 2 warnings → checker avec validator.schema.org"
-    ],
-    "passedCritical": true,
-    "blockingIssues": [],
-    "recommendations": [...]
-  }
-  ```
-- [ ] `severity` : `critical` (bloquant livraison), `high`, `medium`, `low`
-- [ ] `blockingIssues` = liste des checks `critical` en failed
-- [ ] Le score = moyenne pondérée par severity
-- [ ] Temps d'exécution cible < 60s (parallélisé : fetch pages,
-      lighthouse CI, playwright pour JS, validator.schema.org)
-
-#### Implémentation backend
-
-- [ ] Module `lib/audit/checks/` avec un fichier par check (`tracker-loaded.ts`,
-      `meta-uniqueness.ts`, `jsonld-valid.ts`, etc.) → permet d'ajouter
-      facilement de nouveaux checks
-- [ ] Chaque check exporte `{ id, severity, run(ctx): CheckResult }`
-- [ ] `ctx` contient : HTML de chaque page du sitemap, `$` cheerio,
-      browser playwright partagé, DB access (pour vérifier que le
-      `data-site-key` correspond au siteId audité)
-- [ ] Un `AuditRun` table Prisma stocke chaque audit + son résultat :
-  - `id`, `siteId`, `startedAt`, `finishedAt`, `score`, `checksJson`,
-    `triggeredBy` (user / skill / cron)
-- [ ] Retention : 30 derniers audits par site, au-delà purge auto
-
-#### Endpoint connexe `GET /api/admin/sites/:siteId/audit/latest`
-
-- [ ] Retourne le dernier audit + diff avec l'avant-dernier (new fails, new
-      passes) → utile pour voir l'évolution après un fix
-
-#### Intégration skill `optimize-site`
-
-- [ ] Le skill expose `/optimize-site audit <domain>` qui appelle
-      `POST /api/admin/sites/:siteId/audit` via le tenant correspondant au
-      domain, affiche les résultats formatés, et propose des corrections
-      automatiques pour les `high`/`medium` si possible
-- [ ] Le skill `create-site` dans son étape finale lance un audit et
-      refuse de "livrer" si `passedCritical === false`
-- [ ] Fallback si Analytics non dispo : le skill fait les checks côté
-      local sans scoring DB
-
-#### Dashboard — nouvelle page `/dashboard/audit`
-
-- [ ] Liste des audits récents du tenant (role MEMBER : son tenant,
-      role SUPERADMIN : tous)
-- [ ] Bouton "Lancer un audit maintenant" → déclenche l'endpoint, affiche
-      résultat en live (streaming ou polling)
-- [ ] Historique des scores sur 90j (graph line) pour montrer au client
-      l'amélioration continue de son site
-- [ ] Pour le MEMBER (client final) : vue simplifiée "Votre site est à
-      jour ✅" ou "3 améliorations possibles — demandez à Veridian"
-
-### F.3 — Funnel de conversion + user linking (effet wow)
-
-Objectif : Robert peut dire au client "regarde, cette personne est venue
-3 fois en 10 jours, a visité /produits/poulet puis /produits/dinde, puis
-a rempli ton form commande pigeon — voici son mail pour la rappeler".
-Sans cookie tracking, sans consent banner, sans GA4.
-
-#### Principe : linking par email/phone, pas par cookie
-
-- **Session anonyme** : on garde le `sessionId` en sessionStorage (expire
-  à la fermeture d'onglet). C'est ce qu'on fait déjà.
-- **Quand un form submit arrive** : on a l'email et/ou phone. On lie TOUS
-  les pageviews de cette session à ce `Lead` (table à créer).
-- **Quand un même email revient plus tard** : si pendant la session il
-  remplit un autre form ou qu'il s'identifie d'une autre manière
-  (ex: retour via magic link mail), on relie la nouvelle session au
-  même `Lead`.
-- **Pas de cookie cross-session**. Si l'utilisateur revient sans se
-  réidentifier, sa nouvelle session est anonyme. C'est ok : on perd en
-  précision mais on reste 100% RGPD.
-
-#### Schema
-
-- [ ] Nouvelle table `Lead` :
-  ```prisma
-  model Lead {
-    id         String   @id @default(cuid())
-    tenantId   String
-    siteId     String
-    email      String?
-    phone      String?
-    name       String?
-    firstSeenAt DateTime
-    lastSeenAt  DateTime
-    sessions   LeadSession[]
-    forms      FormSubmission[]
-    calls      SipCall[]
-    createdAt  DateTime @default(now())
-    @@unique([tenantId, email])
-    @@unique([tenantId, phone])
-    @@index([tenantId, siteId, lastSeenAt])
-  }
-
-  model LeadSession {
-    id          String   @id @default(cuid())
-    leadId     String
-    sessionId  String   // le sessionId du tracker
-    siteId     String
-    firstSeenAt DateTime
-    lastSeenAt  DateTime
-    pageviewCount Int    @default(0)
-    @@unique([leadId, sessionId])
-    @@index([sessionId])
-  }
-  ```
-- [ ] Ajouter `Pageview.sessionId` (déjà présent) et `FormSubmission.sessionId`
-      (à vérifier) pour pouvoir faire le join
-- [ ] À l'arrivée d'un `FormSubmission` ou `SipCall` :
-  1. Cherche un Lead existant avec même `email` ou `phone` sur le tenant
-  2. S'il existe → lie le submit + crée une `LeadSession` si pas déjà
-     présente
-  3. Sinon crée un nouveau Lead + LeadSession
-  4. Rapatrie dans la `LeadSession` TOUS les Pageviews de ce `sessionId`
-
-#### Dashboard — nouvelle page `/dashboard/leads`
-
-- [ ] Liste des leads récents avec colonnes : name/email, #sessions,
-      #pageviews total, dernier form, statut (new / revenu / converti)
-- [ ] Clic sur un lead → timeline complète de ses sessions, avec pour
-      chaque session : date, durée, pages visitées en ordre, form ou call
-      final si présent
-- [ ] Funnel visualisé : "3 visites avant conversion", "pages qui
-      convertissent le plus" (dernière page visitée avant form submit)
-- [ ] Export CSV des leads (nom, email, phone, last visit, total sessions,
-      pages clés visitées) pour que le client puisse relancer
-
-#### Funnel de conversion générique
-
-- [ ] Nouvelle page `/dashboard/funnel` : configurable, Robert ou le client
-      définit 3-5 étapes (ex: `/ → /produits → /produits/* → /contact →
-      form submit`)
-- [ ] Calcule pour chaque étape : # sessions qui ont atteint cette étape,
-      taux de drop-off, temps moyen entre étapes
-- [ ] Segmentable par UTM source, referrer, device, country (si IP
-      geo-lookup est activé, gratuit via Cloudflare header)
-
-#### Relance automatique (bonus pour phase F.3+)
-
-- [ ] Bouton "Relancer ce lead" sur la fiche lead → ouvre un template
-      Brevo pré-rempli avec contexte de la session (pages visitées)
-- [ ] Trigger automatique : si un lead a submit un form "commande" il y a
-      > 48h et qu'on n'a rien marqué comme "converti", envoyer un rappel
-      auto via Brevo
-
-#### Privacy & RGPD
-
-- [ ] Page `/legal/data` côté tenant qui documente EXACTEMENT ce qu'on
-      collecte, pourquoi, combien de temps, comment supprimer
-- [ ] Endpoint `DELETE /api/admin/leads/:id` pour droit à l'oubli RGPD
-- [ ] Retention par défaut : 24 mois après dernière interaction, puis purge
-      auto (configurable par tenant)
-- [ ] Anonymisation : si un tenant perd son compte Veridian, ses leads sont
-      anonymisés (nom/email/phone remplacés par hash)
-- [ ] Pas de consent banner requis si :
-  - On n'utilise QUE sessionStorage (pas de cookie)
-  - On anonymise l'IP (on stocke un hash salé, pas l'IP brute)
-  - On ne lie à un lead QUE sur action explicite de l'utilisateur
-    (remplir un form = consentement implicite au traitement de ses data)
-  - Mentions claires dans les mentions légales du site
-
-### F.4 — Exploitation maximale du tracking (data riche en DB)
-
-Philosophie : **stocker TOUT ce qu'on peut capter** à chaque pageview,
-quitte à ne pas tout afficher tout de suite dans l'UI. L'UI viendra
-après, on ne veut pas être bloqués par du refactor schema dans 6 mois.
-
-#### F.4.1 — Schema Pageview enrichi
-
-- [ ] Ajouter à `Pageview` (migration Prisma) :
-  ```prisma
-  // Identité technique
-  visitorHash       String   // sha256(siteId+ip+ua), stable
-  sessionId         String   // déjà présent, sessionStorage
-  ipHash            String?  // déprécié, remplacé par visitorHash
-
-  // Browser / OS / Device (parsés via ua-parser-js côté serveur)
-  browserName       String?  // Chrome, Safari, Firefox, Edge, Opera, Samsung
-  browserVersion    String?  // "121.0"
-  browserEngine     String?  // Blink, Gecko, WebKit
-  osName            String?  // Windows, macOS, iOS, Android, Linux
-  osVersion         String?  // "14.5"
-  deviceType        String?  // mobile, tablet, desktop, tv, wearable
-  deviceVendor      String?  // Apple, Samsung, Google, …
-  deviceModel       String?  // iPhone 14 Pro, SM-S911B, Pixel 8
-  isMobile          Boolean  @default(false)
-  isTablet          Boolean  @default(false)
-  isDesktop         Boolean  @default(false)
-  isBot             Boolean  @default(false)  // flag UA-bot détecté
-
-  // Écran / Viewport
-  screenWidth       Int?     // envoyé par tracker
-  screenHeight      Int?
-  viewportWidth     Int?
-  viewportHeight    Int?
-  devicePixelRatio  Float?   // 1, 2, 3 (Retina)
-  colorDepth        Int?     // 24, 30, 48
-  orientation       String?  // portrait / landscape
-
-  // Locale
-  language          String?  // fr-FR, en-US
-  languages         String[] // toutes les prefs navigateur
-  timezone          String?  // Europe/Paris, America/New_York
-  timezoneOffset    Int?     // minutes vs UTC
-
-  // Réseau
-  connectionType    String?  // 4g, 3g, wifi, ethernet (NetworkInformation API si dispo)
-  saveData          Boolean? // data saver mode
-  effectiveType     String?  // slow-2g, 2g, 3g, 4g
-
-  // Géolocalisation (via Cloudflare headers — gratuit, précis au niveau ville)
-  country           String?  // ISO 3166 alpha-2 : FR, US, DE
-  region            String?  // code région Cloudflare : FR-ARA (Auvergne-Rhône-Alpes)
-  regionName        String?  // "Auvergne-Rhône-Alpes"
-  city              String?  // "Lyon"
-  postalCode        String?  // "69007"
-  latitude          Float?   // précision ville
-  longitude         Float?
-  continent         String?  // EU, NA, AS
-  asn               Int?     // Autonomous System Number (pour identifier hébergeurs cloud → bots)
-  asnOrg            String?  // "OVH SAS", "Amazon.com", "Google LLC"
-  isEuCountry       Boolean  @default(false)
-
-  // Trafic source
-  referrer          String?  // URL complète si dispo
-  referrerDomain    String?  // domaine extrait
-  referrerCategory  String?  // search / social / directory / direct / email / ads
-  utmSource         String?
-  utmMedium         String?
-  utmCampaign       String?
-  utmTerm           String?
-  utmContent        String?
-  gclid             String?  // Google Ads click ID
-  fbclid            String?  // Facebook click ID
-
-  // Comportement (envoyé par tracker au unload)
-  timeOnPage        Int?     // millisecondes
-  scrollDepthMax    Int?     // % scroll max atteint
-  interactionCount  Int      @default(0) // #clics + #scrolls significatifs
-
-  // Qualité
-  quality           Int      @default(50) // 0-100 (voir F.1)
-  qualityFlags      String[] // reasons du score
-
-  // Debug
-  rawUserAgent      String?  // on garde le UA brut, utile en forensic
-  headers           Json?    // headers utiles (compact, filtré)
-  ```
-- [ ] Parsing côté serveur avec `ua-parser-js` (lib éprouvée, maintenue)
-- [ ] Cloudflare headers lus systématiquement : `cf-ipcountry`,
-      `cf-ipcity`, `cf-region`, `cf-region-code`, `cf-postal-code`,
-      `cf-latitude`, `cf-longitude`, `cf-connecting-ip` (hashé),
-      `cf-ipcontinent`, `cf-ipasn` (si CF Enterprise, sinon lookup
-      MaxMind GeoLite2)
-- [ ] Fallback si pas derrière CF : lookup MaxMind GeoLite2 (gratuit,
-      à update via cron mensuel)
-
-#### F.4.2 — Tracker enrichi
-
-Le tracker JS doit envoyer à l'ingestion tout ce qu'il peut savoir côté client :
-
-```js
-// Pour chaque pageview, payload étendu
-{
-  path, referrer, sessionId,
-  // Screen
-  screen: { width, height, pixelRatio, colorDepth, orientation },
-  viewport: { width, height },
-  // Locale
-  lang: navigator.language,
-  langs: navigator.languages,
-  tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  tzOffset: new Date().getTimezoneOffset(),
-  // Réseau
-  connection: navigator.connection ? {
-    type: navigator.connection.type,
-    effectiveType: navigator.connection.effectiveType,
-    saveData: navigator.connection.saveData,
-    downlink: navigator.connection.downlink,
-    rtt: navigator.connection.rtt
-  } : null,
-  // Signaux bot
-  webdriver: navigator.webdriver === true,
-  plugins: navigator.plugins.length,
-  hardwareConcurrency: navigator.hardwareConcurrency,
-  deviceMemory: navigator.deviceMemory,
-  maxTouchPoints: navigator.maxTouchPoints,
-  // UTM & click IDs (depuis URL)
-  utm: { utm_source, utm_medium, utm_campaign, utm_term, utm_content },
-  gclid, fbclid,
-  // Page
-  title: document.title,
-  visibility: document.visibilityState,
-  loadType: performance.navigation.type // 0=navigate, 1=reload, 2=back_forward
-}
-```
-
-#### F.4.3 — Beacon de fin de session
-
-- [ ] Le tracker envoie un `POST /api/ingest/session-end` au `beforeunload`
-      ou `visibilitychange hidden`, avec `sendBeacon` (fiable au unload) :
-  ```js
-  {
-    sessionId,
-    lastPath,
-    timeOnPage: Date.now() - pageviewTimestamp,
-    scrollDepthMax,
-    interactionCount,
-    leftVia: 'navigate' | 'close' | 'back'
-  }
-  ```
-- [ ] Le serveur met à jour le Pageview correspondant avec ces métriques
-      de fin de session → permet de calculer temps-sur-page réel,
-      rebond, engagement
-
-#### F.4.4 — Breakdowns exposables (stockage → UI plus tard)
-
-Tous ces breakdowns se font par `groupBy` + `count(distinct visitorHash)` :
-
-- [ ] **Par navigateur** : Chrome 45%, Safari 28%, Firefox 12%, Edge 10%, autres
-- [ ] **Par OS** : Windows 42%, macOS 22%, iOS 18%, Android 15%, Linux 3%
-- [ ] **Par device type** : Desktop 52%, Mobile 44%, Tablet 4%
-- [ ] **Par pays / région / ville** (carte interactive plus tard)
-- [ ] **Par source de trafic** : search (Google, Bing), social (FB, LinkedIn),
-      directory (pagesjaunes, mappy), direct, email, ads
-- [ ] **Par référent spécifique** : top 20 domaines qui envoient du trafic
-- [ ] **Par heure de la journée** : heatmap 24h x 7j
-- [ ] **Par connexion réseau** : 4g/wifi/ethernet (utile pour optimiser
-      le poids du site)
-- [ ] **Par taille d'écran** : distribution pour choisir les breakpoints
-- [ ] **Par langue/timezone** : pour détecter du trafic international
-
-#### F.4.5 — Détection bot sophistiquée (en plus du filtre UA basique F.1)
-
-- [ ] **ASN blacklist** : Pageviews depuis des ASN cloud hyperscale
-      (AWS `AS16509`, GCP `AS15169`, Azure `AS8075`, OVH cloud `AS16276`,
-      Hetzner `AS24940`, DigitalOcean `AS14061`, Linode `AS63949`) →
-      −30 quality, flag `cloud_asn`. **Pas −100 car certains VPN légitimes
-      passent par ces ASN** mais c'est fort pondéré.
-- [ ] **Signaux cohérence** :
-  - `navigator.webdriver === true` → −50
-  - `plugins.length === 0` ET desktop Chrome → suspicious, −20
-  - `hardwareConcurrency === 1` sur desktop → suspect
-  - `maxTouchPoints === 0` sur mobile → faux mobile, −30
-  - `devicePixelRatio === 0` → headless, −40
-- [ ] **Cohérence IP / locale** : `country=FR` mais `lang=zh-CN` ET
-      `tz=UTC` → signaux contradictoires, −15
-- [ ] **Burst temporel** : > 10 pageviews du même `visitorHash` en < 60s →
-      bot, flag `rapid_burst`, −40
-- [ ] **User Agents known-bad** (crawlers IA + anciens bots) :
-      `gptbot`, `chatgpt-user`, `claudebot`, `claude-web`, `perplexitybot`,
-      `cohere-ai`, `anthropic-ai`, `youbot`, `applebot-extended`,
-      `bytespider`, `ccbot`, `archive_org`, `ahrefsbot`, `semrushbot`,
-      `mj12bot`, `dotbot`, `blexbot`, `rogerbot`, `screaming frog`,
-      `sitebulb`, `httpclient`, `python-requests`, `curl`, `wget`,
-      `phantomjs`, `headlesschrome`, `puppeteer`, `playwright`,
-      `selenium`, `chromedriver`, `webdriver`
-- [ ] **Score final** : Pageview avec `quality < 40` n'est pas compté
-      dans les métriques publiques (seulement visible côté debug admin).
-
-#### F.4.6 — Time-based metrics
-
-- [ ] **Temps sur page** : via beacon de fin de session
-- [ ] **Temps total de session** : diff entre premier et dernier pageview
-- [ ] **Time-to-form-submit** : délai entre premier pageview d'un lead
-      et son form submit (utile pour mesurer la maturation)
-- [ ] **Time-to-return** : pour un visitorHash qui revient, délai entre
-      deux sessions → permet de dire "vos visiteurs reviennent en moyenne
-      après 4 jours"
-
-### F.5 — Intégration effet wow côté Robert
-
-- [ ] Commande skill `/analytics audit <domain>` qui lance F.2 audit et
-      affiche résultats + propose corrections auto
-- [ ] Commande skill `/analytics lead <domain> <email>` qui cherche un
-      lead et affiche sa timeline complète
-- [ ] Commande skill `/analytics quality <domain>` qui montre les pageviews
-      douteux récents + pourquoi ils sont flaggés
-- [ ] Push automatique vers Telegram quand un lead à fort intent visite
-      (`/produits/*` 3 fois en moins de 7j + n'a pas encore submit)
-- [ ] Dashboard `/admin/health` cross-tenant qui affiche pour chaque
-      client : score audit dernier, % humains vérifiés, #leads récents,
-      #forms récents → Robert voit la santé de son portefeuille en un
-      coup d'œil
-
-### F.6 — Batterie de tests tracking + API de vérification fine
-
-Objectif : **Claude doit pouvoir appeler une API qui lui dit, check par
-check, si le tracking du site est parfaitement fonctionnel**. Pas juste
-"score 78", mais "pageview ingéré ✅, quality 82 ✅, browser détecté
-Chrome 121 ✅, geo Corbas ✅, form trackable ❌ parce que turnstile pas
-résolu, scroll depth absent car beacon unload pas déclenché".
-
-C'est ce qui transforme "je livre un site" en "je livre un site
-qualité-garantie par test automatique".
-
-#### F.6.1 — Endpoint `POST /api/admin/sites/:siteId/tracking-audit`
-
-Déclenche une suite de tests sur le tracking du site cible. Browser
-Playwright headful (sur le serveur Analytics, pas sur le site client).
-
-```json
-{
-  "siteId": "cmnutiyp9000vuxnoudvrjzy2",
-  "domain": "morel-volailles.com",
-  "auditedAt": "2026-04-14T18:00:00Z",
-  "durationMs": 42318,
-  "overallPassed": false,
-  "score": 82,
-  "tests": [
-    {
-      "id": "tracker_script_present",
-      "ok": true,
-      "severity": "critical",
-      "detail": "Script trouvé dans <head> avec data-site-key=cmn...wthn",
-      "evidence": "<script src='...tracker.js' data-site-key='cmn...'></script>"
-    },
-    {
-      "id": "tracker_script_loaded",
-      "ok": true,
-      "severity": "critical",
-      "detail": "Script téléchargé, HTTP 200, 4.2 Ko, <250ms"
-    },
-    {
-      "id": "tracker_site_key_matches",
-      "ok": true,
-      "severity": "critical",
-      "detail": "Le site-key trouvé correspond au site en DB"
-    },
-    {
-      "id": "pageview_ingested",
-      "ok": true,
-      "severity": "critical",
-      "detail": "Pageview reçu à T+1.2s, quality=85",
-      "evidence": {
-        "pageviewId": "cmn...",
-        "quality": 85,
-        "qualityFlags": []
-      }
-    },
-    {
-      "id": "pageview_browser_detected",
-      "ok": true,
-      "severity": "high",
-      "detail": "Chrome 121 sur Linux"
-    },
-    {
-      "id": "pageview_device_detected",
-      "ok": true,
-      "severity": "high",
-      "detail": "Desktop, viewport 1400x900, devicePixelRatio 1"
-    },
-    {
-      "id": "pageview_geo_detected",
-      "ok": true,
-      "severity": "medium",
-      "detail": "FR / Auvergne-Rhône-Alpes / Lyon (via Cloudflare headers)"
-    },
-    {
-      "id": "pageview_utm_captured",
-      "ok": true,
-      "severity": "high",
-      "detail": "UTM source=test-audit extrait de l'URL"
-    },
-    {
-      "id": "spa_navigation_tracked",
-      "ok": true,
-      "severity": "high",
-      "detail": "3 pageviews capturés après 3 Link clicks Next.js"
-    },
-    {
-      "id": "scroll_depth_tracked",
-      "ok": true,
-      "severity": "medium",
-      "detail": "Scroll 80% → beacon reçu avec scrollDepthMax=80"
-    },
-    {
-      "id": "tel_click_tracked",
-      "ok": true,
-      "severity": "high",
-      "detail": "Click sur a[href^=tel:] → CtaClick ingéré avec name=tel"
-    },
-    {
-      "id": "mailto_click_tracked",
-      "ok": false,
-      "severity": "medium",
-      "detail": "Pas de lien mailto détecté sur la home (normal ?)"
-    },
-    {
-      "id": "form_intercept",
-      "ok": "warn",
-      "severity": "high",
-      "detail": "Form /contact présent mais pas de data-veridian-track (normal pour pattern server-to-server)",
-      "hint": "Vérifier que le worker backend envoie bien /api/ingest/form"
-    },
-    {
-      "id": "form_ingest_endpoint_reachable",
-      "ok": true,
-      "severity": "critical",
-      "detail": "POST /api/ingest/form avec site-key valide répond 200"
-    },
-    {
-      "id": "bot_filter_ua",
-      "ok": true,
-      "severity": "critical",
-      "detail": "Simulation User-Agent 'Googlebot' → quality=5, pageview flaggé bot_ua_regex"
-    },
-    {
-      "id": "bot_filter_webdriver",
-      "ok": true,
-      "severity": "critical",
-      "detail": "Simulation navigator.webdriver=true → quality=10, flaggé webdriver_detected"
-    },
-    {
-      "id": "bot_filter_burst",
-      "ok": true,
-      "severity": "high",
-      "detail": "15 pageviews en 3s du même hash → 11 derniers flaggés rapid_burst"
-    },
-    {
-      "id": "session_beacon_unload",
-      "ok": true,
-      "severity": "high",
-      "detail": "beforeunload → session-end reçu avec timeOnPage=12450"
-    },
-    {
-      "id": "unique_visitor_hash_stable",
-      "ok": true,
-      "severity": "critical",
-      "detail": "Même IP+UA sur 2 visites séparées → même visitorHash"
-    },
-    {
-      "id": "tracker_in_head",
-      "ok": true,
-      "severity": "medium",
-      "detail": "Script placé dans <head> (pas en fin de <body>) pour capturer au plus tôt"
-    },
-    {
-      "id": "tracker_async",
-      "ok": true,
-      "severity": "low",
-      "detail": "Script chargé avec strategy=afterInteractive / async"
-    },
-    {
-      "id": "tracker_no_duplicate",
-      "ok": true,
-      "severity": "high",
-      "detail": "Un seul <script data-site-key> détecté"
-    },
-    {
-      "id": "tracker_no_test_pollution",
-      "ok": true,
-      "severity": "critical",
-      "detail": "Aucun event UA='VeridianAudit' dans la DB hors des 30 dernières min (= tests propres, pas de pollution historique)"
-    },
-    {
-      "id": "cors_allows_ingest",
-      "ok": true,
-      "severity": "critical",
-      "detail": "OPTIONS /api/ingest/* renvoie bien CORS permissif pour ce domaine"
-    },
-    {
-      "id": "ingest_rate_limit_reasonable",
-      "ok": true,
-      "severity": "medium",
-      "detail": "Rate limit à 60 req/min/IP appliqué mais pas déclenché"
-    }
-  ],
-  "failedTests": ["form_intercept"],
-  "warnings": [...],
-  "recommendations": [
-    "Vérifier manuellement que le form /contact envoie bien vers le worker backend",
-    "Documenter que ce site utilise le pattern server-to-server (pas data-veridian-track)"
-  ]
-}
-```
-
-#### F.6.2 — Exécution des tests (Playwright headful côté serveur Analytics)
-
-- [ ] Browser Playwright Chromium lancé par l'API audit
-- [ ] User-Agent custom `VeridianAudit/1.0 (+https://analytics.app.veridian.site/audit)` 
-      pour reconnaître les requêtes de test dans les logs
-- [ ] Chaque test suit un pattern :
-  1. Nettoyer tout event précédent de test (`UA=VeridianAudit` 1h)
-  2. Visiter la page / exécuter l'action
-  3. Attendre le beacon côté serveur (polling DB max 5s)
-  4. Valider que l'event est bien ingéré avec les bonnes propriétés
-  5. Marquer le test ✅/❌
-- [ ] À la fin, **purge complète des events de test** (pas de pollution
-      de la vraie data du client)
-- [ ] Timeout global : 90s
-
-#### F.6.3 — Tests spécifiques à développer
-
-**Injection et présence**
-- [ ] `tracker_script_present` — `<script data-site-key>` trouvé dans le HTML
-- [ ] `tracker_script_loaded` — HTTP 200, content-type JS
-- [ ] `tracker_site_key_matches` — siteKey correspond au siteId audité
-- [ ] `tracker_no_duplicate` — un seul tracker
-- [ ] `tracker_in_head` — placement optimal
-
-**Ingestion pageview**
-- [ ] `pageview_ingested` — pageview reçu dans les 3s
-- [ ] `pageview_browser_detected` — browserName/version non null
-- [ ] `pageview_device_detected` — device type + viewport détectés
-- [ ] `pageview_geo_detected` — country/region/city (si CF headers dispo)
-- [ ] `pageview_utm_captured` — UTM extrait de l'URL ?utm_source=…
-- [ ] `pageview_referrer_captured` — referrer capturé si présent
-- [ ] `pageview_session_id_set` — sessionId généré et cohérent
-- [ ] `pageview_visitor_hash_set` — visitorHash calculé
-
-**SPA navigation (Next.js)**
-- [ ] `spa_navigation_tracked` — Link click → pageview capturé
-
-**CTA**
-- [ ] `tel_click_tracked` — click a[href^=tel:] ingéré
-- [ ] `mailto_click_tracked` — idem pour mailto:
-- [ ] `cta_explicit_tracked` — click sur [data-veridian-cta]
-
-**Formulaires**
-- [ ] `form_intercept` — détection de form data-veridian-track="auto/x"
-- [ ] `form_submit_tracked` — soumission simulée → FormSubmission ingéré
-- [ ] `form_ingest_endpoint_reachable` — POST /api/ingest/form fonctionne
-
-**Scroll & engagement**
-- [ ] `scroll_depth_tracked` — scroll programmé → beacon avec depth
-- [ ] `session_beacon_unload` — close tab → session-end reçu
-
-**Filtre bot**
-- [ ] `bot_filter_ua` — visite avec UA=Googlebot → quality=0, jamais compté
-- [ ] `bot_filter_webdriver` — visite avec navigator.webdriver=true → idem
-- [ ] `bot_filter_burst` — 15 pageviews en 3s → burst détecté
-- [ ] `bot_filter_asn_cloud` — simulation IP AWS → cloud_asn flaggé (mock)
-- [ ] `bot_filter_stealth_plugins` — Chrome avec `plugins.length=0`
-      → flaggé, non compté
-- [ ] `bot_filter_stealth_hardware` — `hardwareConcurrency=1` desktop
-      → flaggé
-- [ ] `bot_filter_stealth_viewport` — `viewport.width=0` → flaggé
-- [ ] `bot_filter_stealth_webgl` — canvas présent mais WebGL absent
-      → flaggé
-
-**Interaction obligatoire (F.1.5)**
-- [ ] `pageview_pending_without_interaction` — pageview reçu reste en
-      `status=pending`, n'apparaît pas dans les compteurs
-- [ ] `pageview_validated_after_real_scroll` — scroll de 20% en 3 events
-      → status passe à `validated`, pageview compté
-- [ ] `pageview_validated_after_real_mousemove` — mousemove organique
-      (non-linéaire, vitesse variable) → validated
-- [ ] `pageview_validated_after_click` — click humain (avec hover
-      préalable, pixel non-centré) → validated
-- [ ] `pageview_rejected_programmatic_scroll` — scroll unique 5000px
-      → flag scroll_programmatic, pageview reste pending puis abandoned
-- [ ] `pageview_rejected_instant_click` — click à T+50ms du pageload
-      → flag instant_click, rejeté
-- [ ] `pageview_rejected_linear_cursor` — mouvement souris en ligne
-      droite parfaite → flag cursor_robotic, rejeté
-- [ ] `pageview_abandoned_after_timeout` — aucune interaction en 60s
-      → status passe à `abandoned`
-- [ ] `pageview_abandoned_beacon_received` — tracker envoie bien le
-      beacon `/api/ingest/abandoned` au timeout
-- [ ] `pageview_not_counted_if_pending` — compteur publics ne montrent
-      QUE les `status=validated`
-
-**Qualité de hash et unicité**
-- [ ] `unique_visitor_hash_stable` — 2 visites même IP+UA → même hash
-- [ ] `unique_visitor_hash_differs_across_ua` — 2 UA différents → 2 hashes
-
-**Réseau**
-- [ ] `cors_allows_ingest` — OPTIONS sur /api/ingest/* permis
-- [ ] `ingest_rate_limit_reasonable` — rate limit connu mais raisonnable
-
-**Intégrité data**
-- [ ] `tracker_no_test_pollution` — aucun event VeridianAudit > 1h en DB
-      (sinon les tests précédents ont dropé sans purge)
-
-#### F.6.4 — Variantes du test (audit léger vs profond)
-
-- [ ] **Mode `quick`** (10s) : seulement les tests critiques
-      (script present, ingested, bot filter UA)
-- [ ] **Mode `full`** (60-90s) : tous les tests ci-dessus
-- [ ] **Mode `nightly`** : full + vérif de la data historique
-      (≥1 vrai pageview dans les 24h = le site reçoit du trafic)
-
-Paramètre `?mode=quick|full|nightly` sur l'endpoint.
-
-#### F.6.5 — Intégration skill Claude `/analytics track-audit`
-
-```bash
-# Claude lance depuis son projet site client
-/analytics track-audit morel-volailles.com
-→ Appelle POST /api/admin/sites/:id/tracking-audit
-→ Affiche :
-  ✅ Script présent et chargé
-  ✅ Pageview ingéré (quality 85)
-  ✅ SPA navigation : 3/3 pageviews capturés
-  ✅ Tel click tracké
-  ⚠ Form : pattern server-to-server détecté (pas data-veridian-track)
-     → vérifier worker backend
-  ✅ Bot filter UA : Googlebot correctement bloqué
-  ✅ Bot filter webdriver : ok
-  ✅ Unique hash stable
-  Score : 82/100
-  Passed critical : oui → livrable
-```
-
-- [ ] Commande skill qui couple `optimize-site audit` (F.2) + `tracking-audit`
-      (F.6) pour avoir une vue globale : "ton site est bon SEO **et** il est
-      bien tracké"
-- [ ] Commande `/analytics track-audit <domain> --watch` qui relance
-      toutes les 30s pendant 10 min → utile pendant un dev actif pour
-      voir quand le fix passe
-
-#### F.6.6 — Tests périodiques (cron)
-
-- [ ] Cron toutes les 6h qui lance un `tracking-audit mode=quick` sur
-      chaque site actif
-- [ ] Si `ok=false` pendant 2 runs consécutifs → notif Telegram à Robert
-      "morel-volailles.com : tracker cassé depuis 12h, vérifie"
-- [ ] Résultats stockés dans `TrackingAuditRun` table, historique 90j
-
-#### F.6.7 — Dashboard admin `/admin/tracking-health`
-
-- [ ] Cross-tenant, visible SUPERADMIN uniquement
-- [ ] Liste de tous les sites avec :
-  - Score audit dernier
-  - Services actifs
-  - `isBot %` des pageviews 24h
-  - Dernier pageview vraiment humain
-- [ ] Couleur verte / jaune / rouge par site
-- [ ] Click → détail du dernier audit complet
-
----
-
-### Ordre d'exécution recommandé
-
-1. **F.1.0 (visiteurs uniques stable-hash)** + **F.4.1 (schema enrichi)**
-   d'abord (2-3 jours, dépendants) — fondations data. Sans le schema
-   enrichi, F.6 audit ne peut rien checker.
-2. **F.1 suite (quality scoring + bot detection)** (2 jours) — logique
-   de scoring à l'ingestion + flags.
-3. **F.4.2/F.4.3 (tracker enrichi + beacon unload)** (1-2 jours) — côté
-   client, envoie tout ce que le serveur sait exploiter.
-4. **F.6 (tests tracking + API audit)** (3-4 jours) — la batterie de tests
-   qui valide que F.1+F.4 fonctionnent bout en bout. **Prioritaire car
-   c'est ce qui donne la confiance à Robert pour livrer.**
-5. **F.2 (audit SEO complet)** (3 jours) — audit qualité site complet
-   couplé avec F.6 pour une vue unifiée.
-6. **F.4.4 (breakdowns UI)** au fur et à mesure.
-7. **F.3 (leads + funnel)** après MVP (1 semaine) — gros différenciateur
-   mais dépend de F.4 pour être riche.
-8. **F.4.5 (bot detection sophistiquée)** en continu, s'améliore avec
-   l'expérience en prod.
-9. **F.5 (intégration skills Claude)** à la fin, une fois que F.1-F.6
-   roulent.
-
-### F.7 — Form schemas et views contextuelles par client
-
-> **Contexte** : FormSubmission.payload est un Json libre. Morel envoie
-> `{nomComplet, objet, produit, category}`, un autre client enverra
-> `{company, budget, project_type}`. Sans schema déclaratif, impossible
-> de faire des breakdowns automatiques dans le dashboard sans coder du
-> custom à chaque client.
-
-#### Principe
-
-Table `FormSchema` (déjà dans Prisma) qui décrit pour un `formName`
-donné sur un `siteId` :
-- Les **champs attendus** avec type, label, et rôle sémantique
-  (`name`, `email`, `phone`, `category`, `money`, `text`, `enum`)
-- Les **views contextuelles** : agrégats auto-générés dans le dashboard
-  (`groupBy produit → count`, `avg(budget)`, etc.)
-
-#### Schema (déjà implémenté dans Prisma)
-
-```
-FormSchema {
-  siteId, formName,
-  fields: [
-    { key: "produit", label: "Produit commandé", type: "enum",
-      role: "category", values: ["poulet", "dinde", "pintade"] },
-    { key: "budget", label: "Budget estimé", type: "number",
-      role: "money", currency: "EUR" }
-  ],
-  views: [
-    { name: "Top produits", groupBy: "produit", metric: "count" },
-    { name: "Budget moyen", aggregate: "avg(budget)" }
-  ],
-  conversionType: "form_submit" | "calculated"
-}
-```
-
-#### Ce que ça débloque
-
-- [ ] Dashboard Morel affiche auto "Commandes par produit" (groupBy
-      `payload.produit`)
-- [ ] Dashboard d'un autre client affiche "Répartition par taille
-      d'entreprise" si le form a ce champ
-- [ ] Claude génère automatiquement les views pertinentes au
-      provisioning (skill analytics-provision)
-- [ ] Le funnel F.3 devient sensé métier : pas juste pageview→form
-      mais pageview→form "commande poulet" vs "devis dinde"
-
-#### Backend
-
-- [x] Table `FormSchema` dans Prisma (siteId + formName unique)
-- [ ] Endpoint `POST /api/admin/sites/:siteId/form-schemas` pour créer
-- [ ] Endpoint `GET /api/admin/sites/:siteId/form-schemas` pour lister
-- [ ] Endpoint `GET /api/forms/breakdown?siteId=X&formName=Y&groupBy=Z`
-      qui fait le groupBy dynamique sur `payload->>'Z'` avec count
-- [ ] Composant dashboard `FormBreakdownChart` qui lit les views d'un
-      FormSchema et rend les graphiques correspondants
-- [ ] Au provisioning, Claude propose des FormSchema basés sur les
-      champs détectés dans les premiers form submits (auto-discover)
-
-#### Mentions légales
-
-- [ ] Mettre à jour les mentions légales de `morel-volailles.com` avec :
-      "Veridian Analytics utilise un identifiant technique dérivé de
-      votre IP et navigateur, conservé 24 mois, pour distinguer les
-      visiteurs uniques. Aucun cookie n'est posé sur votre appareil."
-- [ ] Template de mention légale dans `analytics/docs/legal-template.md`
-      à coller sur chaque site client
-
-### Métriques de succès Phase F
-
-- ✅ Taux de pageviews bot filtrés > 90% (vérifiable via manual check de
-  Googlebot + ChatGPT crawl)
-- ✅ Un site client neuf livré passe son premier audit avec score > 85
-  dès le premier run
-- ✅ Temps de provisioning complet (tenant + audit + correction + livraison)
-  < 30 min pour un site bien branché
-- ✅ Premier vrai lead tracké de bout en bout sur Morel ou Tramtech avant
-  fin juin 2026
-
-## En cours / blockers
-
-- 🔄 **Deploy tracker v2 + nouvelles routes sur staging** — le backend est
-  prêt localement (build + 264 unit tests + 11 E2E tests passent), mais le
-  tracker v2 et les routes `/api/ingest/interaction`, `/api/ingest/session-end`
-  ne sont pas encore sur `analytics-staging.veridian.site`. 5 tests E2E
-  en skip attendent ce deploy pour passer.
-- ⏸️ **Migration Prisma** — le schema enrichi (55+ champs Pageview, FormSchema,
-  Lead/LeadSession) est validé localement mais pas encore appliqué sur la DB
-  dev/staging. Nécessite : `prisma migrate dev` sur le serveur.
-- ⏸️ **Env var `VISITOR_HASH_SALT`** — à générer (`openssl rand -hex 32`) et
-  ajouter aux env vars dev + prod avant deploy.
-- ⏸️ **Fichiers untracked** dans le repo, à batcher en commits propres
-
-## Recently shipped (2026-04-14 soir)
-
-- ✅ **Schema Prisma enrichi** : Pageview avec 55+ champs (visitorHash salé,
-  IP brute, deviceHash multi-device, browser/OS/device parsés via ua-parser-js,
-  geo CF headers, locale, réseau, UTM complets + gclid/fbclid, comportement
-  session-end). 2 booléens simples : `isBot` + `interacted` (pas d'enum,
-  pas de cron). FormSchema (F.7) pour views contextuelles. Lead/LeadSession (F.3).
-- ✅ **Bot detection** (`lib/quality.ts`) : `checkBot()` binaire (40+ patterns
-  UA incluant crawlers IA, webdriver, viewport 0, fake mobile, empty UA).
-  `isSpamReferrer()` blocklist (30+ domaines spam connus). `categorizeReferrer()`
-  (search/social/directory/email/ads/referral). `computeVisitorHash()` salé.
-  `computeDeviceHash()` pour multi-device derrière même IP.
-- ✅ **Tracker.js v2** : payload enrichi (screen, viewport, locale, réseau,
-  signaux bot, UTM complets + gclid/fbclid). Détection d'interaction simple
-  (scroll >= 200px, mousemove >= 50px, click > 100ms, touch > 30px, keypress
-  → 1 seul beacon). Session-end beacon au unload. Mode debug `?veridian_debug=1`.
-- ✅ **Routes ingestion** :
-  - `POST /api/ingest/pageview` refactoré (UA parsing, geo CF, visitor hash,
-    device hash, IP brute, bot check, spam referrer drop, rate limit IP 20/min)
-  - `POST /api/ingest/interaction` (nouveau — marque `interacted = true`)
-  - `POST /api/ingest/session-end` (nouveau — timeOnPage, scrollDepthMax)
-  - `POST /api/ingest/form` enrichi avec sessionId
-  - Route `/api/ingest/abandoned` supprimée (plus besoin, simplification)
-- ✅ **Rate limit par IP** : 20 req/min par IP sur toutes les routes ingest
-  (en plus du 100 req/min par siteKey existant)
-- ✅ **Dashboard filtré** : toutes les queries Pageview (metrics.ts,
-  tenant-status.ts, calls page) filtrent `isBot=false AND interacted=true`
-- ✅ **Tests** : 264 unit tests (15 fichiers, 0 échec) + 11 E2E tests sur
-  le vrai demo.veridian.site (6 passent, 5 skip en attente deploy v2)
-- ✅ **Analyse Plausible** : comparé avec le code source Plausible Analytics,
-  validé que notre approche est plus stricte (interaction obligatoire, eux
-  comptent tout) et cohérente avec les standards de l'industrie
-
-### Précédemment shipped (2026-04-11)
-
-- ✅ Scaffold monorepo `analytics/` (Next.js 15 + Prisma + Auth.js v5)
-- ✅ Schema Prisma multitenant complet + GscDaily
-- ✅ Admin API (`x-admin-key`) : tenants, sites, GSC attach, rotate-key, soft delete
-- ✅ Endpoints ingestion (`pageview`, `form`, `call`, `gsc`) avec `x-site-key`
-- ✅ Tracker JS public (`/tracker.js`) : pageview + form intercept + SPA
-- ✅ Clone dashboard GSC Performance (KPIs, graph, 6 dimensions, filtres)
-- ✅ Sync GSC depuis API Google (ADC, quota project `veridian-preprod`)
-- ✅ 57 tests (28 unit + 29 e2e) 100% verts
-- ✅ Instance dev live sur dev-server via Tailscale
-- ✅ 5 tenants provisionnés dont 2 vrais clients avec data GSC 90j
-
-## Décisions techniques figées
-
-- **Même stack que Prospection** : Next.js 15 + Prisma + Postgres dédié. Zéro Supabase.
-- **Auth Auth.js v5 credentials** local. Pas de SSO pour le MVP.
+| `tramtech-depannage-fr` | tramtech-depannage.fr | 2779 | Client actif |
+| `morel-volailles-com` | morel-volailles.com | 137 | Client actif |
+| (a creer) | apical-informatique.fr | - | Client a provisionner |
+
+### Deploy
+
+Le CI e2e-staging a un test flaky (`03-dashboard.spec.ts` sidebar "Appels"
+link timeout) qui bloque le deploy-prod auto. Workaround : deploy manuel
+via `ssh prod-pub` + `docker compose pull && up -d` dans
+`/etc/dokploy/compose/compose-synthesize-virtual-transmitter-i9bv43/code/`.
+
+## A faire — priorite haute
+
+### Bugs a fixer
+
+- [ ] **Endpoint manquant : ajout membre a un tenant existant.**
+  `POST /api/admin/tenants/:id/members` renvoie 404. Cas reel : Morel
+  Volailles sans OWNER → endpoint `POST /api/admin/tenants/:idOrSlug/members`
+  avec `{ email, role }`, connectOrCreate User
+- [ ] **Service `calls` marque actif a tort** sur `/status`. Morel a 0
+  sipCalls mais `activeServices` inclut `calls`. Bug dans `lib/tenant-status.ts`
+- [ ] **CORS preflight casse sur `/api/ingest/session-end`** cross-origin
+  avec `credentials: 'include'`. Fix : retirer `credentials: 'include'`
+  cote tracker (le siteKey suffit) OU echo l'origine exacte
+- [ ] **Ecart forms trackes vs forms envoyes** sur Morel (6 trackees, 2
+  delivrees Brevo). Verifier que le Worker Cloudflare appelle
+  `trackVeridianForm` apres envoi Brevo OK, pas avant
+- [ ] **CI e2e-staging flaky** `03-dashboard.spec.ts` — soit fixer le test,
+  soit le marquer non-bloquant pour debloquer le deploy auto
+
+### Provisioning clients
+
+- [ ] Provisionner Apical Informatique (tenant + site + GSC si dispo)
+- [ ] Verifier que les tenants Tramtech et Morel sont bien tagges "client"
+- [ ] Creer des users clients (email Robert pour l'instant)
+
+### Scope tenant strict
+
+- [ ] Quand un user non-admin se loggue, queries filtrees par son tenantId
+- [ ] Robert (admin) garde l'acces multi-tenant : selecteur de tenant
+- [ ] Tests e2e : login tramtech → ne voit QUE tramtech
+
+### Page d'accueil gamifiee
+
+- [ ] Remplacer `/dashboard` par "Mon score Veridian"
+- [ ] Composant score de performance (somme ponderee services actifs)
+- [ ] Blocs service actif/inactif avec CTA shadow marketing
+
+### Doc d'integration client
+
+- [ ] Creer `analytics/docs/integration.md` — snippet tracker + tagging forms
+- [ ] Template mention legale pour les sites clients
+
+### Repointer demo.veridian.site
+
+- [ ] `sites/demo-analytics/app/layout.tsx` ligne 19 : changer
+  `analytics-staging.veridian.site` → `analytics.app.veridian.site`
+
+## A faire — priorite moyenne
+
+### F.2 — API d'audit qualite d'un site client
+
+Endpoint `POST /api/admin/sites/:siteId/audit` qui declenche un scan
+(Playwright + HTTP) et retourne un rapport JSON score avec checks SEO,
+tracker, images, sitemap, etc. Module `lib/audit/checks/` extensible.
+
+- [ ] Backend : module checks + AuditRun table + endpoint
+- [ ] Endpoint `GET /api/admin/sites/:siteId/audit/latest` avec diff
+- [ ] Integration skill `optimize-site` + `create-site`
+- [ ] Dashboard `/dashboard/audit` (historique scores)
+
+### F.3 — Funnel de conversion + user linking
+
+Table `Lead` + `LeadSession` (deja dans le schema Prisma). Linking par
+email/phone au form submit, pas par cookie.
+
+- [ ] Backend : logique de linking au FormSubmission
+- [ ] Dashboard `/dashboard/leads` — timeline, sessions, funnel
+- [ ] Dashboard `/dashboard/funnel` — configurable, taux drop-off
+- [ ] Export CSV des leads
+- [ ] RGPD : endpoint DELETE lead, retention 24 mois, mentions legales
+
+### F.7 — Form schemas et views contextuelles
+
+Table `FormSchema` deja dans Prisma.
+
+- [ ] Endpoints CRUD form-schemas
+- [ ] Endpoint breakdown dynamique `groupBy payload->'Z'`
+- [ ] Composant dashboard `FormBreakdownChart`
+- [ ] Auto-discover au provisioning
+
+### Call tracking
+
+- [ ] Decider fournisseur : OVH voiceConsumption (gratuit) vs Telnyx
+- [ ] Script sync API → POST `/api/ingest/call`
+- [ ] Mapping numero → site
+- [ ] Cron quotidien
+
+### Tests supplementaires
+
+- [ ] Test rate limit "utilisateur qui va vite" (scroll rapide, 2 forms)
+- [ ] Test double submit formulaire
+- [ ] Test SPA navigation rapide (10 pages en 20s)
+- [ ] Test bot borderline (UA legitime, zero interaction)
+- [ ] Monitoring rate limit drops (429 par jour par siteKey)
+
+### Observabilite
+
+- [ ] Dashboard admin : voir les rejets recents par siteKey
+  (CORS, rate limit, siteKey invalide, bot, spam referrer)
+
+## A faire — priorite basse (backlog)
+
+### F.4.4 — Breakdowns UI
+
+Tous par `groupBy` + `countDistinct visitorHash` :
+
+- [ ] Par navigateur, OS, device type
+- [ ] Par pays / region / ville (carte interactive)
+- [ ] Par source de trafic / referent specifique
+- [ ] Par heure de la journee (heatmap 24h x 7j)
+- [ ] Par taille d'ecran, langue, timezone, connexion reseau
+
+### F.5 — Integration skills Claude
+
+- [ ] `/analytics audit <domain>` — lance F.2 + affiche resultats
+- [ ] `/analytics lead <domain> <email>` — timeline complete
+- [ ] `/analytics quality <domain>` — pageviews douteux recents
+- [ ] Push Telegram quand lead a fort intent visite 3x en 7j
+- [ ] Dashboard `/admin/health` cross-tenant sante portefeuille
+
+### F.6 — Batterie de tests tracking
+
+Endpoint `POST /api/admin/sites/:siteId/tracking-audit` — Playwright
+headful sur le serveur Analytics qui teste check par check le tracking.
+
+- [ ] Backend + 30+ tests specifiques (voir VISION.md pour le detail)
+- [ ] Modes quick (10s) / full (60-90s) / nightly
+- [ ] Skill `/analytics track-audit <domain>`
+- [ ] Cron 6h tracking-audit quick sur chaque site actif
+- [ ] Dashboard admin `/admin/tracking-health`
+
+## Shipped
+
+### 2026-04-14 soir — Backend v2 + Deploy prod
+
+- [x] **Schema Prisma enrichi** : Pageview 55+ champs (visitorHash sale,
+  IP brute, deviceHash, browser/OS/device parses ua-parser-js, geo CF,
+  locale, reseau, UTM + gclid/fbclid, comportement session-end).
+  FormSchema (F.7). Lead/LeadSession (F.3)
+- [x] **Bot detection** (`lib/quality.ts`) : checkBot() binaire 40+ patterns,
+  isSpamReferrer() 30+ domaines, categorizeReferrer(), computeVisitorHash()
+  sale, computeDeviceHash()
+- [x] **Tracker.js v2** : payload enrichi, detection interaction simple,
+  session-end beacon au unload, mode debug `?veridian_debug=1`
+- [x] **Routes ingestion** : pageview refactorise, interaction (nouveau),
+  session-end (nouveau), form enrichi. Rate limit IP 20/min + siteKey 100/min
+- [x] **Dashboard filtre** : `isBot=false AND interacted=true` sur toutes
+  les queries
+- [x] **264 unit tests** + 11 E2E tests (6 passent, 5 skip attente deploy)
+- [x] **Deploy prod** Dokploy, image GHCR, DNS analytics.app.veridian.site
+
+### 2026-04-11 — MVP + Provisioning
+
+- [x] Scaffold monorepo `analytics/` (Next.js 15 + Prisma + Auth.js v5)
+- [x] Schema Prisma multitenant complet + GscDaily
+- [x] Admin API (`x-admin-key`) : tenants, sites, GSC, rotate-key, soft delete
+- [x] Endpoints ingestion (pageview, form, call, gsc) avec `x-site-key`
+- [x] Tracker JS public (`/tracker.js`) : pageview + form intercept + SPA
+- [x] Clone dashboard GSC Performance (KPIs, graph, 6 dimensions, filtres)
+- [x] Sync GSC depuis API Google (ADC, quota `veridian-preprod`)
+- [x] 57 tests (28 unit + 29 e2e) verts
+- [x] Instance dev live sur dev-server via Tailscale
+- [x] 5 tenants provisionnes dont 2 vrais clients avec data GSC 90j
+- [x] Skill `analytics-provision` fonctionnel
+
+## Decisions techniques figees
+
+- **Stack** : Next.js 15 + Prisma + Postgres dedie. Zero Supabase.
+- **Auth** : Auth.js v5 credentials local. Pas de SSO pour le MVP.
 - **Multitenant jour 1**, scope par `tenantId` → `siteId[]`.
-- **Site-key public** (comme Plausible) pour le tracker, rate-limité.
-- **Provisioning via skill Claude**, pas via UI client. L'UI admin sert
-  surtout à exposer les endpoints à Claude.
-- **Deploy direct prod** avec badge BETA. Pas de staging dédié.
+- **Site-key public** pour le tracker, rate-limite.
+- **Provisioning via skill Claude**, pas via UI client.
+- **Visitor hash stable** : `sha256(siteId + ip + ua)` sans salt rotatif.
+  Precision > RGPD a l'echelle actuelle (pas de DPO, pas d'audit CNIL).
 
-## Bugs connus
+## Notes agents
 
-_(vérifier après le fix de l'agent GSC en cours)_
-
-## Notes agents (chantiers en cours)
-
-- **2026-04-11** : agent `aa94a6f1de8071744` audit `/dashboard/gsc` (filtres
-  + fetches manquants), modifie `components/performance-dashboard.tsx`,
-  `filters-bar.tsx`, `data-table.tsx`, `kpi-tile.tsx`, `time-series-chart.tsx`,
-  `lib/gsc-query.ts`, `app/api/gsc/query/route.ts`. Pas de commit. Attendre
-  son rapport avant de toucher ces fichiers.
+_(vide — utiliser ce bloc pour notes en cours de sprint)_
