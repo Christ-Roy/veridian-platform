@@ -72,14 +72,10 @@
   }
 
   function beacon(path, body) {
+    // fetch with keepalive:true is reliable at unload (same as sendBeacon)
+    // and lets us set credentials:'omit' to avoid CORS issues cross-origin.
+    // sendBeacon always sends cookies → triggers CORS credentials error.
     try {
-      // sendBeacon can't set headers → embed siteKey in body
-      var data = JSON.parse(JSON.stringify(body));
-      data._siteKey = SITE_KEY;
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon(BASE + path, new Blob([JSON.stringify(data)], { type: 'application/json' }));
-      }
-      // Also try fetch as fallback
       fetch(BASE + path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-site-key': SITE_KEY },
