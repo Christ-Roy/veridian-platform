@@ -4,21 +4,25 @@ import { createRateLimiter } from '@/lib/rate-limit';
 
 /**
  * Rate limiter par siteKey pour les endpoints d'ingestion.
- * 100 req/min par siteKey — protège contre le spam massif d'un siteKey volé.
+ * 200 req/min par siteKey — protège contre le spam massif d'un siteKey volé.
+ * 200 est suffisant : un site vitrine PME a ~50 visiteurs simultanés max,
+ * chaque visiteur envoie ~3-4 events/page (pageview, interaction, session-end, CTA).
  */
 export const ingestRateLimiter = createRateLimiter({
   windowMs: 60_000,
-  max: 100,
+  max: 200,
 });
 
 /**
- * Rate limiter par IP — 20 req/min.
- * Un humain réel ne génère jamais plus de ~5 pageviews/min sur un site vitrine PME.
- * Protège contre le spam programmatique même si l'attaquant forge un bon UA.
+ * Rate limiter par IP — 60 req/min.
+ * Un humain mobile naviguant vite génère : pageview + interaction + session-end
+ * × ~6 pages/min + quelques CTA clicks = ~25 events/min facilement.
+ * Avec refreshes ou SPA navigation rapide, on peut dépasser 30.
+ * 60/min laisse de la marge tout en bloquant le spam programmatique (100+/min).
  */
 export const ipRateLimiter = createRateLimiter({
   windowMs: 60_000,
-  max: 20,
+  max: 60,
 });
 
 /**

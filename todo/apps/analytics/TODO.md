@@ -48,8 +48,8 @@ via `ssh prod-pub` + `docker compose pull && up -d` dans
   `POST /api/admin/tenants/:id/members` renvoie 404. Cas reel : Morel
   Volailles sans OWNER → endpoint `POST /api/admin/tenants/:idOrSlug/members`
   avec `{ email, role }`, connectOrCreate User
-- [ ] **Service `calls` marque actif a tort** sur `/status`. Morel a 0
-  sipCalls mais `activeServices` inclut `calls`. Bug dans `lib/tenant-status.ts`
+- [x] ~~Service `calls` marque actif a tort~~ — fix : calls actif uniquement
+  si sipCalls > 0, les CTA tel: ne suffisent plus (2026-04-15)
 - [x] ~~CORS `navigator.sendBeacon` casse sur les sites clients~~ — fix :
   retiré sendBeacon (force credentials:include), gardé fetch avec
   keepalive:true + credentials:omit (2026-04-15)

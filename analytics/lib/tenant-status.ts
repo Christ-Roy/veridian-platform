@@ -141,10 +141,11 @@ export function detectServices(counts: {
 
   if (counts.pageviews > 0) active.push('pageviews');
   if (counts.formSubmissions > 0) active.push('forms');
-  // Le service "calls" est actif si on a des SipCalls OU des clics CTA
-  // tel: (intentions d'appel trackees par le tracker). Ca permet de
-  // deverrouiller la page meme sans SIP branche.
-  if (counts.sipCalls > 0 || (counts.ctaClicks ?? 0) > 0) active.push('calls');
+  // Le service "calls" est actif seulement si on a des vrais SipCalls.
+  // Les clics CTA tel: sont des intentions d'appel, pas des appels trackes.
+  // Afficher "calls actif" quand on n'a pas de call tracking branche induit
+  // en erreur le client.
+  if (counts.sipCalls > 0) active.push('calls');
   // On considere gsc "actif" seulement si la propriete est attachee ET on a
   // au moins une ligne de data ingeree. Sinon c'est juste brancheun pas sync.
   if (counts.hasGscProperty && counts.gscRows > 0) active.push('gsc');
