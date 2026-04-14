@@ -125,18 +125,28 @@ Objectif : garantir que la data stockée est de la data humaine, taguer le
 niveau de confiance sur chaque event, et exposer ce niveau dans le
 dashboard pour que Robert et ses clients aient une métrique "fiabilité".
 
-**Tolérance à l'erreur définie par Robert (2026-04-14) :**
-- ✅ **Bots grotesques** (crawlers connus, headless sans stealth, UA bot,
-  webdriver, burst IP, UA vs screen incohérents) → **doivent être filtrés
-  à 100%**. Zéro tolérance pour les bots UA-taggés ou webdriver-taggés qui
-  passent dans les compteurs.
-- ✅ **Humains qui ne font rien** (pageview sans interaction, rebond < 3s)
-  → **acceptable de les exclure**. On préfère sous-compter les humains
-  passifs que surcompter les bots.
-- ⚠️ **Bots sophistiqués** (stealth headless, clicks programmés, farms
-  résidentielles) → **tolérés**, on ne peut pas les battre sans foutre
-  en l'air l'UX des vrais humains. Flag `suspect_sophisticated` pour
-  debug.
+**Tolérance à l'erreur définie par Robert (2026-04-14, durci) :**
+
+**Règle d'or : PAS D'INTERACTION = PAS COMPTÉ.** Un pageview sans aucun
+signe d'activité humaine réelle est traité comme un bot ou un bug de
+tracking. On préfère sous-compter le trafic que surcompter des bots.
+
+- ✅ **Bots grotesques** (crawlers connus, headless non-stealth, UA bot,
+  webdriver, burst IP, UA vs screen incohérents) → filtrés à 100%, zéro
+  tolérance, jamais comptés même partiellement.
+- ✅ **Bots headless stealth** (Puppeteer/Playwright stealth plugin,
+  BrightData IPs résidentielles, `webdriver` patché à false) → ciblés par
+  **exigence d'interaction humaine organique** (voir F.1.5). On accepte
+  de rater les bots qui simulent parfaitement un humain (rares, coûteux),
+  on attrape tous les autres.
+- ✅ **Humains qui ne font rien** (pageview sans interaction, fermeture
+  en < 10s sans scroll/clic) → **considérés comme bots ou bugs de
+  tracking**, non comptés. Robert assume cette décision : un visiteur
+  qui n'interagit pas n'a aucune valeur business et ressemble trop à un
+  bot pour être distingué fiablement.
+- ❌ **Zone grise** : un humain qui ouvre un onglet en arrière-plan pour
+  lire plus tard → passera en "no_interaction" et ne sera pas compté.
+  Acceptable, c'est un faux négatif rare et sans valeur métier.
 
 #### F.1.0 — Visiteurs uniques (décision Robert 2026-04-14)
 
@@ -197,27 +207,111 @@ Côté dashboard :
 
 - [ ] Extraire une fonction `computeQuality(event, req)` qui calcule un
       score 0-100 basé sur :
-  - **Regex UA bot étendue** (−40 si match, `bot_ua_regex` flag) —
-    ajouter les crawlers IA : `gptbot`, `chatgpt-user`, `claudebot`,
-    `claude-web`, `perplexitybot`, `cohere`, `anthropic`, `youbot`,
-    `applebot-extended`, `bytespider`, `ccbot`, `archive_org`
-  - **`navigator.webdriver`** présent dans le payload → −30
-  - **Pas de `referrer` ET pas d'UTM ET pas de session précédente** → −15
-    (souvent un ping direct sans contexte humain)
-  - **Session qui n'a jamais fait de 2e event** (pas de scroll, pas de
-    navigation) → −10 (check en différé via cron, voir plus bas)
-  - **Burst IP** : > N events du même `ipHash` en < 5s → −30,
-    `rapid_session_burst`
-  - **UA cohérent vs plateforme** : `viewport.width === 0`,
-    `screen.width === 0` → headless, −40
+  - **Regex UA bot étendue** (−100 si match, `bot_ua_regex` flag,
+    jamais compté) — crawlers IA inclus :
+    `gptbot`, `chatgpt-user`, `claudebot`, `claude-web`, `perplexitybot`,
+    `cohere`, `anthropic`, `youbot`, `applebot-extended`, `bytespider`,
+    `ccbot`, `archive_org`, `ahrefsbot`, `semrushbot`, `mj12bot`,
+    `dotbot`, `blexbot`, `rogerbot`, `screaming frog`, `sitebulb`,
+    `httpclient`, `python-requests`, `curl`, `wget`, `go-http-client`,
+    `httpx`, `scrapy`, `phantomjs`, `headlesschrome` (sans stealth),
+    `puppeteer`, `playwright`, `selenium`, `chromedriver`, `webdriver`,
+    `okhttp`, `jakarta`, `axios/`, `node-fetch`
+  - **`navigator.webdriver`** présent dans le payload → −100 (jamais
+    compté)
+  - **Incohérences techniques impossibles chez un humain** :
+    - `viewport.width === 0` OU `screen.width === 0` → −100
+    - `plugins.length === 0` sur Chrome desktop hors mobile → −80
+    - `hardwareConcurrency === 1` sur desktop → −70 (vrais desktop = 2+)
+    - `maxTouchPoints === 0` sur device UA mobile → −100 (faux mobile)
+    - `devicePixelRatio === 0` ou négatif → −100
+    - `webGL` absent alors que `canvas` présent → −60 (headless partiel)
+  - **Burst IP / visitorHash** : > 10 events du même visitorHash en < 60s
+    → −80, `rapid_burst` flag
+  - **ASN cloud hyperscale** (AWS, GCP, Azure, OVH, Hetzner, DO, Linode)
+    → −40, `cloud_asn`. Pas −100 car VPN légitimes.
+  - **Cohérence locale** : `country=FR` + `lang=zh-CN` + `tz=Asia/Shanghai`
+    → −30, `locale_mismatch`
   - **Language header `en-US` sur un site français**, **Timezone `UTC`
-    en plein milieu de la journée française** → signaux faibles, −5 chacun
-- [ ] Score < 40 → event stocké mais **flag `bot` levé**, exclu du compteur
-      par défaut
-- [ ] Score ≥ 40 → compté dans les métriques
-- [ ] Le tracker.js envoie en plus dans le payload : `viewport`, `screen`,
-      `tz`, `webdriver`, `lang`, `platform`, premier `mousemove/scroll/touch`
-      timestamp (ms depuis pageload)
+    en plein milieu de la journée française** → signaux faibles, −10 chacun
+- [ ] Score < 40 → event stocké mais **jamais compté** dans les
+      métriques publiques (visible admin debug uniquement)
+- [ ] Score ≥ 40 MAIS `no_interaction` flag → **pas compté non plus**
+      (voir F.1.5 interaction obligatoire)
+- [ ] Score ≥ 40 ET interaction confirmée → compté.
+
+#### F.1.5 — Interaction humaine obligatoire (règle d'or)
+
+**Principe** : un pageview n'est **validé** qu'après confirmation d'une
+activité humaine organique. Tant qu'il n'y a pas d'interaction, le
+pageview est en `status='pending'` et n'apparaît nulle part.
+
+##### Signaux d'interaction acceptés
+
+Au moins UN de ces signaux dans les 60s suivant le pageview :
+
+- **Mouvement de souris réel** : trajectoire non-linéaire (coefficient
+  de courbure > seuil), au moins 50px cumulés, avec variations
+  d'accélération (pas de vitesse constante parfaite)
+- **Scroll significatif** : > 15% de la page OU > 200px cumulés, sur
+  au moins 2 events distincts (pas un scroll instantané programmé)
+- **Touch réel** : `touchstart` + `touchmove` avec > 30px de delta,
+  pression `force > 0` si dispo (Force Touch)
+- **Clic humain** : clic à coordonnées non-parfaitement-centrées sur
+  un élément interactif (`button`, `a`, `input`) avec délai
+  pré-click > 50ms depuis hover
+- **Saisie clavier** : au moins 1 keypress qui ne soit pas
+  `Tab`/`Escape`/`Enter` seul (ces touches sont utilisées par des
+  scripts automatiques)
+- **Focus sur un input** avec saisie non-instantanée (délai entre
+  focus et premier keypress > 100ms)
+
+##### Signaux d'interaction rejetés (bots simulant)
+
+- **Scroll unique de N px en 1 event** (bot programmé) → flag
+  `scroll_programmatic`, non compté
+- **Mouvement souris en ligne droite parfaite** (delta X et Y
+  proportionnels parfaitement sur toute la trajectoire) → flag
+  `cursor_robotic`, non compté
+- **Premier clic à < 100ms du pageview** → bot, flag `instant_click`,
+  non compté
+- **Clic à pixel-perfect centre** d'un élément (le bot lit le DOM
+  pour calculer) → flag `centered_click`, suspect, −30
+- **Vitesse de frappe trop régulière** (variance des intervalles
+  entre keypress < 20ms) → bot, flag `typing_robotic`
+
+##### Implémentation tracker
+
+- [ ] Le tracker envoie immédiatement le pageview mais avec
+      `status: 'pending'`
+- [ ] Le tracker **observe** mousemove/scroll/touch/keydown/click
+      pendant 60s
+- [ ] À la première interaction "humaine organique" qualifiée → beacon
+      `POST /api/ingest/interaction` avec `sessionId`, `pageviewId`,
+      type d'interaction + signature (ex: pour mousemove, échantillon de
+      points pour prouver la non-linéarité)
+- [ ] Si aucune interaction dans 60s → beacon `POST /api/ingest/abandoned`
+      pour marquer le pageview comme `no_interaction`
+
+##### Implémentation serveur
+
+- [ ] `Pageview.status` : `pending` (défaut) → `validated` (après
+      interaction) | `abandoned` (pas d'interaction 60s) | `bot`
+      (quality < 40)
+- [ ] Cron toutes les 2 min qui passe les `pending` > 90s à `abandoned`
+      (safety net si le beacon `abandoned` n'est pas reçu)
+- [ ] Compteurs dashboard filtrent sur `status = 'validated'` par défaut
+- [ ] Toggle admin "Inclure pageviews abandonnés" pour debug
+
+##### Validation de la qualité d'interaction (côté serveur)
+
+- [ ] Analyse statistique des signaux reçus dans la requête
+      `/api/ingest/interaction` :
+  - Mouvements souris : calcul de la courbure, variance de vitesse,
+    nombre d'inflexions → score de "naturalité"
+  - Scrolls : intervalles entre events, vitesse → naturel ou robotique
+- [ ] Score d'interaction < seuil → downgrade le pageview à
+      `status = 'abandoned'` (interaction détectée mais suspecte)
 
 #### Backend — post-processing
 
@@ -926,12 +1020,39 @@ Playwright headful (sur le serveur Analytics, pas sur le site client).
 - [ ] `session_beacon_unload` — close tab → session-end reçu
 
 **Filtre bot**
-- [ ] `bot_filter_ua` — visite avec UA=Googlebot → quality bas + flag
+- [ ] `bot_filter_ua` — visite avec UA=Googlebot → quality=0, jamais compté
 - [ ] `bot_filter_webdriver` — visite avec navigator.webdriver=true → idem
 - [ ] `bot_filter_burst` — 15 pageviews en 3s → burst détecté
 - [ ] `bot_filter_asn_cloud` — simulation IP AWS → cloud_asn flaggé (mock)
-- [ ] `bot_filter_stealth` — Playwright défaut non-stealth → doit être
-      détecté par nos signaux (plugins=0 sur Chrome, etc.)
+- [ ] `bot_filter_stealth_plugins` — Chrome avec `plugins.length=0`
+      → flaggé, non compté
+- [ ] `bot_filter_stealth_hardware` — `hardwareConcurrency=1` desktop
+      → flaggé
+- [ ] `bot_filter_stealth_viewport` — `viewport.width=0` → flaggé
+- [ ] `bot_filter_stealth_webgl` — canvas présent mais WebGL absent
+      → flaggé
+
+**Interaction obligatoire (F.1.5)**
+- [ ] `pageview_pending_without_interaction` — pageview reçu reste en
+      `status=pending`, n'apparaît pas dans les compteurs
+- [ ] `pageview_validated_after_real_scroll` — scroll de 20% en 3 events
+      → status passe à `validated`, pageview compté
+- [ ] `pageview_validated_after_real_mousemove` — mousemove organique
+      (non-linéaire, vitesse variable) → validated
+- [ ] `pageview_validated_after_click` — click humain (avec hover
+      préalable, pixel non-centré) → validated
+- [ ] `pageview_rejected_programmatic_scroll` — scroll unique 5000px
+      → flag scroll_programmatic, pageview reste pending puis abandoned
+- [ ] `pageview_rejected_instant_click` — click à T+50ms du pageload
+      → flag instant_click, rejeté
+- [ ] `pageview_rejected_linear_cursor` — mouvement souris en ligne
+      droite parfaite → flag cursor_robotic, rejeté
+- [ ] `pageview_abandoned_after_timeout` — aucune interaction en 60s
+      → status passe à `abandoned`
+- [ ] `pageview_abandoned_beacon_received` — tracker envoie bien le
+      beacon `/api/ingest/abandoned` au timeout
+- [ ] `pageview_not_counted_if_pending` — compteur publics ne montrent
+      QUE les `status=validated`
 
 **Qualité de hash et unicité**
 - [ ] `unique_visitor_hash_stable` — 2 visites même IP+UA → même hash
