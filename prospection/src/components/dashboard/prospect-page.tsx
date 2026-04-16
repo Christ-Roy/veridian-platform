@@ -83,13 +83,27 @@ export function ProspectPage() {
     requirePhone: true,
   });
 
-  // Check onboarding status
+  // Check onboarding status — skip if already has data or settings say done.
+  // If settings API fails (401 race after login, network error), skip onboarding
+  // to avoid blocking the UI. A real new user will see it on reload.
   useEffect(() => {
     fetch("/api/settings")
-      .then(r => r.ok ? r.json() : {})
-      .then((data: Record<string, string>) => {
-        if (!data["settings.onboarding_done"]) setShowOnboarding(true);
-        setOnboardingChecked(true);
+      .then(r => {
+        if (!r.ok) return null; // 401 = session not ready yet, skip onboarding
+        return r.json();
+      })
+      .then((settings: Record<string, string> | null) => {
+        if (!settings) { setOnboardingChecked(true); return; }
+        if (settings["settings.onboarding_done"]) { setOnboardingChecked(true); return; }
+        // No onboarding_done → check if tenant has data (admin/returning user)
+        fetch("/api/health")
+          .then(r => r.ok ? r.json() : null)
+          .then((health: { leadCount?: number } | null) => {
+            const hasLeads = health && (health.leadCount ?? 0) > 100;
+            if (!hasLeads) setShowOnboarding(true);
+            setOnboardingChecked(true);
+          })
+          .catch(() => setOnboardingChecked(true));
       })
       .catch(() => setOnboardingChecked(true));
 

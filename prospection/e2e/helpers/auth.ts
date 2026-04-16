@@ -136,7 +136,12 @@ export async function loginAsE2EUser(
     );
   }
 
-  // Step 4: fill the /login form and wait for redirect.
+  // Step 4: mark onboarding as done so the modal doesn't block e2e tests.
+  // Uses the session cookie from the provision step — the settings API
+  // requires auth but the login hasn't happened yet in the browser.
+  // We'll do it after login via page.evaluate instead.
+
+  // Step 5: fill the /login form and wait for redirect.
   await page.goto(`${PROSPECTION_URL}/login`);
   await page.locator("#email").fill(E2E_USER_EMAIL);
   await page.locator("#password").fill(E2E_USER_PASSWORD);
@@ -146,6 +151,24 @@ export async function loginAsE2EUser(
     .catch(() => {});
   if (page.url().includes("/login")) {
     throw new Error(`Login failed, still on ${page.url()}`);
+  }
+
+  // Step 6: set onboarding_done to suppress the onboarding modal.
+  // Now that we're logged in, the session cookie is set and we can
+  // call the settings API from the browser context.
+  await page.evaluate(async () => {
+    await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ onboarding_done: "true" }),
+    }).catch(() => {});
+  });
+
+  // Dismiss the onboarding modal if it appeared (click the skip button)
+  const skipBtn = page.locator('[data-testid="onboarding-skip"]');
+  if (await skipBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await skipBtn.click();
+    await page.waitForTimeout(500);
   }
 }
 
