@@ -18,7 +18,7 @@ jobs:
           echo "Target trial_ends_at: $FUTURE"
 
           echo "--- Before ---"
-          curl -s "$SUPABASE_URL/rest/v1/tenants?select=id,email,prospection_plan,trial_ends_at" \
+          curl -s "$SUPABASE_URL/rest/v1/tenants?select=id,user_id,name,prospection_plan,trial_ends_at" \
             -H "apikey: $SERVICE_KEY" \
             -H "Authorization: Bearer $SERVICE_KEY" | python3 -m json.tool || true
 
@@ -34,6 +34,6 @@ jobs:
 
           echo ""
           echo "--- After ---"
-          curl -s "$SUPABASE_URL/rest/v1/tenants?select=id,email,prospection_plan,trial_ends_at" \
+          curl -s "$SUPABASE_URL/rest/v1/tenants?select=id,user_id,name,prospection_plan,trial_ends_at" \
             -H "apikey: $SERVICE_KEY" \
             -H "Authorization: Bearer $SERVICE_KEY" | python3 -m json.tool || true
