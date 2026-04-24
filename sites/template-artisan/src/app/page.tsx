@@ -14,9 +14,9 @@ export default async function Home() {
 export async function generateMetadata() {
   const page = await getPage('home')
   return {
-    title: page?.seo?.metaTitle ?? page?.title ?? 'Dupont BTP — Artisan maçon à Lyon',
+    title: page?.meta?.title ?? page?.title ?? 'Dupont BTP — Artisan maçon à Lyon',
     description:
-      page?.seo?.metaDescription ??
+      page?.meta?.description ??
       "35 ans d'expérience en maçonnerie, rénovation et extension. Devis gratuit.",
   }
 }

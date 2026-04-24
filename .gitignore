@@ -70,3 +70,4 @@ sites/*/node_modules
 sites/*/.next
 sites/*/out
 sites/*/.wrangler
+sites/template-website/

@@ -1,3 +1,7 @@
+/**
+ * SDK CMS — fetch au build depuis Payload.
+ * Identique pour tous les sites Veridian, seuls CMS_TENANT_SLUG + CMS_API_KEY changent.
+ */
 const API_URL = process.env.CMS_API_URL || 'https://cms.staging.veridian.site'
 const TENANT_SLUG = process.env.CMS_TENANT_SLUG || 'artisan'
 const API_KEY = process.env.CMS_API_KEY
@@ -49,18 +53,32 @@ export interface PageDoc {
   title: string
   slug: string
   blocks?: Block[]
-  seo?: {
-    metaTitle?: string | null
-    metaDescription?: string | null
-    ogImage?: Media
+  meta?: {
+    title?: string | null
+    description?: string | null
+    image?: Media
   }
+}
+
+export interface HeaderDoc {
+  logo?: Media
+  logoText?: string | null
+  nav?: Array<{ label: string; url: string }>
+  cta?: { label?: string | null; url?: string | null } | null
+}
+
+export interface FooterDoc {
+  company?: { name?: string | null; tagline?: string | null; phone?: string | null; email?: string | null; address?: string | null }
+  hours?: Array<{ day: string; time: string }>
+  social?: { facebook?: string | null; instagram?: string | null; linkedin?: string | null; google?: string | null }
+  legal?: { siret?: string | null; mentionsUrl?: string | null }
 }
 
 interface TenantDoc { id: number; slug: string; name: string }
 
-async function api<T>(path: string, opts: { preview?: boolean } = {}): Promise<T | null> {
+async function api<T>(path: string): Promise<T | null> {
   try {
-    const url = `${API_URL}/api${path}${opts.preview ? (path.includes('?') ? '&' : '?') + 'draft=true' : ''}`
+    const url = `${API_URL}/api${path}`
     const headers: Record<string, string> = {}
     if (API_KEY) headers.Authorization = `users API-Key ${API_KEY}`
     const res = await fetch(url, { headers, cache: 'no-store' })
@@ -85,14 +103,24 @@ async function getTenantId(): Promise<number | null> {
   return _tenantId
 }
 
-export async function getPage(slug: string, opts: { preview?: boolean } = {}): Promise<PageDoc | null> {
+export async function getPage(slug: string): Promise<PageDoc | null> {
   const tenantId = await getTenantId()
   if (!tenantId) return null
   const data = await api<{ docs: PageDoc[] }>(
     `/pages?where[tenant][equals]=${tenantId}&where[slug][equals]=${encodeURIComponent(slug)}&limit=1&depth=2`,
-    opts,
   )
   return data?.docs[0] ?? null
+}
+
+export async function getHeader(): Promise<HeaderDoc | null> {
+  // Le plugin multi-tenant filtre auto par tenant via l'API key scopée
+  const data = await api<{ docs: HeaderDoc[] }>(`/header?limit=1&depth=2`)
+  return data?.docs?.[0] ?? null
+}
+
+export async function getFooter(): Promise<FooterDoc | null> {
+  const data = await api<{ docs: FooterDoc[] }>(`/footer?limit=1&depth=2`)
+  return data?.docs?.[0] ?? null
 }
 
 export function mediaUrl(media: Media, size?: 'thumbnail' | 'card' | 'hero'): string | null {
