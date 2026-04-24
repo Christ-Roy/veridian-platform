@@ -1,0 +1,150 @@
+# CMS CI/CD v1 — à finaliser en session prochaine.
+# Suit le pattern prospection-ci.yml (5 couches, concurrency cancel, GHCR).
+# Voir cms/docs/NEXT-SESSION-ROADMAP.md pour le contexte complet.
+
+name: CMS CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cms/**'
+      - '.github/workflows/cms-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cms/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cms-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.28.1'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: christ-roy/veridian-cms
+
+jobs:
+  # ═══════════ Couche 1 : UNIT (<90s, bloquant) ═══════════
+  unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cms
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: TypeScript check
+        run: pnpm tsc --noEmit
+      # TODO session prochaine : ajouter eslint + vitest unit si on écrit des tests unit
+
+  # ═══════════ Couche 2 : BUILD Docker + push GHCR (~2min) ═══════════
+  build:
+    needs: unit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./cms
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ═══════════ Couche 3 : E2E Playwright headful (~5min) ═══════════
+  e2e:
+    needs: build
+    runs-on: [self-hosted, linux, x64]
+    defaults:
+      run:
+        working-directory: cms
+    env:
+      # Pointe sur une instance éphémère seedée pour le test
+      # (option 1 : stand up un docker compose éphémère
+      #  option 2 : pointer sur le CMS staging qui vient d'être updaté)
+      CMS_URL: https://cms.staging.veridian.site
+      CMS_ADMIN_API_KEY: ${{ secrets.CMS_ADMIN_API_KEY_STAGING }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium --with-deps
+      - name: Run E2E (headful via Xvfb)
+        run: xvfb-run -a pnpm exec playwright test --config=e2e/playwright.config.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: cms/e2e/playwright-report/
+          retention-days: 7
+
+  # ═══════════ Couche 4 : DEPLOY OVH ═══════════
+  deploy:
+    needs: [build, e2e]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH deploy
+        env:
+          DEPLOY_KEY: ${{ secrets.CMS_SSH_KEY_OVH }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          echo "TODO session prochaine : script deploy SSH avec migrate + up --build + health check retry + rollback"
+          echo "Voir cms/docs/NEXT-SESSION-ROADMAP.md §Phase 4"
+          # Skelette :
+          #   mkdir -p ~/.ssh && echo "$DEPLOY_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          #   ssh -o StrictHostKeyChecking=no ubuntu@51.210.7.44 <<EOF
+          #     cd /etc/dokploy/compose/<cms-id>/code
+          #     git fetch origin main && git reset --hard origin/main
+          #     docker compose exec cms pnpm payload migrate
+          #     docker compose up -d --build --no-deps cms
+          #   EOF
+
+  # ═══════════ Couche 5 : SMOKE post-deploy ═══════════
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Health check with retry
+        run: |
+          for i in {1..30}; do
+            if curl -sf https://cms.veridian.site/api/health; then
+              echo "✅ Health OK" && exit 0
+            fi
+            echo "Attempt $i failed, retrying in 6s..." && sleep 6
+          done
+          echo "❌ Health check failed after 3 min" && exit 1
+      - name: Admin page renders
+        run: |
+          curl -sI https://cms.veridian.site/admin | grep "HTTP/2 200"
