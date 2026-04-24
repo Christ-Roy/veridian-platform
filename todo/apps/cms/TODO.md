@@ -138,12 +138,33 @@ Roadmap complete : **[`cms/docs/NEXT-SESSION-ROADMAP.md`](../../../cms/docs/NEXT
 
 ### P3 — UI / UX avances
 
+- [ ] **Catalogue dynamique avec filtres editables** (pour clients e-commerce)
+  Collections Products + Categories + **Filters** (slug/type/field/mergeable/options).
+  Le client peut dans son admin :
+    - Creer un filtre "Marque" avec valeurs libres
+    - Fusionner 2 filtres existants en 1
+    - Reordonner les filtres (drag-n-drop Payload natif via `order`)
+    - Activer/desactiver un filtre par page categorie
+  Cote site : block `CategoryPage` + API route Next qui match produits.
+  Effort ~2-3 jours pour catalogue bien ficele (pas un POC).
+  A faire quand premier client catalogue arrive (ex: Apical Informatique).
+
 - [ ] **Profils de tenants** (UI / collections variables par client)
   Pour les clients complexes (catalogue, boutique, blog multi-auteurs),
   ajouter un champ `tenant.profile` et activer conditionnellement des
   collections via `admin.condition`. Pattern inspire de l'exemple officiel
   `~/.claude/docs/payload-examples/multi-tenant/`. Effort ~1 jour. A faire
   quand premier client "complexe" arrive, pas avant.
+
+- [ ] **Polish admin Payload "pro"** (au-dela du white-label basique)
+  L'admin actuel est fonctionnel mais neutre (type Supabase dashboard).
+  Pour donner un vrai "wow effect" sur les demos clients :
+    - Override `admin.components` pour Dashboard/ListView/EditView custom
+    - Widgets dashboard : "dernieres pages publiees", "vues 7j" (analytics)
+    - ListView en preview cards au lieu de tableau pour les Pages
+    - Sidebar de presets/templates sur EditView
+  Effort ~1 jour. **Ne PAS faire avant un besoin client concret** — l'admin
+  actuel est deja mieux qu'un WordPress pour la plupart des PME.
 
 - [ ] **Click-to-edit inline sur la preview** (Webflow-style)
   **Pas natif Payload**, sur leur roadmap. Solution custom = injection
