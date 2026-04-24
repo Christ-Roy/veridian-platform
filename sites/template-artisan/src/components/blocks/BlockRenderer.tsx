@@ -5,6 +5,7 @@ import { GalleryBlock } from './GalleryBlock'
 import { TestimonialsBlock } from './TestimonialsBlock'
 import { CTABlock } from './CTABlock'
 import { RichTextBlock } from './RichTextBlock'
+import { FormBlock } from './FormBlock'
 
 export function BlockRenderer({ blocks }: { blocks?: Block[] }) {
   if (!blocks?.length) return null
@@ -18,6 +19,7 @@ export function BlockRenderer({ blocks }: { blocks?: Block[] }) {
           case 'testimonials': return <TestimonialsBlock key={i} {...b} />
           case 'cta': return <CTABlock key={i} {...b} />
           case 'richtext': return <RichTextBlock key={i} {...b} />
+          case 'formBlock': return <FormBlock key={i} {...b} />
           default: return null
         }
       })}

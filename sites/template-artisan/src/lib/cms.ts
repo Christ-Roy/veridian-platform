@@ -8,6 +8,27 @@ const API_KEY = process.env.CMS_API_KEY
 
 type Media = { url?: string; alt?: string; sizes?: Record<string, { url?: string }> } | null
 
+export interface FormField {
+  blockType: 'text' | 'email' | 'textarea' | 'select' | 'checkbox' | 'number' | 'country' | 'state' | 'message'
+  name: string
+  label?: string
+  required?: boolean
+  width?: number
+  defaultValue?: string | number | boolean
+  options?: Array<{ label: string; value: string }>
+  message?: unknown
+}
+
+export interface FormDoc {
+  id: number
+  title: string
+  fields: FormField[]
+  submitButtonLabel?: string | null
+  confirmationType?: 'message' | 'redirect'
+  confirmationMessage?: unknown
+  redirect?: { url?: string }
+}
+
 export type Block =
   | {
       blockType: 'hero'
@@ -46,6 +67,13 @@ export type Block =
       description?: string | null
       ctaLabel: string
       ctaUrl: string
+    }
+  | {
+      blockType: 'formBlock'
+      title?: string | null
+      subtitle?: string | null
+      // Avant seed = slug string ; après seed en CMS = objet form populated ou id
+      form: string | number | FormDoc
     }
 
 export interface PageDoc {

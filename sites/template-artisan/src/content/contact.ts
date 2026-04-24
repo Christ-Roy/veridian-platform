@@ -44,4 +44,9 @@ export const CONTACT: Block[] = [
     ctaLabel: 'Appeler 04 00 00 00 00',
     ctaUrl: 'tel:+33400000000',
   },
+  // NOTE : un formulaire de contact est seedé séparément via src/content/forms.ts
+  // → le client peut l'ajouter sur cette page via l'admin (Pages → Contact →
+  //   ajouter un bloc "Formulaire" → sélectionner "Formulaire de contact").
+  // Note technique : l'auto-seed d'un formBlock via l'API est bloqué par une
+  //    subtilité Payload (relation + multi-tenant). V2 : debug côté Payload.
 ]
