@@ -1,0 +1,79 @@
+name: Sites — Build & Deploy CF Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'sites/**'
+      - '.github/workflows/sites-deploy.yml'
+  workflow_dispatch:
+    inputs:
+      site:
+        description: 'Site à déployer (demo-cms, template-artisan, template-restaurant, ou all)'
+        required: true
+        default: 'all'
+
+jobs:
+  detect:
+    name: Detect changed sites
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: set
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            requested="${{ github.event.inputs.site }}"
+            if [ "$requested" = "all" ]; then
+              echo 'matrix={"site":["demo-cms","template-artisan","template-restaurant"]}' >> $GITHUB_OUTPUT
+            else
+              echo "matrix={\"site\":[\"$requested\"]}" >> $GITHUB_OUTPUT
+            fi
+          else
+            changed=$(git diff --name-only HEAD^ HEAD | grep '^sites/' | awk -F/ '{print $2}' | sort -u | grep -vE '^$' || true)
+            if [ -z "$changed" ]; then
+              echo 'matrix={"site":[]}' >> $GITHUB_OUTPUT
+            else
+              list=$(echo "$changed" | jq -Rcn '[inputs]')
+              echo "matrix={\"site\":$list}" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  deploy:
+    needs: detect
+    if: ${{ needs.detect.outputs.matrix != '{"site":[]}' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
+    name: Deploy ${{ matrix.site }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: sites/${{ matrix.site }}/package-lock.json
+
+      - name: Install
+        working-directory: sites/${{ matrix.site }}
+        run: npm ci || npm install
+
+      - name: Build
+        working-directory: sites/${{ matrix.site }}
+        env:
+          CMS_API_URL: ${{ vars.CMS_API_URL }}
+          CMS_TENANT_SLUG: ${{ matrix.site == 'demo-cms' && 'demo' || matrix.site == 'template-artisan' && 'artisan' || 'restaurant' }}
+          CMS_API_KEY: ${{ matrix.site == 'demo-cms' && secrets.CMS_API_KEY_DEMO || matrix.site == 'template-artisan' && secrets.CMS_API_KEY_ARTISAN || secrets.CMS_API_KEY_RESTAURANT }}
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN_PAGES }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: pages deploy sites/${{ matrix.site }}/out --project-name=${{ matrix.site == 'demo-cms' && 'demo-cms-veridian' || matrix.site }} --branch=main --commit-dirty=true
