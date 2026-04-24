@@ -1,0 +1,22 @@
+{
+  "name": "demo-cms",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3301",
+    "build": "next build",
+    "start": "next start -p 3301",
+    "deploy": "npm run build && wrangler pages deploy out --project-name=demo-cms-veridian"
+  },
+  "dependencies": {
+    "next": "15.3.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/node": "^20.17.12",
+    "wrangler": "^4.42.0"
+  }
+}
