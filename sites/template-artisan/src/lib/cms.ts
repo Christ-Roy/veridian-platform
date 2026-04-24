@@ -113,13 +113,22 @@ export async function getPage(slug: string): Promise<PageDoc | null> {
 }
 
 export async function getHeader(): Promise<HeaderDoc | null> {
-  // Le plugin multi-tenant filtre auto par tenant via l'API key scopée
-  const data = await api<{ docs: HeaderDoc[] }>(`/header?limit=1&depth=2`)
+  // ⚠️ Le plugin multi-tenant Payload ne filtre PAS automatiquement pour les
+  //    API keys (pas de cookie). On doit passer le tenant id explicitement.
+  const tenantId = await getTenantId()
+  if (!tenantId) return null
+  const data = await api<{ docs: HeaderDoc[] }>(
+    `/header?where[tenant][equals]=${tenantId}&limit=1&depth=2`,
+  )
   return data?.docs?.[0] ?? null
 }
 
 export async function getFooter(): Promise<FooterDoc | null> {
-  const data = await api<{ docs: FooterDoc[] }>(`/footer?limit=1&depth=2`)
+  const tenantId = await getTenantId()
+  if (!tenantId) return null
+  const data = await api<{ docs: FooterDoc[] }>(
+    `/footer?where[tenant][equals]=${tenantId}&limit=1&depth=2`,
+  )
   return data?.docs?.[0] ?? null
 }
 
