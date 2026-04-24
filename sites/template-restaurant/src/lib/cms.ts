@@ -2,16 +2,58 @@ const API_URL = process.env.CMS_API_URL || 'https://cms.staging.veridian.site'
 const TENANT_SLUG = process.env.CMS_TENANT_SLUG || 'restaurant'
 const API_KEY = process.env.CMS_API_KEY
 
-type Media = { url?: string; alt?: string } | null
+type Media = { url?: string; alt?: string; sizes?: Record<string, { url?: string }> } | null
+
+export type Block =
+  | {
+      blockType: 'hero'
+      eyebrow?: string | null
+      title: string
+      subtitle?: string | null
+      image?: Media
+      ctas?: Array<{ label: string; url: string; variant?: 'primary' | 'secondary' }>
+    }
+  | {
+      blockType: 'services'
+      title?: string | null
+      subtitle?: string | null
+      items: Array<{ icon?: string; title: string; description?: string | null }>
+    }
+  | {
+      blockType: 'gallery'
+      title?: string | null
+      subtitle?: string | null
+      images: Array<{ image: Media; caption?: string | null }>
+    }
+  | {
+      blockType: 'testimonials'
+      title?: string | null
+      items: Array<{ quote: string; author: string; role?: string | null; avatar?: Media }>
+    }
+  | {
+      blockType: 'richtext'
+      title?: string | null
+      body: unknown
+      alignment?: 'left' | 'center'
+    }
+  | {
+      blockType: 'cta'
+      title: string
+      description?: string | null
+      ctaLabel: string
+      ctaUrl: string
+    }
 
 export interface PageDoc {
   id: number
   title: string
   slug: string
-  heroTitle?: string | null
-  heroSubtitle?: string | null
-  heroImage?: Media
-  sections?: Array<{ heading?: string | null; body?: unknown; image?: Media }>
+  blocks?: Block[]
+  seo?: {
+    metaTitle?: string | null
+    metaDescription?: string | null
+    ogImage?: Media
+  }
 }
 
 interface TenantDoc { id: number; slug: string; name: string }
@@ -52,7 +94,9 @@ export async function getPage(slug: string): Promise<PageDoc | null> {
   return data?.docs[0] ?? null
 }
 
-export function mediaUrl(media: Media, fallback: string): string {
-  if (media?.url) return new URL(media.url, API_URL).toString()
-  return fallback
+export function mediaUrl(media: Media, size?: 'thumbnail' | 'card' | 'hero'): string | null {
+  if (!media) return null
+  const url = size && media.sizes?.[size]?.url ? media.sizes[size].url : media.url
+  if (!url) return null
+  return new URL(url, API_URL).toString()
 }
