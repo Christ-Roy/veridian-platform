@@ -166,30 +166,40 @@ Roadmap complete : **[`cms/docs/NEXT-SESSION-ROADMAP.md`](../../../cms/docs/NEXT
   Effort ~1 jour. **Ne PAS faire avant un besoin client concret** — l'admin
   actuel est deja mieux qu'un WordPress pour la plupart des PME.
 
-- [ ] **Integrer Puck Editor pour l'edition visuelle de pages** (Webflow-like)
-  Puck (https://puckeditor.com) = page builder visuel React open-source.
-  L'integrer DANS Payload (pas en remplacement) : un champ custom dans la
-  collection `Pages` avec Puck comme editeur, au lieu du champ `blocks`
-  natif. Le client edite ses pages en click-to-edit direct sur le canvas
-  (UX Webflow), mais tout le reste reste Payload (auth, multi-tenant,
-  header/footer, forms, magic links, redirects, SEO, plugin form-builder).
+- [ ] **Tester `@delmaredigital/payload-puck` pour l'edition visuelle**
+  (Webflow-like, click-to-edit sur canvas)
 
-  Plugins existants : `@dlnsk/payload-plugin-puck` (communautaire),
-  voir aussi exemples integration Payload + Puck.
+  Puck (https://puckeditor.com) = page builder visuel React MIT.
+  Plugin **communautaire** (PAS officiel Payload, c'est important) maintenu
+  par delmaredigital depuis janvier 2026 :
+    - npm : `@delmaredigital/payload-puck`
+    - GitHub : github.com/delmaredigital/payload-puck
+    - Starter : github.com/delmaredigital/dd-starter (Puck + Payload + page-tree + Better Auth)
 
-  Concretement :
-    - Definir les composants Puck qui matchent nos blocs actuels
-      (Hero, Services, Gallery, Testimonials, RichText, CTA, FormBlock)
-    - Stocker le JSON Puck dans le champ `pageContent` de la collection Pages
-    - Adapter le BlockRenderer cote sites pour rendre du JSON Puck
+  Ce que ca fait :
+    - Bouton "Edit with Puck" dans la collection Pages
+    - Fields custom (MediaField, RichTextField, ColorPickerField, etc.)
+    - **Puck AI** : generation de pages par prompt en langage naturel
+    - JSON Puck stocke dans un champ `pageContent`
 
-  Effort : ~1-2 jours pour integration propre. **Tres bon ROI UX** si
-  les clients trouvent l'admin Payload trop sobre. **A evaluer apres**
-  la mise en prod V1, sur retour des premiers vrais clients.
+  Risques (vu que c'est communautaire, 3 mois d'existence) :
+    - Stabilite face aux updates Payload (3.82 → 3.83 → 3.84) non garantie
+    - **Compatibilite avec plugin-multi-tenant NON documentee** — a tester
+    - Maintenu par UNE entreprise — risque ralentissement
+    - Pas le meme niveau de support que les 12 plugins officiels
 
-  Alternative : garder le pattern blocks Payload (qui est deja fonctionnel
-  et bien testé). Le side-by-side iframe actuel suffit largement pour
-  les PME qui viennent de WordPress.
+  Strategie :
+    1. **Apres la mise en prod V1**, monter un tenant pilote isole
+    2. Installer le plugin et tester pendant 1 semaine
+    3. Verifier compat multi-tenant + magic links + forms
+    4. Si stable → activer pour les nouveaux clients qui veulent UX visuelle
+    5. Si bugs → attendre qu'un plugin officiel sorte ou developper le notre
+
+  Effort si on l'integre : ~1-2 jours pour adapter nos composants React
+  actuels (Hero, Services, etc.) en composants Puck.
+
+  Alternative actuelle : pattern `blocks` Payload natif + iframe side-by-side
+  qui marche deja bien pour les PME (Morel, Tramtech, Dupont BTP).
 
 - [ ] **Click-to-edit inline sur la preview** (Webflow-style)
   **Pas natif Payload**, sur leur roadmap. Solution custom = injection
