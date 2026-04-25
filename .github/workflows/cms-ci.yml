@@ -207,10 +207,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            # Login GHCR (token expire, mais OK pour pull public-ish)
-            echo "${GHCR_PULL_TOKEN:-}" | docker login ghcr.io -u christ-roy --password-stdin || true
-
-            # Pull runner + builder images depuis GHCR (pas de rebuild local)
+            # Pull GHCR (public packages, pas besoin de login)
             docker pull ghcr.io/christ-roy/veridian-cms:${IMAGE_TAG}
             docker pull ghcr.io/christ-roy/veridian-cms-builder:${IMAGE_TAG}
 
