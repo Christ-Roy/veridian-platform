@@ -141,6 +141,7 @@ jobs:
             -e DATABASE_URL=postgresql://cms:e2epass@cms-postgres-e2e:5432/veridian_cms_e2e \
             -e PAYLOAD_SECRET=e2e_secret_not_for_prod_64chars_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
             -e NODE_ENV=production \
+            -e SERVER_URL=http://localhost:3001 \
             veridian/cms-builder-e2e:${{ env.IMAGE_TAG }} \
             sh -c 'cd /app && pnpm tsx scripts/create-admin-api-key.ts' \
             2>&1 | grep -E '^[a-f0-9]{64}$' | head -1)
