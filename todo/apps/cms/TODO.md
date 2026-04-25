@@ -13,8 +13,8 @@
 
 - **Version** : Payload 3.82.1
 - **URL staging** : https://cms.staging.veridian.site/admin
-- **URL prod** : non deployee (voir P0 migration)
-- **Sante** : 🟢 staging stable, 3 tenants seedes (demo/artisan/restaurant)
+- **URL prod** : 🟢 https://cms.veridian.site/admin (déployée 2026-04-25)
+- **Sante** : 🟢 staging stable + prod live + CI/CD complet + monitoring + backup R2 quotidien
 - **Langue** : FR par defaut (i18n natif), EN fallback
 - **White-label** : actif (logo vert, BeforeLogin/Dashboard FR, favicon)
 - **Theme** : light force
@@ -62,41 +62,63 @@ seed-from-code provisionne le CMS avec exactement ces blocs.
 
 ## Backlog priorise
 
-### P0 — Passage en prod (prochaine session, ~3h30)
+### ✅ P0 DONE — Passage prod + CI/CD + monitoring (2026-04-25)
 
-Roadmap complete : **[`cms/docs/NEXT-SESSION-ROADMAP.md`](../../../cms/docs/NEXT-SESSION-ROADMAP.md)**
+- [x] **Phase 1 — Prod infra OVH**
+  - Postgres prod (`veridian-cms-postgres-prod`) volume dédié, healthcheck
+  - Service `cms.veridian.site` via docker compose (`/home/ubuntu/veridian-cms-prod/`)
+  - Migration `20260425_085354` (régénérée from current schema)
+  - DNS `cms.veridian.site` Cloudflare A → 51.210.7.44 proxied
+  - Super-admin `claude-bot@veridian.site`, API key dans `~/credentials/.all-creds.env` (CMS_ADMIN_API_KEY_PROD)
 
-- [ ] **Phase 1 — Prod infra OVH** (45 min)
-  - Postgres dedie sur Dokploy (`cms-postgres-prod`)
-  - Service `cms.veridian.site` via Dokploy, source git
-  - Migration initiale + seed super-admin bot
-  - Backup auto Postgres vers R2
-  - DNS `cms.veridian.site` Cloudflare proxied
-
-- [ ] **Phase 2 — CI/CD `cms-ci.yml`** (30 min)
-  - 5 couches : unit / build (GHCR) / e2e / deploy SSH / smoke
+- [x] **Phase 2 — CI/CD `cms-ci.yml`**
+  - 5 couches : static / build / e2e / deploy / smoke
+  - Build runner + builder images (push GHCR avec sha + latest)
   - `concurrency: cancel-in-progress` anti-pile-de-runs
-  - Secrets GH configures (CMS_DATABASE_URL_PROD, etc.)
-  - Squelette deja pose dans `.github/workflows/cms-ci.yml`
+  - Rollback auto si health prod KO après 3min
+  - Alerte Telegram succès/échec dans le smoke
+  - Secrets GH : CMS_ADMIN_API_KEY_PROD, CMS_E2E_ADMIN_PASSWORD, DEPLOY_SSH_KEY
 
-- [ ] **Phase 3 — E2E Playwright headful** (1h)
-  - Tests : login admin / tenant switch / page edit / form builder /
-    API isolation / site render / magic link
-  - Fixtures `tenant-per-test` idempotentes (cleanup on failure)
-  - Screenshots pixel-perfect `maxDiffPixelRatio: 0.02`
-  - Runner self-hosted dev-server + `xvfb-run` pour headful
-  - Squelettes poses dans `cms/e2e/`
+- [x] **Phase 3 — E2E Playwright headful**
+  - Stack docker compose éphémère (Postgres tmpfs + CMS + migrate init container)
+  - Runner self-hosted `dev-server-1` avec `xvfb-run` pour vrai headful
+  - 7 specs : admin-login (×4 dont 2 pixel-perfect) / page-edit / api-isolation / tenant-switch / form-builder / site-render / magic-link
+  - Fixtures `tenant-per-test` idempotentes avec cleanup `finally`
+  - `retries: 2` CI / `0` local, `trace: on-first-retry`, `screenshot/video: only-on-failure`
+  - Sélecteurs Payload français validés (`#field-email`, `#field-title`, `nav.nav__wrap`, `button#action-save`)
+  - Pixel-perfect `maxDiffPixelRatio: 0.02` avec masks pour timestamps
 
-- [ ] **Phase 4 — Deploy + rollback auto** (30 min)
-  - SSH OVH → pull + migrate + up --build
-  - Health check retry 30x6s = 3min avant rollback
-  - Endpoint `/api/health` pose dans `cms/src/endpoints/health.ts`
-  - A brancher dans `payload.config.ts`
+- [x] **Phase 4 — Backup auto Postgres → R2**
+  - Script `scripts/backup-cms-postgres.sh` dump + gzip + rclone copy
+  - Cron quotidien `0 4 * * *` (`/etc/cron.d/cms-backup`)
+  - Bucket `r2:veridian-backups/cms/`, retention 30 derniers
+  - Alerte Telegram si fail (env vars dans `.backup-env` mode 600)
 
-- [ ] **Phase 5 — Monitoring** (15 min)
-  - Ajout de `cms.veridian.site` au healthcheck systemd dev-server
-  - Alerte Telegram down > 2min
-  - Alerte backup Postgres > 24h
+- [x] **Phase 5 — Monitoring**
+  - Healthcheck systemd `veridian-prod-healthcheck` étendu :
+    - `check_cms_health` : `/api/health` retourne `{"status":"ok"}`
+    - `check_cms_backup` : last R2 backup < 26h
+  - Telegram alerte DOWN/RECOVERED rate-limited
+
+- [x] **Bug fix Dockerfile critique**
+  - Ajout `RUN pnpm payload generate:importmap` AVANT `next build`
+  - Sans ça, composants white-label non dans importMap → login form vide
+  - Fixé sur prod via image rebuilt
+
+### Notes anti-flaky E2E (apprises à la dure)
+- `workers: 1` en CI (Next.js standalone supporte mal le concurrent
+  avec xvfb + Chromium + Postgres tmpfs)
+- `actionTimeout: 30s`, `navigationTimeout: 45s`, `test timeout: 60s`
+- `apiRequestContext` timeout explicite à 60s
+- `expect.toPass()` pour les checks API qui dépendent du save Payload
+  (PATCH peut prendre du retard pour persister)
+- Toujours `await page.waitForResponse()` AVANT d'asserter sur la DB
+- Sélecteurs Payload français : `input#field-X`, `nav.nav__wrap`,
+  `button#action-save`, label exact = `E-mail*` (avec astérisque)
+- Modal `.assign-tenant-field-modal__bg` : intercepte clicks, fermer
+  avec Escape ou bypass en pré-créant via API
+- Le toast Payload affiche `Mis à jour avec succès` mais le badge
+  status `Publié` matche aussi → cibler `.toast-title` spécifiquement
 
 ### P1 — Fix critiques
 

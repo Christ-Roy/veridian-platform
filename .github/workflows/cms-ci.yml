@@ -196,16 +196,34 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H 51.210.7.44 >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Deploy + migrate + up
+      - name: Deploy via pull GHCR + migrate + up
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
         run: |
-          ssh ubuntu@51.210.7.44 bash <<'REMOTE'
+          ssh ubuntu@51.210.7.44 IMAGE_TAG="$IMAGE_TAG" bash <<'REMOTE'
             set -e
             cd /home/ubuntu/veridian-cms-prod
             git fetch origin main
             git reset --hard origin/main
-            docker build --target builder -t veridian/cms-builder:latest ./cms
-            docker run --rm --network veridian-cms-prod_default --env-file .env veridian/cms-builder:latest sh -c 'cd /app && pnpm payload migrate'
-            docker compose -f docker-compose.prod.yml -p veridian-cms-prod up -d --build
+
+            # Login GHCR (token expire, mais OK pour pull public-ish)
+            echo "${GHCR_PULL_TOKEN:-}" | docker login ghcr.io -u christ-roy --password-stdin || true
+
+            # Pull runner + builder images depuis GHCR (pas de rebuild local)
+            docker pull ghcr.io/christ-roy/veridian-cms:${IMAGE_TAG}
+            docker pull ghcr.io/christ-roy/veridian-cms-builder:${IMAGE_TAG}
+
+            # Migrate DB via builder image
+            docker run --rm \
+              --network veridian-cms-prod_default \
+              --env-file .env \
+              -e NODE_ENV=production \
+              ghcr.io/christ-roy/veridian-cms-builder:${IMAGE_TAG} \
+              sh -c 'cd /app && pnpm payload migrate'
+
+            # Up avec nouvelle image (pas de --build, on pull GHCR)
+            export IMAGE_TAG
+            docker compose -f cms/docker-compose.ovh-prod.yml -p veridian-cms-prod up -d
           REMOTE
 
       - name: Health check + rollback if needed
@@ -220,11 +238,15 @@ jobs:
             sleep 6
           done
           if [ "$OK" -ne 1 ]; then
-            echo "Health failed — rolling back"
+            echo "Health failed — rolling back to previous image"
             ssh ubuntu@51.210.7.44 bash <<'REMOTE'
               cd /home/ubuntu/veridian-cms-prod
+              # Récupère le sha précédent depuis git reflog
+              PREV_TAG=$(git rev-parse HEAD@{1})
+              echo "Rolling back to $PREV_TAG"
               git reset --hard HEAD@{1}
-              docker compose -f docker-compose.prod.yml -p veridian-cms-prod up -d --build
+              docker pull ghcr.io/christ-roy/veridian-cms:${PREV_TAG} || docker pull ghcr.io/christ-roy/veridian-cms:latest
+              IMAGE_TAG=${PREV_TAG} docker compose -f cms/docker-compose.ovh-prod.yml -p veridian-cms-prod up -d
           REMOTE
             exit 1
           fi
