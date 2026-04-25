@@ -166,50 +166,63 @@ Roadmap complete : **[`cms/docs/NEXT-SESSION-ROADMAP.md`](../../../cms/docs/NEXT
   Effort ~1 jour. **Ne PAS faire avant un besoin client concret** — l'admin
   actuel est deja mieux qu'un WordPress pour la plupart des PME.
 
-- [ ] **Tester `@delmaredigital/payload-puck` pour l'edition visuelle**
-  (Webflow-like, click-to-edit sur canvas)
+### 🌟 AXE STRATEGIQUE LONG TERME — Editeur visuel premium
 
-  Puck (https://puckeditor.com) = page builder visuel React MIT.
-  Plugin **communautaire** (PAS officiel Payload, c'est important) maintenu
-  par delmaredigital depuis janvier 2026 :
-    - npm : `@delmaredigital/payload-puck`
-    - GitHub : github.com/delmaredigital/payload-puck
-    - Starter : github.com/delmaredigital/dd-starter (Puck + Payload + page-tree + Better Auth)
+> **Decision Robert (2026-04-25)** : a terme, Veridian doit avoir un
+> editeur de pages visuel "wow" pour **justifier des prix de site eleves**
+> face aux clients. C'est un differentiateur business, pas une feature
+> technique optionnelle.
+>
+> Pas de date imposee — moment opportun a definir, mais c'est dans la
+> trajectoire du produit.
 
-  Ce que ca fait :
-    - Bouton "Edit with Puck" dans la collection Pages
-    - Fields custom (MediaField, RichTextField, ColorPickerField, etc.)
-    - **Puck AI** : generation de pages par prompt en langage naturel
-    - JSON Puck stocke dans un champ `pageContent`
+**Vision** : quand un prospect compare Veridian avec un freelance WordPress
+a 1500€, il doit dire "ah, l'admin c'est tres different, je peux modifier
+mon site comme sur Webflow" → ça permet de tarifer ~3000-5000€ en creation
++ maintenance plus elevee.
 
-  Etat reel du plugin (verifie 2026-04-25 via gh) :
-    - **58 stars GitHub**, 5 forks (tres peu adopte)
-    - **30 versions npm en 3 mois** (~10/mois — tres actif)
-    - **Latest = 0.6.23** = pre-v1, API peut breaker sans preavis
-    - 0 open issues (bon signe = soit reactif, soit personne ne l'utilise)
-    - **Bug de securite critique fixe le 6 avril 2026** : les endpoints
-      `/api/puck` bypassaient l'access control (overrideAccess: true par defaut).
-      Catastrophe en multi-tenant si on l'avait installe avant.
+**Phase 1 — Etat actuel (V1 prod)**
+- Pattern `blocks` Payload natif + iframe side-by-side
+- Suffisant pour les premieres PME (Morel, Tramtech, Dupont BTP) qui
+  viennent de WordPress
+- Permet de livrer ET facturer ces premiers clients pour generer cashflow
 
-  Risques pour Veridian :
-    - Bug de securite recent sur access control = non-trivial avec multi-tenant
-    - Maintenu par UNE entreprise (delmaredigital) — risque abandon
-    - Pre-v1 = breaking changes attendus
-    - Pas le meme niveau de support que les 12 plugins officiels
+**Phase 2 — Tester `@delmaredigital/payload-puck`** (quand le plugin sera mur)
+- Plugin communautaire qui ajoute Puck Editor dans Payload
+- npm : `@delmaredigital/payload-puck` (https://github.com/delmaredigital/payload-puck)
+- Ce que ca apporte : click-to-edit visuel sur canvas + Puck AI (generation
+  par prompt) + fields custom (MediaField, ColorPicker, Padding, etc.)
+- Etat 2026-04-25 : 58 stars, v0.6.23, **bug de securite access control
+  fixe le 6 avril 2026** → trop jeune pour un multi-tenant
+- **A re-evaluer** quand le plugin aura :
+    - v1.0+ (API stable)
+    - 500+ stars (adoption)
+    - 6 mois sans bug de securite critique
+    - Compat multi-tenant officiellement testee
+- Effort integration : ~1-2 jours pour adapter Hero/Services/etc. en
+  composants Puck
 
-  Strategie reco (rectifiee apres analyse) :
-    **NE PAS installer pour V1/V2.** Trop risque pour notre multi-tenant.
-    Re-evaluer dans 6-12 mois quand le plugin aura :
-      - Atteint v1.0+ (API stable)
-      - 500+ stars
-      - Une integration multi-tenant officiellement testee
-      - 6 mois sans bug de securite critique
+**Phase 3 — Eventuelle solution custom** (si Puck reste pas mur)
+- Fork des bases (Payload natif + Puck open-source MIT) pour faire
+  un editeur Veridian premium
+- Coherent avec ton modele plateforme : fields custom, AI, integrations
+  Veridian Analytics intégrées, etc.
+- **Coût realiste : 1-2 mois de dev solo + maintenance a vie**
+- A justifier par : minimum 3-5 clients a tarif eleve qui paient ce
+  differenciateur, ou demande explicite d'un client haut de gamme
 
-  Effort si on l'integre eventuellement : ~1-2 jours pour adapter nos
-  composants React actuels (Hero, Services, etc.) en composants Puck.
+**Decision moment** : pas avant que :
+- ✅ V1 prod soit stable (~prochaine session)
+- ✅ 1-2 vrais clients soient livres avec V1 (cashflow generee)
+- ✅ Retour client confirme : "l'admin pourrait etre plus visuel" est une
+  vraie objection commerciale, pas un nice-to-have
 
-  Alternative actuelle : pattern `blocks` Payload natif + iframe side-by-side
-  qui marche deja bien pour les PME (Morel, Tramtech, Dupont BTP).
+**Quand ca arrive, ressources utiles** :
+- Plugin reference : https://github.com/delmaredigital/payload-puck
+- Starter exemple : https://github.com/delmaredigital/dd-starter
+- POC simple : https://github.com/Copystrike/puckload-poc
+- Doc Puck : https://puckeditor.com
+- Pattern Payload custom field : `~/.claude/docs/payload/custom-components/`
 
 - [ ] **Click-to-edit inline sur la preview** (Webflow-style)
   **Pas natif Payload**, sur leur roadmap. Solution custom = injection
