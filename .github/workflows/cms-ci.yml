@@ -1,7 +1,3 @@
-# CMS CI/CD v1 — à finaliser en session prochaine.
-# Suit le pattern prospection-ci.yml (5 couches, concurrency cancel, GHCR).
-# Voir cms/docs/NEXT-SESSION-ROADMAP.md pour le contexte complet.
-
 name: CMS CI/CD
 
 on:
@@ -27,29 +23,29 @@ env:
   IMAGE_NAME: christ-roy/veridian-cms
 
 jobs:
-  # ═══════════ Couche 1 : UNIT (<90s, bloquant) ═══════════
-  unit:
+  static:
+    name: Static checks
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: cms
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
-      - name: Install
-        run: pnpm install --frozen-lockfile
-      - name: TypeScript check
-        run: pnpm tsc --noEmit
-      # TODO session prochaine : ajouter eslint + vitest unit si on écrit des tests unit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: cms/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: TypeScript
+        run: pnpm exec tsc --noEmit
 
-  # ═══════════ Couche 2 : BUILD Docker + push GHCR (~2min) ═══════════
   build:
-    needs: unit
+    name: Build & push (runner + builder)
+    needs: static
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -58,6 +54,7 @@ jobs:
       image_tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -65,9 +62,12 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
         run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
-      - uses: docker/build-push-action@v6
+
+      - name: Build runner image
+        uses: docker/build-push-action@v6
         with:
           context: ./cms
+          target: runner
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
@@ -75,76 +75,179 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ═══════════ Couche 3 : E2E Playwright headful (~5min) ═══════════
+      - name: Build builder image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./cms
+          target: builder
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-builder:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-builder:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   e2e:
+    name: E2E Playwright (headful)
     needs: build
     runs-on: [self-hosted, linux, x64]
-    defaults:
-      run:
-        working-directory: cms
     env:
-      # Pointe sur une instance éphémère seedée pour le test
-      # (option 1 : stand up un docker compose éphémère
-      #  option 2 : pointer sur le CMS staging qui vient d'être updaté)
-      CMS_URL: https://cms.staging.veridian.site
-      CMS_ADMIN_API_KEY: ${{ secrets.CMS_ADMIN_API_KEY_STAGING }}
+      IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+      CMS_URL: http://localhost:3001
+      COMPOSE_PROJECT: cms-e2e-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
+
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
-      - run: pnpm install --frozen-lockfile
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Login GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Pull images
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-builder:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} veridian/cms-e2e:${{ env.IMAGE_TAG }}
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-builder:${{ env.IMAGE_TAG }} veridian/cms-builder-e2e:${{ env.IMAGE_TAG }}
+
+      - name: Start ephemeral stack
+        working-directory: cms/e2e
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: docker compose -f docker-compose.e2e.yml -p ${{ env.COMPOSE_PROJECT }} up -d --no-build
+
+      - name: Wait for /api/health
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:3001/api/health 2>/dev/null | grep -q '"status":"ok"'; then
+              echo "Health OK after ${i}x2s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Health failed after 3min"
+          docker compose -f cms/e2e/docker-compose.e2e.yml -p ${{ env.COMPOSE_PROJECT }} logs --tail=200
+          exit 1
+
+      - name: Seed E2E super-admin
+        id: seed
+        run: |
+          KEY=$(docker run --rm --network ${{ env.COMPOSE_PROJECT }}_default \
+            -e DATABASE_URL=postgresql://cms:e2epass@cms-postgres-e2e:5432/veridian_cms_e2e \
+            -e PAYLOAD_SECRET=e2e_secret_not_for_prod_64chars_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            -e NODE_ENV=production \
+            veridian/cms-builder-e2e:${{ env.IMAGE_TAG }} \
+            sh -c 'cd /app && pnpm tsx scripts/create-admin-api-key.ts' \
+            2>&1 | grep -E '^[a-f0-9]{64}$' | head -1)
+          if [ -z "$KEY" ]; then echo "API key not extracted"; exit 1; fi
+          echo "::add-mask::$KEY"
+          echo "key=$KEY" >> $GITHUB_OUTPUT
+
+      - name: Install Playwright deps
+        working-directory: cms/e2e
+        run: pnpm install --frozen-lockfile
+
       - name: Install Playwright browsers
+        working-directory: cms/e2e
         run: pnpm exec playwright install chromium --with-deps
-      - name: Run E2E (headful via Xvfb)
-        run: xvfb-run -a pnpm exec playwright test --config=e2e/playwright.config.ts
+
+      - name: Run E2E (headful via xvfb)
+        working-directory: cms/e2e
+        env:
+          CMS_URL: http://localhost:3001
+          CMS_ADMIN_API_KEY: ${{ steps.seed.outputs.key }}
+          CMS_E2E_ADMIN_PASSWORD: ${{ secrets.CMS_E2E_ADMIN_PASSWORD }}
+        run: xvfb-run -a pnpm exec playwright test
+
+      - name: Stop ephemeral stack
+        if: always()
+        working-directory: cms/e2e
+        run: docker compose -f docker-compose.e2e.yml -p ${{ env.COMPOSE_PROJECT }} down -v
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: playwright-report-${{ github.run_id }}
           path: cms/e2e/playwright-report/
-          retention-days: 7
+          retention-days: 14
 
-  # ═══════════ Couche 4 : DEPLOY OVH ═══════════
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces-${{ github.run_id }}
+          path: cms/e2e/test-results/
+          retention-days: 14
+
   deploy:
+    name: Deploy → OVH prod
     needs: [build, e2e]
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: SSH deploy
-        env:
-          DEPLOY_KEY: ${{ secrets.CMS_SSH_KEY_OVH }}
-          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+      - name: Setup SSH
         run: |
-          echo "TODO session prochaine : script deploy SSH avec migrate + up --build + health check retry + rollback"
-          echo "Voir cms/docs/NEXT-SESSION-ROADMAP.md §Phase 4"
-          # Skelette :
-          #   mkdir -p ~/.ssh && echo "$DEPLOY_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
-          #   ssh -o StrictHostKeyChecking=no ubuntu@51.210.7.44 <<EOF
-          #     cd /etc/dokploy/compose/<cms-id>/code
-          #     git fetch origin main && git reset --hard origin/main
-          #     docker compose exec cms pnpm payload migrate
-          #     docker compose up -d --build --no-deps cms
-          #   EOF
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H 51.210.7.44 >> ~/.ssh/known_hosts 2>/dev/null
 
-  # ═══════════ Couche 5 : SMOKE post-deploy ═══════════
+      - name: Deploy + migrate + up
+        run: |
+          ssh ubuntu@51.210.7.44 bash <<'REMOTE'
+            set -e
+            cd /home/ubuntu/veridian-cms-prod
+            git fetch origin main
+            git reset --hard origin/main
+            docker build --target builder -t veridian/cms-builder:latest ./cms
+            docker run --rm --network veridian-cms-prod_default --env-file .env veridian/cms-builder:latest sh -c 'cd /app && pnpm payload migrate'
+            docker compose -f docker-compose.prod.yml -p veridian-cms-prod up -d --build
+          REMOTE
+
+      - name: Health check + rollback if needed
+        run: |
+          OK=0
+          for i in $(seq 1 30); do
+            if curl -sf https://cms.veridian.site/api/health | grep -q '"status":"ok"'; then
+              echo "Health OK after ${i}x6s"
+              OK=1
+              break
+            fi
+            sleep 6
+          done
+          if [ "$OK" -ne 1 ]; then
+            echo "Health failed — rolling back"
+            ssh ubuntu@51.210.7.44 bash <<'REMOTE'
+              cd /home/ubuntu/veridian-cms-prod
+              git reset --hard HEAD@{1}
+              docker compose -f docker-compose.prod.yml -p veridian-cms-prod up -d --build
+          REMOTE
+            exit 1
+          fi
+
   smoke:
+    name: Smoke prod
     needs: deploy
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: Health check with retry
+      - run: curl -sf https://cms.veridian.site/api/health | grep -q '"status":"ok"'
+      - run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" https://cms.veridian.site/admin)
+          [ "$code" = "200" ]
+      - run: |
+          curl -sf -H "Authorization: users API-Key ${{ secrets.CMS_ADMIN_API_KEY_PROD }}" \
+            https://cms.veridian.site/api/tenants | grep -q '"docs"'
+
+      - name: Telegram alert
+        if: always()
         run: |
-          for i in {1..30}; do
-            if curl -sf https://cms.veridian.site/api/health; then
-              echo "✅ Health OK" && exit 0
-            fi
-            echo "Attempt $i failed, retrying in 6s..." && sleep 6
-          done
-          echo "❌ Health check failed after 3 min" && exit 1
-      - name: Admin page renders
-        run: |
-          curl -sI https://cms.veridian.site/admin | grep "HTTP/2 200"
+          STATUS="${{ job.status }}"
+          ICON="OK"; [ "$STATUS" != "success" ] && ICON="FAIL"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            -d "text=$ICON CMS prod $STATUS — sha=${GITHUB_SHA:0:7}" >/dev/null || true
