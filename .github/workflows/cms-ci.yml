@@ -214,11 +214,16 @@ jobs:
             docker pull ghcr.io/christ-roy/veridian-cms:${IMAGE_TAG}
             docker pull ghcr.io/christ-roy/veridian-cms-builder:${IMAGE_TAG}
 
-            # Migrate DB via builder image
+            # Read POSTGRES_PASSWORD + PAYLOAD_SECRET from .env to construct DATABASE_URL
+            set -a; . .env; set +a
+
+            # Migrate DB via builder image (DATABASE_URL injecté car .env n'en contient plus)
             docker run --rm \
               --network veridian-cms-prod_default \
-              --env-file .env \
+              -e DATABASE_URL="postgresql://${POSTGRES_USER:-cms}:${POSTGRES_PASSWORD}@cms-postgres:5432/${POSTGRES_DB:-veridian_cms}" \
+              -e PAYLOAD_SECRET="${PAYLOAD_SECRET}" \
               -e NODE_ENV=production \
+              -e SERVER_URL="${SERVER_URL:-https://cms.veridian.site}" \
               ghcr.io/christ-roy/veridian-cms-builder:${IMAGE_TAG} \
               sh -c 'cd /app && pnpm payload migrate'
 
