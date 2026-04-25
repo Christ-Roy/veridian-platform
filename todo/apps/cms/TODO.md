@@ -182,21 +182,31 @@ Roadmap complete : **[`cms/docs/NEXT-SESSION-ROADMAP.md`](../../../cms/docs/NEXT
     - **Puck AI** : generation de pages par prompt en langage naturel
     - JSON Puck stocke dans un champ `pageContent`
 
-  Risques (vu que c'est communautaire, 3 mois d'existence) :
-    - Stabilite face aux updates Payload (3.82 → 3.83 → 3.84) non garantie
-    - **Compatibilite avec plugin-multi-tenant NON documentee** — a tester
-    - Maintenu par UNE entreprise — risque ralentissement
+  Etat reel du plugin (verifie 2026-04-25 via gh) :
+    - **58 stars GitHub**, 5 forks (tres peu adopte)
+    - **30 versions npm en 3 mois** (~10/mois — tres actif)
+    - **Latest = 0.6.23** = pre-v1, API peut breaker sans preavis
+    - 0 open issues (bon signe = soit reactif, soit personne ne l'utilise)
+    - **Bug de securite critique fixe le 6 avril 2026** : les endpoints
+      `/api/puck` bypassaient l'access control (overrideAccess: true par defaut).
+      Catastrophe en multi-tenant si on l'avait installe avant.
+
+  Risques pour Veridian :
+    - Bug de securite recent sur access control = non-trivial avec multi-tenant
+    - Maintenu par UNE entreprise (delmaredigital) — risque abandon
+    - Pre-v1 = breaking changes attendus
     - Pas le meme niveau de support que les 12 plugins officiels
 
-  Strategie :
-    1. **Apres la mise en prod V1**, monter un tenant pilote isole
-    2. Installer le plugin et tester pendant 1 semaine
-    3. Verifier compat multi-tenant + magic links + forms
-    4. Si stable → activer pour les nouveaux clients qui veulent UX visuelle
-    5. Si bugs → attendre qu'un plugin officiel sorte ou developper le notre
+  Strategie reco (rectifiee apres analyse) :
+    **NE PAS installer pour V1/V2.** Trop risque pour notre multi-tenant.
+    Re-evaluer dans 6-12 mois quand le plugin aura :
+      - Atteint v1.0+ (API stable)
+      - 500+ stars
+      - Une integration multi-tenant officiellement testee
+      - 6 mois sans bug de securite critique
 
-  Effort si on l'integre : ~1-2 jours pour adapter nos composants React
-  actuels (Hero, Services, etc.) en composants Puck.
+  Effort si on l'integre eventuellement : ~1-2 jours pour adapter nos
+  composants React actuels (Hero, Services, etc.) en composants Puck.
 
   Alternative actuelle : pattern `blocks` Payload natif + iframe side-by-side
   qui marche deja bien pour les PME (Morel, Tramtech, Dupont BTP).
