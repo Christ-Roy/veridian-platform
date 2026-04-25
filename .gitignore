@@ -64,7 +64,6 @@ cms/.env
 cms/node_modules
 cms/.next
 cms/out
-cms/pnpm-lock.yaml
 sites/*/.env
 sites/*/node_modules
 sites/*/.next
