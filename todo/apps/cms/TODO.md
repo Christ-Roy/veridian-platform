@@ -166,6 +166,31 @@ Roadmap complete : **[`cms/docs/NEXT-SESSION-ROADMAP.md`](../../../cms/docs/NEXT
   Effort ~1 jour. **Ne PAS faire avant un besoin client concret** — l'admin
   actuel est deja mieux qu'un WordPress pour la plupart des PME.
 
+- [ ] **Integrer Puck Editor pour l'edition visuelle de pages** (Webflow-like)
+  Puck (https://puckeditor.com) = page builder visuel React open-source.
+  L'integrer DANS Payload (pas en remplacement) : un champ custom dans la
+  collection `Pages` avec Puck comme editeur, au lieu du champ `blocks`
+  natif. Le client edite ses pages en click-to-edit direct sur le canvas
+  (UX Webflow), mais tout le reste reste Payload (auth, multi-tenant,
+  header/footer, forms, magic links, redirects, SEO, plugin form-builder).
+
+  Plugins existants : `@dlnsk/payload-plugin-puck` (communautaire),
+  voir aussi exemples integration Payload + Puck.
+
+  Concretement :
+    - Definir les composants Puck qui matchent nos blocs actuels
+      (Hero, Services, Gallery, Testimonials, RichText, CTA, FormBlock)
+    - Stocker le JSON Puck dans le champ `pageContent` de la collection Pages
+    - Adapter le BlockRenderer cote sites pour rendre du JSON Puck
+
+  Effort : ~1-2 jours pour integration propre. **Tres bon ROI UX** si
+  les clients trouvent l'admin Payload trop sobre. **A evaluer apres**
+  la mise en prod V1, sur retour des premiers vrais clients.
+
+  Alternative : garder le pattern blocks Payload (qui est deja fonctionnel
+  et bien testé). Le side-by-side iframe actuel suffit largement pour
+  les PME qui viennent de WordPress.
+
 - [ ] **Click-to-edit inline sur la preview** (Webflow-style)
   **Pas natif Payload**, sur leur roadmap. Solution custom = injection
   script dans site preview, detection clics sur `data-cms-field="X"`,
