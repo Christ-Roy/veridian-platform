@@ -1,5 +1,6 @@
 import { getPage } from '@/lib/cms'
 import { BlockRenderer } from '@/components/blocks/BlockRenderer'
+import { LivePreviewBoundary } from '@/components/live-preview/LivePreviewBoundary'
 import { CONTACT } from '@/content/contact'
 
 export const dynamic = 'force-static'
@@ -7,7 +8,11 @@ export const dynamic = 'force-static'
 export default async function ContactPage() {
   const page = await getPage('contact')
   const blocks = page?.blocks?.length ? page.blocks : CONTACT
-  return <BlockRenderer blocks={blocks} />
+  return (
+    <LivePreviewBoundary initialPage={page} fallbackBlocks={CONTACT}>
+      <BlockRenderer blocks={blocks} />
+    </LivePreviewBoundary>
+  )
 }
 
 export async function generateMetadata() {

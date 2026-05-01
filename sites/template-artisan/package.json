@@ -8,22 +8,24 @@
     "deploy": "npm run build && wrangler pages deploy out --project-name=template-artisan --branch=main --commit-dirty=true"
   },
   "dependencies": {
+    "@payloadcms/live-preview": "^3.84.1",
+    "@payloadcms/live-preview-react": "^3.84.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.469.0",
     "next": "15.3.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "lucide-react": "^0.469.0",
-    "clsx": "^2.1.1",
-    "tailwind-merge": "^2.6.0",
-    "class-variance-authority": "^0.7.1"
+    "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "tailwindcss": "^3.4.17",
-    "postcss": "^8.4.49",
-    "autoprefixer": "^10.4.20",
+    "@types/node": "^20.17.12",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "@types/node": "^20.17.12",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.9.3",
     "wrangler": "^4.42.0"
   }
 }
