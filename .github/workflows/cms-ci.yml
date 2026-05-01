@@ -211,6 +211,10 @@ jobs:
             docker pull ghcr.io/christ-roy/veridian-cms:${IMAGE_TAG}
             docker pull ghcr.io/christ-roy/veridian-cms-builder:${IMAGE_TAG}
 
+            # Retag local pour que le compose racine (qui utilise veridian/cms-prod:latest)
+            # pointe sur la nouvelle image. Évite le drift entre compose CI et compose live.
+            docker tag ghcr.io/christ-roy/veridian-cms:${IMAGE_TAG} veridian/cms-prod:latest
+
             # Read POSTGRES_PASSWORD + PAYLOAD_SECRET from .env to construct DATABASE_URL
             set -a; . .env; set +a
 
@@ -224,9 +228,8 @@ jobs:
               ghcr.io/christ-roy/veridian-cms-builder:${IMAGE_TAG} \
               sh -c 'cd /app && pnpm payload migrate'
 
-            # Up avec nouvelle image (pas de --build, on pull GHCR)
-            export IMAGE_TAG
-            docker compose -f cms/docker-compose.ovh-prod.yml -p veridian-cms-prod up -d
+            # Up sur le compose live (racine) — recreate le container cms avec la nouvelle image
+            docker compose -f docker-compose.prod.yml -p veridian-cms-prod up -d --force-recreate cms
           REMOTE
 
       - name: Health check + rollback if needed
@@ -249,7 +252,9 @@ jobs:
               echo "Rolling back to $PREV_TAG"
               git reset --hard HEAD@{1}
               docker pull ghcr.io/christ-roy/veridian-cms:${PREV_TAG} || docker pull ghcr.io/christ-roy/veridian-cms:latest
-              IMAGE_TAG=${PREV_TAG} docker compose -f cms/docker-compose.ovh-prod.yml -p veridian-cms-prod up -d
+              docker tag ghcr.io/christ-roy/veridian-cms:${PREV_TAG} veridian/cms-prod:latest || \
+                docker tag ghcr.io/christ-roy/veridian-cms:latest veridian/cms-prod:latest
+              docker compose -f docker-compose.prod.yml -p veridian-cms-prod up -d --force-recreate cms
           REMOTE
             exit 1
           fi
