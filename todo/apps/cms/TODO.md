@@ -62,6 +62,58 @@ seed-from-code provisionne le CMS avec exactement ces blocs.
 
 ## Backlog priorise
 
+### ✅ P0 DONE — Polish white-label + Live Preview SDK (2026-05-01)
+
+- [x] **Logo Veridian charté** (icon + login)
+  - Récupéré depuis `veridian.site/icon.svg` : V menthe `#86efac` sur rect
+    rounded vert foncé `#1a3d2f`. Remplace le checkmark générique vert.
+  - `cms/src/components/graphics/Icon/index.tsx` + `Logo/index.tsx`
+
+- [x] **Sidebar admin gradient menthe + carte profil**
+  - Gradient 3 stops `#f0fdf4 → #dcfce7 → #bbf7d0` sur `.nav`
+  - Liens arrondis 8px, hover blanc, active = fond `#1a3d2f` texte blanc
+  - Carte profil utilisateur (avatar initiale + nom email + rôle FR) en
+    bas via slot `afterNavLinks` → `cms/src/components/ProfileCard/`
+  - Bouton primaire en charte `#1a3d2f`, AppHeader fond blanc bordure
+  - Tout dans `cms/src/app/(payload)/custom.scss` (importé par layout.tsx)
+
+- [x] **Live Preview SDK côté template-artisan**
+  - `@payloadcms/live-preview-react` (^3.84.1) installé
+  - `LivePreviewBoundary` lazy client : SSG inchangé en prod, en `?preview=1`
+    le hook `useLivePreview` re-render les blocks à chaque édition admin
+  - 3 pages couvertes (home, services, contact)
+  - Compatible `output: 'export'` (Cloudflare Pages static)
+
+- [x] **EditOverlay click-to-edit en mode preview**
+  - Au survol d'un block → bouton flottant "✏️ Éditer · <type>" qui
+    deeplink vers `/admin/collections/pages/{id}#field-blocks__{i}__{type}`
+  - Badge "● Aperçu en direct" fixé top-right
+  - Labels FR par block (Bandeau, Services, Galerie, Témoignages, etc.)
+  - `BlockRenderer` accepte `previewMode + pageId` propagés depuis boundary
+
+- [x] **Fix bug TS pré-existant `autoAttachTenant`**
+  - Code essayait d'écrire `roles: ['tenant-viewer']` dans `tenants[]`
+    mais le sous-champ n'existe pas (plugin multi-tenant n'a pas de
+    `rowFields` configuré). tsc échouait → bloquait la CI prod depuis le
+    sprint Products.
+  - Fix : retire le `roles`, l'auto-attach assigne juste le tenant.
+  - Note : voir Bugs connus pour le câblage propre via `tenantsArrayField`.
+
+- [x] **Drift staging résolu**
+  - `cms.staging.veridian.site` (sur dev-pub) était énormément en retard
+    (pas de `endpoints/`, `Header.ts/Footer.ts`, `Products.ts`, ni les
+    nouveaux blocks Cards2/Cards4WithIcons/LogoWall/SplitImageText).
+  - Resync complet `cms/src/` + `package.json` + `pnpm-lock.yaml` +
+    `Dockerfile` + ajout `SERVER_URL=https://cms.staging.veridian.site`
+    et `CORS_ORIGINS` au `.env`.
+  - **Action de fond** : la prochaine session devrait soit intégrer
+    staging dans la CI (auto-rebuild dev-pub à chaque push main), soit
+    désactiver `cms.staging.veridian.site` (la CI couvre déjà le E2E
+    via stack éphémère). Le drift d'aujourd'hui était évitable.
+
+- [x] **Disque dev-server libéré**
+  - Pruned 15.75 GB de docker images/cache (passé de 97% → 75% disk).
+
 ### ✅ P0 DONE — Passage prod + CI/CD + monitoring (2026-04-25)
 
 - [x] **Phase 1 — Prod infra OVH**
@@ -301,6 +353,16 @@ mon site comme sur Webflow" → ça permet de tarifer ~3000-5000€ en creation
   une equipe rejoint.
 
 ## Bugs connus
+
+- **Permissions par tenant non câblées** (noté 2026-05-01)
+  La collection Users a `roles: ['super-admin' | 'client' | 'site-reader']`
+  au niveau racine, mais pas de `roles` au niveau `tenants[]`. L'exemple
+  officiel Payload utilise `tenantsArrayField({ rowFields: [{ name: 'roles',
+  options: ['tenant-admin', 'tenant-viewer'] }] })` pour avoir un contrôle
+  d'accès par tenant. À ajouter quand un client demandera un user avec
+  rôles différents selon le tenant (peu probable en V1, OK comme c'est).
+  Voir `~/.claude/docs/payload-examples/multi-tenant/src/collections/Users/`
+  pour le pattern.
 
 - **formBlock auto-seed silencieusement rejete** (voir P1) — workaround
   manuel via UI admin.

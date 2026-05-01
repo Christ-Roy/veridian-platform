@@ -1,5 +1,6 @@
 import { getPage } from '@/lib/cms'
 import { BlockRenderer } from '@/components/blocks/BlockRenderer'
+import { LivePreviewBoundary } from '@/components/live-preview/LivePreviewBoundary'
 import { HOME } from '@/content/home'
 
 export const dynamic = 'force-static'
@@ -7,7 +8,11 @@ export const dynamic = 'force-static'
 export default async function Home() {
   const page = await getPage('home')
   const blocks = page?.blocks?.length ? page.blocks : HOME
-  return <BlockRenderer blocks={blocks} />
+  return (
+    <LivePreviewBoundary initialPage={page} fallbackBlocks={HOME}>
+      <BlockRenderer blocks={blocks} />
+    </LivePreviewBoundary>
+  )
 }
 
 export async function generateMetadata() {
