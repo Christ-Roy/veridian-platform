@@ -9,6 +9,9 @@ import type { NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 
 export const authConfig = {
+  // En self-hosted (Dokploy + Traefik), Auth.js doit faire confiance au host
+  // derrière le reverse proxy. Sinon erreur UntrustedHost sur /api/auth/session.
+  trustHost: true,
   // Cookies session : 90 jours (3 mois) — cohérent avec Hub.
   session: {
     strategy: "jwt",
