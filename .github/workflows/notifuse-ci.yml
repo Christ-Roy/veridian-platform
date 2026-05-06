@@ -1,18 +1,11 @@
-# TODO (sprint P1.3) : completer ce workflow
-# Scaffold cree le 2026-04-10 par le lead agent.
-# Pour l'instant ce pipeline est un placeholder qui verifie juste que le
-# dossier notifuse/ est present et que la version upstream est trackee.
-#
-# A brancher plus tard :
-#   - build image custom ghcr.io/christ-roy/notifuse-veridian:latest
-#     (sur le self-hosted runner, cache local)
-#   - tests upstream Notifuse (Go) reutilises tels quels
-#   - nos specs Veridian par-dessus (provisioning, paywall, limites plan)
-#   - deploy staging + prod via Dokploy, health check + rollback auto
+# Workflow monorepo cote Veridian-platform : verifie juste que le scaffold
+# notifuse/ est trace (README, MERGING-UPSTREAM, .upstream-version).
+# Le VRAI build CI/CD vit dans le fork Christ-Roy/notifuse-veridian
+# branche `veridian` (.github/workflows/veridian-ci.yml).
 #
 # Voir notifuse/README.md et todo/apps/notifuse/TODO.md pour le contexte.
 
-name: Notifuse CI/CD (placeholder)
+name: Notifuse scaffold check (monorepo)
 
 on:
   push:
@@ -50,6 +43,6 @@ jobs:
             exit 1
           fi
 
-      - name: Placeholder reminder
+      - name: Confirm fork CI takes over
         run: |
-          echo "::notice title=TODO P1.3::Notifuse CI workflow is a placeholder. Complete during sprint P1.3."
+          echo "::notice title=Build pipeline lives in fork::Real build/deploy pipeline lives in Christ-Roy/notifuse-veridian (branch veridian, .github/workflows/veridian-ci.yml). This monorepo workflow only validates scaffold integrity."

@@ -430,7 +430,7 @@ services:
       retries: 5
 
   notifuse:
-    image: notifuse/notifuse:v27.0
+    image: ghcr.io/christ-roy/notifuse-veridian:latest
     restart: unless-stopped
     networks:
       - dokploy-network
@@ -465,6 +465,11 @@ services:
       SMTP_FROM_EMAIL: ${SMTP_ADMIN_EMAIL:-notifications@veridian.site}
       SMTP_FROM_NAME: ${SMTP_SENDER_NAME:-Veridian Staging}
       API_ENDPOINT: https://saas-notifuse.staging.veridian.site
+      # === Veridian patches ===
+      HUB_API_SECRET: ${NOTIFUSE_HUB_API_SECRET}
+      HUB_WEBHOOK_URL: ${NOTIFUSE_HUB_WEBHOOK_URL:-https://saas-hub.staging.veridian.site/api/webhooks/notifuse}
+      HUB_WEBHOOK_SECRET: ${NOTIFUSE_HUB_WEBHOOK_SECRET}
+      VERIDIAN_DEFAULT_PLAN: ${VERIDIAN_DEFAULT_PLAN:-free}
     volumes:
       - staging-notifuse-data:/app/data
     healthcheck:
