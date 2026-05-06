@@ -599,7 +599,7 @@ enum TenantStatus {
   pending
   active
   suspended
-  cancelled
+  deleted
 
   @@map("tenant_status")
 }

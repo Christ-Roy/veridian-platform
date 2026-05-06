@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/lib/supabase/api-auth";
+import { requireAuth } from "@/lib/auth/api-auth";
 
 const TRIAL_DAYS = parseInt(process.env.TRIAL_DAYS ?? "7", 10);
 
@@ -24,9 +24,19 @@ export async function GET() {
     const { createClient } = await import("@supabase/supabase-js");
     const admin = createClient(supabaseUrl, serviceKey);
 
-    // Get user creation date
-    const { data: userData } = await admin.auth.admin.getUserById(auth.user.id);
-    const createdAt = userData?.user?.created_at;
+    // Get user creation date — Prisma User d'abord, fallback Supabase legacy
+    let createdAt: string | undefined | null = null;
+    const { prisma: prismaUser } = await import("@/lib/prisma");
+    const localUser = await prismaUser.user.findUnique({
+      where: { id: auth.user.id },
+      select: { createdAt: true },
+    });
+    if (localUser?.createdAt) {
+      createdAt = localUser.createdAt.toISOString();
+    } else {
+      const { data: userData } = await admin.auth.admin.getUserById(auth.user.id);
+      createdAt = userData?.user?.created_at;
+    }
 
     // Get tenant plan — try direct user_id first, then fall back to
     // workspace_members lookup (invited users don't own the tenant row)
