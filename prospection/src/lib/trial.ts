@@ -22,6 +22,7 @@
 const trialCache = new Map<string, { expired: boolean; expiresAt: number }>();
 const TRIAL_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function checkTrialExpired(_userId: string): Promise<boolean> {
   return false;
 }
