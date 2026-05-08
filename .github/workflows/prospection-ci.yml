@@ -506,6 +506,17 @@ jobs:
       - run: npm ci
       - name: Install Playwright browser
         run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: "Prod smoke — BLOQUANT (catch-all post-deploy)"
+        env:
+          PROSPECTION_URL: https://prospection.app.veridian.site
+          CI: true
+        run: |
+          # Bloque le déploiement si /api/health, /login render, ou flow auth
+          # ne fonctionnent pas. Pas besoin de creds, ne touche à rien en DB.
+          # Précisément le filet pour attraper le bug du 2026-05-08 (Supabase
+          # auth coupé alors que prospection en dépend encore).
+          npx playwright test e2e/core/prod-smoke.spec.ts --project=${{ matrix.browser }} --reporter=list
+
       - name: Run E2E tests against prod (${{ matrix.browser }})
         env:
           HUB_URL: https://app.veridian.site
