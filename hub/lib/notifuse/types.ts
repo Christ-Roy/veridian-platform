@@ -17,7 +17,12 @@ export interface ProvisionResponse {
   owner_user_id: string;
   api_key: string;
   api_key_email: string;
+  /** Fallback magic link `/console/signin?email=X&code=Y` (saisie manuelle code). */
   magic_link: string;
+  /** Self-contained URL `/veridian/auto-login?token=<HMAC>` qui logge directement
+   * le user via localStorage (TTL 60s). C'est l'URL que le Hub utilise pour
+   * son bouton "Open Notifuse" sans saisie. */
+  auto_login_url: string;
   plan: NotifusePlan;
   created: boolean;
 }
@@ -56,6 +61,8 @@ export interface MagicLinkInput {
 
 export interface MagicLinkResponse {
   magic_link: string;
+  /** Self-contained auto-login URL (préférée — pas de saisie de code). */
+  auto_login_url: string;
   expires_at: string;
 }
 
