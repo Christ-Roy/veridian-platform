@@ -89,6 +89,59 @@ hub/
 - [ ] Lien Analytics : `https://analytics.app.veridian.site`
 - [ ] **Entree UI-REVIEW** a creer apres livraison
 
+### P1.6 — Exploiter pleinement les nouvelles routes Notifuse Veridian (sprint 2026-05-08 Notifuse-saasification)
+
+> Le fork `Christ-Roy/notifuse-veridian` (branche `veridian`) expose maintenant
+> 7 routes Hub-driven HMAC-signed + 1 endpoint magic link tenant-scoped + 1
+> auto-login URL self-contained. Voir `notifuse/README.md` du monorepo pour le
+> contrat complet. Le `NotifuseClient` TS existe deja dans `hub/lib/notifuse/`
+> et la route `/api/admin/notifuse/magic-link` consomme deja `auto_login_url`.
+> Il manque l'integration UI Hub pour exploiter le reste.
+
+**Bouton "Open Notifuse" sur dashboard tenant card** (deja partiellement fait) :
+- [x] Bouton appelle `/api/admin/notifuse/magic-link` qui retourne `auto_login_url`
+- [x] Click ouvre `auto_login_url` dans nouvel onglet → user logge direct comme owner
+- [ ] Verifier que le bouton apparait pour tous les tenants Notifuse (pas juste les nouveaux post-migration)
+
+**Workflow auto-provisioning au signup Hub** (deja partiellement) :
+- [x] `provisionNotifuseTenant` dans `hub/utils/tenants/provision.ts` utilise `NotifuseClient.provisionWorkspace`
+- [x] Stocke `notifuse_workspace_slug`, `notifuse_api_key`, `notifuse_user_email` dans table `tenants` Supabase
+- [ ] Stocker aussi `notifuse_owner_user_id` (UUID retourné par provision) pour cross-ref
+- [ ] Affichage live des etapes provisioning (toast / progress) — actuellement silencieux
+
+**Generation token / API key cote Hub** :
+- [ ] Page `/dashboard/integrations/notifuse` : afficher l'API key tenant (eyJ... JWT, lecture seule),
+  bouton "Reveler" qui demande confirmation 2FA si actif
+- [ ] Bouton "Regenerer API key" qui appelle un nouvel endpoint Hub
+  `POST /api/admin/notifuse/rotate-api-key` (a creer cote fork Notifuse —
+  `WorkspaceService.CreateAPIKey` + invalidation ancienne via revoke)
+- [ ] Documenter dans la page : usage de l'API key pour appels SMTP relay,
+  webhooks bounce/delivery, etc. (cf `notifuse-templates` skill)
+
+**Magic link a la demande pour user owner** :
+- [x] Endpoint Hub `/api/admin/notifuse/magic-link` POST `{tenantId}` → `{autoLoginUrl, magicLink, expiresAt}`
+- [x] TenantCard utilise `autoLoginUrl` (preferred, fallback magicLink, fallback console nu)
+- [] Bouton "Inviter membre" qui appelle `/api/workspaces.inviteMember` natif Notifuse via API key tenant
+- [ ] Liste membres workspace avec roles (cf API `/api/workspaces.members`)
+  → meme UI que P1.5 (membres workspace Hub-side) mais lecture cote Notifuse
+
+**Lifecycle Notifuse via Stripe webhooks** :
+- [ ] Webhook Stripe `customer.subscription.updated` → `NotifuseClient.updatePlan` (free → pro → business)
+- [ ] Webhook Stripe `invoice.payment_failed` → `NotifuseClient.suspendWorkspace` (paywall actif)
+- [ ] Webhook Stripe `invoice.payment_succeeded` apres suspend → `NotifuseClient.resumeWorkspace`
+- [ ] Cancel subscription → `NotifuseClient.deleteWorkspace` (soft delete, purge 30j cote fork)
+
+**Webhook Hub recoit events Notifuse** (deja fait pour squelette) :
+- [x] `hub/app/api/webhooks/notifuse/route.ts` recoit events HMAC, idempotence, dispatch
+- [x] Migration colonnes `notifuse_suspended_at`, `notifuse_deleted_at`, `notifuse_emails_sent_this_month`, etc.
+- [ ] UI dashboard : afficher quota mois en cours + suspended/deleted state + bouton resume si suspended
+- [ ] Email tenant si `tenant.quota_exceeded` event recu (TODO marque dans le code receiver)
+
+**Skill Claude `/notifuse-provision`** (parallele aux autres provisioning skills) :
+- [ ] Wrapper du flow Hub provision (HMAC POST `/api/tenants/provision` → magic link)
+- [ ] Permet a Robert de provisioner un tenant Notifuse pour un client en 1 commande
+- [ ] Aligne avec patterns `analytics-provision`, `cms-provision`
+
 ## Backlog Hub-specific
 
 - [ ] Audit hot paths Supabase admin API (P0.2) — verifier que le cache 5min est bien applique partout
