@@ -14,6 +14,7 @@
 import { logProvisionStart, logProvisionEnd, logStep, logError } from './debug';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError } from '@/lib/notifuse/types';
+import { workspaceIdFromEmail } from '@/lib/notifuse/workspace-id';
 import { prisma } from '@/lib/prisma';
 
 const TWENTY_API_URL = process.env.TWENTY_GRAPHQL_URL!;
@@ -464,14 +465,11 @@ export async function provisionNotifuseTenant(
 
     logStep('NOTIFUSE', 'Starting provisioning', { email, userId });
 
-    // Notifuse contraint workspace_id à varchar(20) max + alphanumeric only.
-    // On tronque à 20 chars (au lieu de 32) sinon le provision échoue avec
-    // `pq: value too long for type character varying(20)`.
-    const workspaceId = email
-      .split('@')[0]
-      .replace(/[^a-z0-9]/gi, '')
-      .toLowerCase()
-      .slice(0, 20);
+    // workspaceId généré via le helper centralisé (lib/notifuse/workspace-id.ts).
+    // Garantit alignement avec la contrainte fork Notifuse `varchar(20)` +
+    // charset `[a-z0-9]`. Si jamais la contrainte upstream change, on patch
+    // ici une seule fois.
+    const workspaceId = workspaceIdFromEmail(email);
 
     const workspaceName = email.split('@')[0].slice(0, 32);
 
