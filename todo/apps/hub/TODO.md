@@ -98,6 +98,55 @@ hub/
 - [ ] Email verification obligatoire au signup (via Brevo + token)
 - [ ] Password reset flow complet (token email + page reset)
 
+## Chantier — Hub × Apps : synchronisation tenants + Stripe trial intelligent
+
+> Le Hub orchestre le cycle de vie tenant cross-apps. Aujourd'hui chaque app a sa propre
+> DB tenants et son propre login, ça marche mais il manque la couche d'orchestration.
+> **Reprise** : `tmp/PROMPT-RESUME-HUB-SYNC.md` (prompt de reprise détaillé).
+
+**Synchronisation tenants Hub → Apps**
+- [ ] Mécanisme provisioning à la demande : Hub → POST API provisioning de l'app
+- [ ] Pas de duplication tenant entre Hub et apps (mapping `hub_tenant_id ↔ app_tenant_id`)
+- [ ] Hook signup Hub : ne PAS provisionner les apps tant que l'utilisateur ne les active pas
+- [ ] Endpoint `POST /api/admin/tenants/:id/activate-app` (app: prospection|analytics|notifuse|twenty)
+- [ ] Désactivation symétrique : `POST /api/admin/tenants/:id/suspend-app`
+
+**Stripe trial intelligent (par app, pas par tenant)**
+- [ ] Le trial Stripe d'une app commence quand le tenant **active** cette app (pas au signup Hub)
+- [ ] Chaque app a son propre webhook Stripe `/api/webhooks/stripe` (standard saas-standards.md)
+- [ ] Le Hub orchestre : tenant active Analytics le 15/04 → trial Analytics 14j à partir de cette date
+- [ ] Table de mapping `tenant_app_subscription` (tenant_id, app, stripe_subscription_id, trial_started_at, trial_ends_at, plan_status)
+
+**Magic link cross-app**
+- [ ] Hub génère JWT 5min signé avec `HUB_AUTH_SECRET`
+- [ ] L'utilisateur clique sur "Ouvrir Analytics" depuis le Hub → redirect avec token
+- [ ] L'app valide le token auprès du Hub (`POST /api/auth/verify-magic-link`)
+- [ ] Si valide → connexion auto + cookie session app
+- [ ] Évite de gérer des mots de passe synchronisés entre apps
+- [ ] Documenter dans saas-standards.md comme contrat standard
+
+**Data bridge Analytics → Twenty CRM**
+- [ ] Quand un tenant Twenty est créé, pousser les data Analytics pertinentes
+  (contacts forms, appels SIP, métriques GSC) comme activités/contacts dans Twenty
+- [ ] API GraphQL Twenty déjà en place, juste le mapping à écrire
+- [ ] Job cron toutes les heures : sync incrémentale (timestamp last sync)
+
+**Card Analytics dans le Hub** (déclinaison de P1.2 ci-dessus)
+- [ ] Cartes "Vos SaaS" vs "Services de suivi" sur la home
+- [ ] Composant `AppCard` avec badge `BETA`
+- [ ] Lien vers `analytics.app.veridian.site` (avec magic link une fois implémenté)
+
+## Chantier — Hub admin unifié (vue cross-apps)
+
+> À étendre quand les autres apps seront matures. Pas prioritaire tant que le SSO avancé
+> n'est pas en place (cf. chantier douloureux dans TODO-LIVE).
+
+- [ ] Vue unifiée d'un tenant : blocs Prospection / Twenty / Notifuse / Analytics côte à côte
+- [ ] Actions centralisées : suspendre, reset quota, force sync Twenty, resend invitation
+- [ ] Impersonate workspace (login as avec audit log) — utile pour le support
+- [ ] Dashboard admin global : liste tenants, filtres, recherche full-text
+- [ ] Audit log `platform_audit_log` Prisma sur toutes les actions admin
+
 ## Bugs connus
 
 - [ ] `checkTrialExpired = return false` en prod (hack P0.1) — le trial ne bloque plus personne
@@ -119,6 +168,32 @@ hub/
   facilement. Le 2FA email opt-in compense pour la securite.
 - **Pas d'impersonate au debut** : trop risque, reporte en P3.6 quand le SSO avance sera pret.
 - **Twenty = hands-off** : aucun fork, uniquement API GraphQL. Custom features dans le Hub.
+
+## ✅ Migration Supabase → Auth.js v5 (TERMINÉE 2026-05-08)
+
+Bascule prod réussie le 08/05/2026 matin. Voir
+`session_2026-05-08_hub_authjs.md` en memory pour le retex complet.
+
+**Stack actuelle** : Next 15.5.18 + Auth.js v5 + Prisma 7 + `veridian-core-db` schema `hub_app`.
+
+**Image prod** : `ghcr.io/christ-roy/veridian-dashboard:hub-authjs-staging`
+**Compose Dokploy** : `_kxAHDCv1LhvsdwNRX3Vk` (`hub-authjs`)
+**Image rollback** : `ghcr.io/christ-roy/veridian-dashboard:rollback-pre-authjs-20260508`
+
+### Dette post-migration à traiter
+
+- [ ] **`NOTIFUSE_HUB_API_SECRET`** non configuré côté Hub (agent C a refacto le client Notifuse vers une nouvelle API). Provisioning Notifuse échoue pour les nouveaux signups jusqu'à config côté Notifuse server + ENV Hub.
+- [ ] Helpers e2e Supabase non migrés (`__tests__/api/notifuse-webhook.test.ts` supprimé). À recréer en Auth.js si on remet une CI e2e Hub.
+- [ ] Mettre à jour `.github/workflows/hub-ci.yml` job `deploy-prod` pour pointer sur le nouveau compose `_kxAHDCv1LhvsdwNRX3Vk` (actuellement pointe sur le legacy `Rnt_Jz4BhkcyEJ2D6Bugb`).
+- [ ] J+30 minimum : cleanup containers Supabase legacy (gotrue/kong/realtime/etc.) après confirmation stabilité prod.
+- [ ] Merger `feat/hub-authjs-migration` dans main après 24h de stabilité prod confirmée. ATTENTION : avant merge, basculer le COMPOSE_ID legacy du workflow vers le nouveau, sinon la CI redeploy le compose vide legacy.
+- [ ] Promouvoir image `:hub-authjs-staging` → `:latest` une fois stable (cleanup tag intermédiaire).
+
+### Containers prod (référence)
+
+- App GREEN active : `compose-back-up-online-pixel-nl2k9p-hub-authjs-1`
+- App BLUE legacy stoppée : `compose-parse-digital-bandwidth-xfd9mu-web-dashboard-1`
+- DB cible : `compose-parse-multi-byte-feed-ywg73b-veridian-core-db-1` (hostname `veridian-core-db`)
 
 ## Notes agents (chantiers en cours)
 
