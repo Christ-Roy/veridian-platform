@@ -43,9 +43,31 @@ jobs:
       - name: TypeScript
         run: pnpm exec tsc --noEmit
 
+  audit:
+    # Audit CVE bloquant (CLAUDE.md global — règle non négociable).
+    # Fail si critical/high détecté. Moderate/low remontés en logs sans bloquer.
+    name: Audit CVE
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cms
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: cms/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: pnpm audit (fail si critical/high)
+        run: pnpm audit --prod --audit-level high
+
   build:
     name: Build & push (runner + builder)
-    needs: static
+    needs: [static, audit]
     runs-on: ubuntu-latest
     permissions:
       contents: read

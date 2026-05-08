@@ -55,6 +55,25 @@ jobs:
       - name: Supabase admin API rate-limit guard
         run: bash scripts/check-supabase-ratelimit.sh
 
+  audit:
+    # Audit CVE bloquant (CLAUDE.md global — règle non négociable).
+    # Fail si critical/high détecté. Moderate/low remontés en logs sans bloquer.
+    needs: unit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: prospection
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: prospection/package-lock.json
+      - run: npm ci
+      - name: npm audit (fail si critical/high)
+        run: npm audit --production --audit-level=high
+
   build:
     needs: unit
     runs-on: ubuntu-latest
@@ -112,7 +131,7 @@ jobs:
           npx vitest run e2e/integration/tenant-isolation.test.ts e2e/integration/workspace-isolation.test.ts
 
   docker-staging:
-    needs: build
+    needs: [build, audit]
     if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
     runs-on: [self-hosted, veridian]
     permissions:
@@ -382,7 +401,7 @@ jobs:
 
   # ── Prod Docker build (triggered by push to main) ──────────────────
   docker:
-    needs: [build, integration]
+    needs: [build, integration, audit]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: [self-hosted, veridian]
     permissions:
