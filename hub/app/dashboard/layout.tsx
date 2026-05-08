@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/app-sidebar';
 import { FreemiumBanner } from '@/components/dashboard/FreemiumBanner';
+import { Suspense } from 'react';
 import { AuthTracker } from '@/components/analytics/auth-tracker';
 import { PurchaseTracker } from '@/components/analytics/purchase-tracker';
 
@@ -66,10 +67,14 @@ export default async function DashboardLayout({
   return (
     <SidebarProvider>
       {/* Track auth events (signup/login) et set user_id */}
-      <AuthTracker />
+      <Suspense fallback={null}>
+        <AuthTracker />
+      </Suspense>
 
       {/* Track purchase events après checkout Stripe */}
-      <PurchaseTracker />
+      <Suspense fallback={null}>
+        <PurchaseTracker />
+      </Suspense>
 
       <div className="flex h-screen w-full">
         <AppSidebar
