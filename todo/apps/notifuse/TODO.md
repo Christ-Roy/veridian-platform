@@ -119,6 +119,28 @@ Sprint complet livre, e2e CI green, pipeline staging validee. Voir
 - [ ] **DB connection pool monitoring** : log la metric `connection_count` dans logs structures pour pouvoir alerter avant saturation
 - [ ] **Cleanup hook Playwright** dans `globalTeardown` : appelle wipe-test-tenants avec le prefix du run (`__test_${RUN_ID}_*`) au lieu de cumuler entre runs
 
+## ⚠️ Freemium effectivement INFINI actuellement (pas un bug — decision Robert)
+
+> Le middleware paywall verifie `emails_sent_this_month >= monthly_email_quota`,
+> mais le compteur n'est JAMAIS incremente (le hook `IncrementEmailsSent` n'est
+> pas branche dans le hot path d'envoi). En pratique aujourd'hui : un tenant
+> free peut envoyer 1 million d'emails/mois sans etre bloque.
+>
+> **Decision Robert (2026-05-08)** : ne PAS fix ca isolement. On l'integre dans
+> le chantier complet P1.7 SaaS Lifecycle (cf section ci-dessous) pour livrer
+> une experience coherente :
+> - Compteur branche
+> - Reset mensuel paresseux
+> - UI tenant pour voir son quota / upgrade
+> - Stripe connecte pour autoriser l'upgrade
+> - Soft-delete UI lisible
+> - Lifetime override Hub-driven
+>
+> Avant ca : tous les tenants free profitent d'un quota illimite de fait.
+> Ce n'est pas une regression : aujourd'hui en prod (image upstream v27)
+> il n'y a meme pas le concept de plan/quota cote Notifuse, donc personne
+> n'est bloque non plus.
+
 ### Backlog Notifuse-specific (long terme)
 
 #### 🎯 Decision produit : pas de cron crade, gestion d'etat tenant lisible
@@ -199,7 +221,63 @@ Sprint complet livre, e2e CI green, pipeline staging validee. Voir
 4. NotifuseClient.updatePlan("lifetime_site_vitrine") → 5000 emails/mois actifs
 5. Plus tard : si Stripe webhook payment_failed arrive (Stripe lie a un autre service de Robert), le Hub voit `plan_source != stripe` et **n'override pas** le plan Notifuse
 
-#### Reste du backlog
+#### Chantier groupe P1.7 — SaaS Lifecycle Complet (Stripe + paywall + lifetime + soft-delete UI)
+
+> A traiter en UN SEUL sprint pour livrer une experience coherente. Tout
+> est inutile sans le reste : compteur quota sans UI quota = user bloque
+> sans comprendre, Stripe webhook sans plan_source = override accidents,
+> soft-delete sans UI = purge silencieuse pas pro.
+>
+> **Pre-requis bloquants** (a faire avant) :
+> - Bump prod fork Notifuse (sinon on patche dans le vide)
+> - Migration table `tenants` Hub avec `notifuse_plan_source` (cf TODO Hub P1.6)
+
+##### Cote fork Notifuse (Go)
+
+- [ ] **Brancher hook `IncrementEmailsSent`** : dans `internal/service/email_service.go`,
+  apres un envoi reussi (status=sent ou delivered), call async
+  `planRepo.IncrementEmailsSent(workspace_id, 1)`. Pas de blocking : si DB
+  down, log warn, on n'echoue pas l'envoi.
+- [ ] **Reset paresseux mensuel** : dans le middleware paywall, AVANT
+  `IsBlocked()`, check si `last_reset_at < date_trunc('month', now())`.
+  Si oui → `planRepo.ResetMonthlyCounters(workspaceID)` puis re-fetch.
+  Pas de cron Dokploy.
+- [ ] **Frontend Veridian patch** : page `/console/billing` enrichie (cf
+  decision produit "pas de cron crade" plus haut)
+- [ ] **Endpoint admin `rotate-api-key`** (demande Hub UI cf P1.6)
+
+##### Cote Hub (TypeScript)
+
+- [ ] Migration table `tenants` : `notifuse_plan_source`,
+  `notifuse_plan_set_by_user_id`, `notifuse_plan_set_reason`,
+  `notifuse_plan_set_at` (cf TODO Hub P1.6)
+- [ ] Webhooks Stripe brances : `customer.subscription.updated` →
+  `NotifuseClient.updatePlan` SI `plan_source=stripe` uniquement
+- [ ] Webhook Stripe `invoice.payment_failed` → `suspendWorkspace`
+- [ ] Webhook Stripe `invoice.payment_succeeded` apres suspend → `resumeWorkspace`
+- [ ] Webhook Stripe `customer.subscription.deleted` → `softDeleteWorkspace`
+- [ ] Page `/admin/tenants/[id]/billing` admin pour override plan manuel
+- [ ] Skill `/notifuse-grant-lifetime` pour automatiser apres `/create-site`
+
+##### Plans a creer
+
+- [ ] Etendre `PlanQuotas` Go avec `lifetime_site_vitrine` (5000),
+  `lifetime_partner` (10000), `internal` (-1)
+- [ ] Aligne avec products Stripe (lookup_keys correspondants si Stripe-paid,
+  ignore si lifetime/internal)
+
+##### Validation finale
+
+- [ ] E2E Playwright : signup user → freemium 500 → 500 envois → 501e = 402 →
+  upgrade Stripe pro → quota 10000 → 1000 envois OK → admin override lifetime →
+  quota 5000 nouveau plan → soft-delete via cancel Stripe → banner visible →
+  reactivation possible
+- [ ] Tester avec **vrai client lifetime** : Robert finit un site vitrine,
+  /create-site provisione + skill /notifuse-grant-lifetime → client recoit
+  email avec auto_login_url → arrive console → voit "Plan : Site Vitrine
+  Lifetime — 5000 emails/mois — Offert par Veridian"
+
+#### Reste du backlog (independant de P1.7)
 
 - [ ] **Metrics d'envoi par tenant exposees au Hub** : bounce rate, open rate, click rate via API HMAC (lecture des tables existantes Notifuse upstream)
 - [ ] **Templates emails Veridian par defaut** : logo Veridian, couleurs charte, footer legal RGPD — injectes au provision via `inject-template` endpoint
