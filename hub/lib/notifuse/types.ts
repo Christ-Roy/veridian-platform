@@ -3,7 +3,41 @@
  * Voir docs/saas-standards.md §6 (Provisioning API) pour le contrat HMAC.
  */
 
-export type NotifusePlan = 'free' | 'pro' | 'enterprise';
+/**
+ * Plans Notifuse supportés par le fork Veridian.
+ * Doit rester aligné avec `internal/domain/veridian.go` (`PlanQuotas` map) côté Go.
+ *
+ * - free / pro / business / enterprise : plans payants ou freemium standards (Stripe-driven).
+ * - lifetime_site_vitrine / lifetime_partner : plans offerts à vie aux clients
+ *   sites vitrines Veridian ou aux partenaires, NON liés à une subscription Stripe.
+ * - internal : tenants internes Robert (test, demo, support). Quota illimité.
+ */
+export type NotifusePlan =
+  | 'free'
+  | 'pro'
+  | 'business'
+  | 'enterprise'
+  | 'lifetime_site_vitrine'
+  | 'lifetime_partner'
+  | 'internal';
+
+/**
+ * Liste runtime des plans valides — utilisable côté validation route admin.
+ * Mise à jour à chaque ajout dans le union NotifusePlan.
+ */
+export const NOTIFUSE_PLANS: readonly NotifusePlan[] = [
+  'free',
+  'pro',
+  'business',
+  'enterprise',
+  'lifetime_site_vitrine',
+  'lifetime_partner',
+  'internal',
+] as const;
+
+export function isNotifusePlan(value: unknown): value is NotifusePlan {
+  return typeof value === 'string' && (NOTIFUSE_PLANS as readonly string[]).includes(value);
+}
 
 export interface ProvisionInput {
   tenantId: string;

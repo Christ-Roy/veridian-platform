@@ -48,33 +48,47 @@ export async function GET(request: NextRequest) {
     users.map((u) => [u.supabaseUserId!, { email: u.email, created_at: u.createdAt }]),
   );
 
-  const result = tenants.map((t) => ({
-    tenant_id: t.id,
-    user_id: t.userId,
-    email: userMap.get(t.userId)?.email ?? 'unknown',
-    user_created: userMap.get(t.userId)?.created_at ?? null,
-    name: t.name,
-    status: t.status,
-    plan: t.prospectionPlan ?? 'freemium',
-    trial_ends_at: t.trialEndsAt,
-    services: {
-      prospection: {
-        provisioned: !!t.prospectionProvisionedAt,
-        provisioned_at: t.prospectionProvisionedAt,
-        plan: t.prospectionPlan,
+  const result = tenants.map((t) => {
+    const meta = (t.metadata as Record<string, unknown> | null) ?? {};
+    return {
+      tenant_id: t.id,
+      user_id: t.userId,
+      email: userMap.get(t.userId)?.email ?? 'unknown',
+      user_created: userMap.get(t.userId)?.created_at ?? null,
+      name: t.name,
+      status: t.status,
+      plan: t.prospectionPlan ?? 'freemium',
+      trial_ends_at: t.trialEndsAt,
+      services: {
+        prospection: {
+          provisioned: !!t.prospectionProvisionedAt,
+          provisioned_at: t.prospectionProvisionedAt,
+          plan: t.prospectionPlan,
+        },
+        twenty: {
+          provisioned: !!t.twentyWorkspaceId,
+          workspace_id: t.twentyWorkspaceId,
+          subdomain: t.twentySubdomain,
+        },
+        notifuse: {
+          provisioned: !!t.notifuseWorkspaceSlug,
+          workspace_id: t.notifuseWorkspaceSlug,
+          plan: typeof meta.notifuse_plan === 'string' ? meta.notifuse_plan : null,
+          plan_source:
+            typeof meta.notifuse_plan_source === 'string' ? meta.notifuse_plan_source : null,
+          suspended_at:
+            typeof meta.notifuse_suspended_at === 'string' ? meta.notifuse_suspended_at : null,
+          suspended_reason:
+            typeof meta.notifuse_suspended_reason === 'string'
+              ? meta.notifuse_suspended_reason
+              : null,
+          deleted_at:
+            typeof meta.notifuse_deleted_at === 'string' ? meta.notifuse_deleted_at : null,
+        },
       },
-      twenty: {
-        provisioned: !!t.twentyWorkspaceId,
-        workspace_id: t.twentyWorkspaceId,
-        subdomain: t.twentySubdomain,
-      },
-      notifuse: {
-        provisioned: !!t.notifuseWorkspaceSlug,
-        workspace_id: t.notifuseWorkspaceSlug,
-      },
-    },
-    created_at: t.createdAt,
-  }));
+      created_at: t.createdAt,
+    };
+  });
 
   return NextResponse.json({
     total: result.length,
