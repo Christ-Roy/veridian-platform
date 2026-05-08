@@ -1,0 +1,200 @@
+version: 2
+# Dependabot pour le monorepo Veridian Platform.
+#
+# Stratégie :
+# - Security updates activés via API GitHub (pas configurable ici, voir docs)
+# - Bumps réguliers groupés et limités pour pas spammer (5 PR max ouvertes par app)
+# - Majors ignorés sauf demande manuelle (next, react, prisma, payload)
+# - 4 apps Next.js du monorepo + github-actions
+#
+# Auto-merge : workflow `dependabot-auto-merge.yml` merge si CI verte sur patch+minor.
+
+updates:
+  # ─────────── HUB (Next 14, npm) ───────────
+  - package-ecosystem: npm
+    directory: /hub
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - hub
+    groups:
+      next-react:
+        patterns:
+          - "next"
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      auth:
+        patterns:
+          - "next-auth"
+          - "@auth/*"
+          - "nodemailer"
+          - "@types/nodemailer"
+      prisma:
+        patterns:
+          - "prisma"
+          - "@prisma/*"
+      types:
+        patterns:
+          - "@types/*"
+        exclude-patterns:
+          - "@types/react*"
+          - "@types/nodemailer"
+    ignore:
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "prisma"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@prisma/client"
+        update-types: ["version-update:semver-major"]
+
+  # ─────────── PROSPECTION (Next 15, npm) ───────────
+  - package-ecosystem: npm
+    directory: /prospection
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - prospection
+    groups:
+      next-react:
+        patterns:
+          - "next"
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      auth:
+        patterns:
+          - "next-auth"
+          - "@auth/*"
+          - "nodemailer"
+          - "@types/nodemailer"
+      prisma:
+        patterns:
+          - "prisma"
+          - "@prisma/*"
+      tests:
+        patterns:
+          - "vitest"
+          - "@vitejs/*"
+          - "@testing-library/*"
+          - "@playwright/*"
+          - "playwright"
+      types:
+        patterns:
+          - "@types/*"
+        exclude-patterns:
+          - "@types/react*"
+          - "@types/nodemailer"
+    ignore:
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "prisma"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@prisma/client"
+        update-types: ["version-update:semver-major"]
+
+  # ─────────── ANALYTICS (Next 15, pnpm) ───────────
+  - package-ecosystem: npm
+    directory: /analytics
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - analytics
+    groups:
+      next-react:
+        patterns:
+          - "next"
+          - "react"
+          - "react-dom"
+      auth:
+        patterns:
+          - "next-auth"
+          - "@auth/*"
+      prisma:
+        patterns:
+          - "prisma"
+          - "@prisma/*"
+    ignore:
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "prisma"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@prisma/client"
+        update-types: ["version-update:semver-major"]
+
+  # ─────────── CMS (Payload 3, pnpm) ───────────
+  - package-ecosystem: npm
+    directory: /cms
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - cms
+    groups:
+      payload:
+        patterns:
+          - "payload"
+          - "@payloadcms/*"
+      next-react:
+        patterns:
+          - "next"
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+    ignore:
+      # Payload majors : breaking, on attend la doc avant de bump
+      - dependency-name: "payload"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@payloadcms/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+
+  # ─────────── GITHUB ACTIONS ───────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      actions-core:
+        patterns:
+          - "actions/*"
+          - "docker/*"
