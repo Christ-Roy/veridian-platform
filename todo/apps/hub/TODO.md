@@ -125,11 +125,40 @@ hub/
 - [ ] Liste membres workspace avec roles (cf API `/api/workspaces.members`)
   → meme UI que P1.5 (membres workspace Hub-side) mais lecture cote Notifuse
 
-**Lifecycle Notifuse via Stripe webhooks** :
-- [ ] Webhook Stripe `customer.subscription.updated` → `NotifuseClient.updatePlan` (free → pro → business)
-- [ ] Webhook Stripe `invoice.payment_failed` → `NotifuseClient.suspendWorkspace` (paywall actif)
-- [ ] Webhook Stripe `invoice.payment_succeeded` apres suspend → `NotifuseClient.resumeWorkspace`
-- [ ] Cancel subscription → `NotifuseClient.deleteWorkspace` (soft delete, purge 30j cote fork)
+**Lifecycle Notifuse via Stripe webhooks** (avec override Hub manuel) :
+- [ ] **Migration table `tenants`** : ajouter colonnes
+  - `notifuse_plan_source` (`stripe` / `manual` / `lifetime_site_vitrine` / `lifetime_partner` / `internal`)
+  - `notifuse_plan_set_by_user_id` (qui a defini le plan : Stripe webhook ou Robert)
+  - `notifuse_plan_set_reason` (texte libre : "gift_site_vitrine_morel", "partner_program", "test")
+  - `notifuse_plan_set_at` (date)
+- [ ] Webhook Stripe `customer.subscription.updated` → check `plan_source`. Si
+  `=stripe` → `NotifuseClient.updatePlan` (sync). **Si `!=stripe` → log info, ne change pas le plan** (decision business prevaut sur Stripe)
+- [ ] Webhook Stripe `invoice.payment_failed` → check `plan_source`. Si `=stripe`
+  → `NotifuseClient.suspendWorkspace`. Sinon log warning (Stripe paye autre chose, pas Notifuse)
+- [ ] Webhook Stripe `invoice.payment_succeeded` apres suspend → `resumeWorkspace`
+- [ ] Cancel subscription → `softDeleteWorkspace` UNIQUEMENT si `plan_source=stripe`
+- [ ] **Decision produit** : pas de purge cron silencieuse. Tenant soft-deleted
+  reste indefiniment dans Notifuse avec banner "Workspace supprime — reactiver
+  avant <date>". Hard delete = action explicite user dans console.
+
+**UI admin Hub : gestion plans tenants** :
+- [ ] Page `/admin/tenants/[id]/billing` (admin platform only — `isPlatformAdmin`) :
+  - [ ] Affiche plan actuel + source (`stripe` / `manual` / `lifetime_*`)
+  - [ ] Dropdown "Changer le plan" avec tous les plans Notifuse + `internal`
+  - [ ] Champ texte "Raison" obligatoire (ex: "Cadeau site vitrine Morel Volailles")
+  - [ ] Bouton "Appliquer" → POST `/api/admin/notifuse/set-plan` qui :
+    - Update `tenants` Hub avec `plan_source=manual` + raison + actor
+    - Appelle `NotifuseClient.updatePlan(plan)` cote Notifuse
+    - Audit log entry
+- [ ] Page `/admin/tenants` : liste tous les tenants avec colonne "Plan Notifuse"
+  + filter "Plans non-Stripe" pour voir les cadeaux/partenaires
+
+**Skill Claude `/notifuse-grant-lifetime`** :
+- [ ] Quand Robert finit un site vitrine via `/create-site`, propose
+  automatiquement de provisioner Notifuse `lifetime_site_vitrine` pour le client
+- [ ] Skill input : `tenant_id`, `client_email`, `lifetime_plan` (defaut `lifetime_site_vitrine`)
+- [ ] Output : auto_login_url a partager au client + email d'onboarding
+- [ ] Audit log Hub : "lifetime granted by Robert for site vitrine X"
 
 **Webhook Hub recoit events Notifuse** (deja fait pour squelette) :
 - [x] `hub/app/api/webhooks/notifuse/route.ts` recoit events HMAC, idempotence, dispatch

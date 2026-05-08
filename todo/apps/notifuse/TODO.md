@@ -121,8 +121,86 @@ Sprint complet livre, e2e CI green, pipeline staging validee. Voir
 
 ### Backlog Notifuse-specific (long terme)
 
-- [ ] **Cron purge workspaces soft-deleted >30j** : Dokploy Schedule Job qui appelle `WipeTestTenants` sur les `deleted_at < now() - 30 days` (hard delete final)
-- [ ] **Cron reset compteurs mensuels** : 1er du mois, appelle `planRepo.ResetMonthlyCounters` pour reset `emails_sent_this_month` (deja code, juste a brancher au cron Dokploy)
+#### 🎯 Decision produit : pas de cron crade, gestion d'etat tenant lisible
+
+> Robert ne veut PAS d'un cron silencieux qui purge les soft-deleted. A la place :
+> le tenant voit dans sa console **pourquoi** il est bloque + **comment** se
+> debloquer. Plus professionnel, transparent, oblige le user a agir.
+
+- [ ] **Page `/console/billing` enrichie cote frontend Notifuse** (patch Veridian
+  React, dans `console/src/`) :
+  - [ ] Banner persistant en haut de toutes les pages si `status != active` :
+    - `suspended` → "⚠️ Compte suspendu — paiement en retard. [Regulariser]"
+    - `deleted` → "🗑️ Workspace en cours de suppression. Reactiver avant <date>. [Reactiver]"
+    - `quota_exceeded` → "📧 Quota mensuel atteint (10000/10000). [Upgrade]"
+  - [ ] Page `/console/billing` complete : plan actuel, quota mois en cours
+    avec barre de progression, historique consommation (graph), bouton "Changer de plan"
+  - [ ] Bouton "Reactiver maintenant" (si suspended) → POST API qui notifie
+    le Hub via webhook → Hub gere le retour Stripe (ou override gratuit pour client site vitrine)
+  - [ ] Bouton "Annuler la suppression" (si deleted_at != null) → POST API
+    qui clear `deleted_at` (uniquement valable dans la fenetre 30j)
+  - [ ] Footer permanent : status + quota + lien doc/support
+
+- [ ] **Hard delete = decision explicite, pas un cron** :
+  - [ ] Le user click "Supprimer definitivement maintenant" dans `/console/billing/danger-zone`
+    → modal confirmation → `DELETE /api/tenants/:id?hard=true` → wipe immediat
+  - [ ] Si le user fait rien apres soft-delete : le tenant **reste** en
+    `status=deleted` indefiniment, banner en haut + emails desactives. Pas
+    de purge silencieuse derriere son dos. Robert peut wipe manuellement
+    via skill admin si besoin de recuperer la place.
+  - [ ] **Reactivation possible a tout moment** : tant que les donnees existent,
+    `POST /api/tenants/resume` (depuis Hub) ou bouton frontend → clear `deleted_at`
+
+- [ ] **Reset compteurs mensuels** : pas un cron Dokploy mais un check
+  paresseux au moment du `IncrementEmailsSent` :
+  - Si `last_reset_at` est dans un mois precedent → ResetMonthlyCounters AVANT increment
+  - Avantage : pas de cron a maintenir, garanti exact (jamais de fenetre ou compteur pas reset)
+  - Code dans `internal/service/veridian_service.go` ou middleware paywall
+
+#### 🎯 Decision produit : plans pilotes par le Hub, PAS par Stripe direct
+
+> Robert vend des sites vitrines + offre Notifuse a vie aux acheteurs.
+> Le plan Notifuse ne peut PAS etre derive automatiquement de la subscription
+> Stripe d'un user — il y a des cas business (cadeau commercial, partenariat,
+> tenant interne Robert) ou le plan est decide par le Hub.
+
+**Architecture cible** :
+- Stripe = source de verite des paiements **users** (subscription standard)
+- Hub = source de verite des **plans tenants** (decision business — peut override Stripe)
+- Notifuse = boite noire qui applique ce que le Hub dit (`updatePlan`)
+
+**Plans Notifuse** (a etendre dans `internal/domain/veridian.go` `PlanQuotas`) :
+- `free` : 500 emails/mois (signup standard)
+- `pro` : 10 000 emails/mois (subscription Stripe €29)
+- `business` : 50 000 emails/mois (subscription Stripe €49)
+- `enterprise` : -1 unlimited (custom deals)
+- **`lifetime_site_vitrine` : 5 000 emails/mois** ← nouveau plan, offert a vie
+  aux clients ayant achete un site vitrine chez Veridian
+- **`lifetime_partner` : 10 000 emails/mois** ← partenaires/influenceurs
+- **`internal` : unlimited** ← tenants internes Robert (test, demo, support)
+
+- [ ] Etendre `PlanQuotas` map avec ces nouveaux plans
+- [ ] Etendre `WipeTestTenantsInput.SafetyClientPrefixes` defaut pour inclure
+  les tenants `lifetime_*` et `internal_*` (eviter wipe accidentel)
+- [ ] Cote Hub : table `tenants` doit avoir une colonne `plan_source` (`stripe` /
+  `manual` / `lifetime_site_vitrine` / `lifetime_partner` / `internal`)
+- [ ] Cote Hub : interface admin `/admin/tenants/[id]/billing` permet a Robert
+  de changer le plan d'un tenant en 1 click + raison (`gift_site_vitrine`,
+  `partner_program`, etc.)
+- [ ] **Webhook Stripe NE doit PAS override** un tenant `plan_source != stripe` :
+  si `customer.subscription.deleted` arrive et le tenant a `plan_source=lifetime_*`,
+  on log mais on NE downgrade pas
+- [ ] Audit log Hub : tracer chaque changement de plan avec qui (user / Robert / Stripe webhook) + raison
+
+**Cas d'usage concret** :
+1. Client X achete site vitrine + 1 an de support chez Robert
+2. Robert provisione site web (skill `/create-site`) + tenant Notifuse via Hub
+3. Hub set `plan_source=lifetime_site_vitrine` + `plan=lifetime_site_vitrine`
+4. NotifuseClient.updatePlan("lifetime_site_vitrine") → 5000 emails/mois actifs
+5. Plus tard : si Stripe webhook payment_failed arrive (Stripe lie a un autre service de Robert), le Hub voit `plan_source != stripe` et **n'override pas** le plan Notifuse
+
+#### Reste du backlog
+
 - [ ] **Metrics d'envoi par tenant exposees au Hub** : bounce rate, open rate, click rate via API HMAC (lecture des tables existantes Notifuse upstream)
 - [ ] **Templates emails Veridian par defaut** : logo Veridian, couleurs charte, footer legal RGPD — injectes au provision via `inject-template` endpoint
 - [ ] **Magic link cross-app** : un magic link Hub-side qui logge en meme temps Hub + Notifuse + Twenty + Prospection (vrai SSO Veridian, chantier douloureux dans TODO-LIVE)
