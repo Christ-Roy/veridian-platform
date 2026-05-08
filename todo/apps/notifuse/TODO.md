@@ -4,86 +4,196 @@
 > UI polish solo : [`UI-REVIEW.md`](./UI-REVIEW.md)
 >
 > Fork leger de Notifuse OSS pour le rendre SaaS-ready. Boite noire API-only,
-> pilotee par le Hub. Integration Stripe native, limites par plan, soft delete.
-> Stack : Go (inchange upstream), tests natifs Notifuse + nos specs Veridian.
+> pilotee par le Hub via HMAC. Stack : Go (upstream + patches Veridian).
 
-## Etat actuel
+## Etat actuel (2026-05-08)
 
-- **Fork** : a creer (`Christ-Roy/notifuse-veridian`, branche `veridian`)
-- **Dossier monorepo** : a creer (`notifuse/`)
-- **URL prod actuelle** : https://notifuse.app.veridian.site (image upstream)
-- **Sante** : 🟡 (fonctionnel mais pas SaaS-ready, pas de paywall, pas de soft delete)
+- **Fork** : `Christ-Roy/notifuse-veridian` — branche `veridian` depuis `v30.1`
+- **Dossier monorepo** : `notifuse/` — README, MERGING-UPSTREAM, env.example, compose.snippet, DEPLOY-STAGING
+- **URL prod** : https://notifuse.app.veridian.site → **toujours `notifuse/notifuse:v27.0` upstream brute** (pas notre fork — pas encore bumpe)
+- **URL staging** : https://saas-notifuse.staging.veridian.site → **`ghcr.io/christ-roy/notifuse-veridian:latest`** (fork avec patches actifs)
+- **Sante** : 🟢 staging (sprint saasification valide e2e), 🟡 prod (image upstream v27, fonctionnelle mais sans paywall)
 
-## Sprint en cours
+## Sprint TERMINE — P1.3 Notifuse fork boite noire (2026-05-08)
 
-### P1.3 — Notifuse fork boite noire
+Sprint complet livre, e2e CI green, pipeline staging validee. Voir
+`session_2026-05-08_notifuse_saasification.md` dans memory.
 
-**🚨 Bloquant zero — rattraper le retard upstream (2026-04-10)**
-- [ ] Prod actuelle : `notifuse/notifuse:v27.0` (pin `infra/docker-compose.yml:491` et `infra/docker-compose.staging.yml:433`)
-- [ ] Dernier stable upstream : `v29.2` publie le 2026-04-09 (confirme via Docker Hub API)
-- [ ] ~15 releases de retard en 2 mois (v27.1 → v29.2), **deux majors** (v27 → v29)
-- [ ] Lire le changelog v28.0 et v29.0 (breaking changes probables)
-- [ ] Tester `v29.2` en staging : bump image, restart, verifier API + envoi email test
-- [ ] Bumper en prod (accord Robert, backup DB Notifuse avant)
-- [ ] **Partir d'une base a jour** avant d'attaquer le fork lui-meme — sinon on fork v27
-  et on paie le merge upstream deux fois
+### ✅ Fait
 
 **Setup fork**
-- [ ] Fork GitHub : `Christ-Roy/notifuse-veridian` avec branche `veridian`
-- [ ] Dossier `notifuse/` dans le monorepo (Dockerfile custom, compose entry, CI dediee)
-- [ ] Image custom : `ghcr.io/christ-roy/notifuse-veridian:latest` buildee self-hosted runner
-- [ ] Script `ci/check-oss-versions.sh` etendu pour alerter sur upstream bump
-- [ ] Doc `notifuse/MERGING-UPSTREAM.md` : procedure rebase `veridian` sur `main` upstream
-  **(point critique — sans ca on n'arrivera pas a suivre les updates)**
+- [x] Fork `Christ-Roy/notifuse-veridian` branche `veridian` depuis tag upstream `v30.1`
+- [x] Dossier `notifuse/` monorepo : README, MERGING-UPSTREAM.md, .upstream-version, env.example, compose.snippet.yml, DEPLOY-STAGING.md
+- [x] Image custom : `ghcr.io/christ-roy/notifuse-veridian:latest` build self-hosted runner
 
-**Reutiliser CI + tests upstream**
-- [ ] NE PAS remplacer les tests e2e natifs Notifuse (Go)
-- [ ] Etendre avec nos specs Veridian : provisioning API, paywall, limites plan
-- [ ] Reutiliser le workflow GitHub Actions upstream + ajouter nos jobs
-- [ ] A chaque merge upstream : verifier que les tests upstream passent toujours
+**6 endpoints provisioning HMAC + 2 endpoints additionnels**
+- [x] `POST /api/tenants/provision` — workspace + owner reel (role=owner, pas invite) + API key + auto_login_url
+- [x] `POST /api/tenants/update-plan` — applique plan + recalcule quota
+- [x] `POST /api/tenants/suspend` — flag suspended (middleware paywall bloque envois)
+- [x] `POST /api/tenants/resume` — reactive
+- [x] `DELETE /api/tenants/:id` — soft delete, refus re-provision 30j (ErrTenantSoftDeleted → 409)
+- [x] `GET /api/tenants/:id/status` — plan + quota mois + status temps reel
+- [x] `POST /api/workspaces.generateMagicLink` — auth via API key tenant (pas HMAC), magic_link + auto_login_url
+- [x] `GET /veridian/auto-login?token=<HMAC>` — page HTML inline localStorage.setItem + redirect /console
 
-**Appliquer le standard P1.1**
-- [ ] Endpoints provisioning (contrat standard cross-SaaS) :
-  - [ ] `POST /api/tenants/provision` — cree workspace pour un tenant Hub
-  - [ ] `POST /api/tenants/update-plan` — applique plan Stripe
-  - [ ] `POST /api/tenants/suspend` — suspend envoi (paywall)
-  - [ ] `DELETE /api/tenants/:id` — soft delete, purge cron 30j
-  - [ ] `GET /api/tenants/:id/status` — usage mois en cours, quota restant
-- [ ] Soft deletion sur tenants + workspaces + templates
-- [ ] Stripe paywall : middleware bloque l'envoi si plan suspendu / trial expire
-- [ ] Limites par plan (aligne sur les products Stripe existants) :
-  - [ ] Freemium : 500 emails/mois
-  - [ ] Pro 29EUR : 10k emails/mois
-  - [ ] Business 49EUR : 50k emails/mois
-- [ ] Integration Stripe directe : webhook local `/api/webhooks/stripe`, source de verite = Stripe
-- [ ] Audit log sur actions sensibles (suspend, delete, change plan)
-- [ ] Health check `/api/health` conforme au standard
+**Middleware paywall**
+- [x] `internal/http/middleware/veridian_paywall.go` : sync.Map cache TTL 60s, fail-open sur erreur DB
+- [x] `VeridianPaywallPathFilter` : applique uniquement sur /api/transactional.send + /api/broadcasts.{create,schedule,sendToIndividual}
+- [x] 402 Payment Required si suspended/deleted/quota depasse, fail-open si workspace pas dans veridian_plan (mode self-hosted)
 
-## Backlog Notifuse-specific
+**Webhook emitter sortant vers Hub**
+- [x] `internal/service/veridian_webhook_emitter.go` : async (goroutine), HMAC-SHA256 X-Veridian-Notifuse-Signature
+- [x] Events : tenant.provisioned, tenant.suspended, tenant.resumed, tenant.deleted, tenant.plan_changed, email.sent, email.bounced, email.complaint, tenant.quota_exceeded
+- [x] Retry exponential backoff 3x sur 5xx/réseau, abandon sur 4xx
+- [x] Noop si HUB_WEBHOOK_URL ou HUB_WEBHOOK_SECRET vides
 
-- [ ] Nettoyage workspaces orphelins : cron detecte sans activite 90j + flag Hub
-- [ ] Metrics d'envoi par tenant (bounce rate, open rate, click rate)
-- [ ] Dashboard tenant : consommation mois en cours vs quota
-- [ ] Templates emails Veridian par defaut (logo, couleurs, footer legal)
+**Endpoint admin wipe-test-tenants** (pour CI / admin platform)
+- [x] `POST /api/veridian/admin/wipe-test-tenants` HMAC, body {prefix} ou {tenant_ids[]}
+- [x] Refuse wildcards SQL et prefix < 3 chars
+- [x] Skip safety_client_prefixes (apicalinfo, robinix, lyon, loyer, veridiansite)
+- [x] Pour chaque match : WorkspaceService.DeleteWorkspace upstream (DROP DATABASE) + planRepo.HardDelete
+
+**Patches upstream non-invasifs**
+- [x] `UserService.GenerateMagicCodeForVeridian` : code en clair retourne (privileged), pas d'envoi email
+- [x] `UserService.CreateAutoLoginSession` : session JWT directe pour user existant
+- [x] Table `veridian_plan` (system DB) : workspace_id, plan, status, quota, suspended_at, deleted_at, emails_sent_this_month, last_reset_at
+- [x] Repository `veridian_plan_postgres.go` : Get, Upsert, UpdatePlan, Suspend, Resume, SoftDelete, IncrementEmailsSent, ResetMonthlyCounters, HardDelete, ListByPrefix
+
+**Tests Go**
+- [x] 49 tests Veridian (sqlmock + httptest + gomock) sur repo + middleware HMAC + middleware paywall + service + webhook emitter
+- [x] Tests upstream Notifuse passent toujours (0 regression sur ./internal/... ./pkg/...)
+
+**E2E Playwright CI complet**
+- [x] saasification.spec.ts : 12 steps (provision + idempotent + auto-login headful + magic link API key + status + suspend cache TTL 65s + 402 + resume + delete soft)
+- [x] chaos-provisioning.spec.ts : 5 concurrent same tenant, 5 concurrent distincts, replay HMAC, tampering, delete→re-provision 409
+- [x] chaos-paywall.spec.ts : suspend/resume cache 60s, delete = 402, path filter precision
+- [x] chaos-magic-link.spec.ts : flow nominal headful + tampering URL token
+- [x] chaos-status-and-plan.spec.ts : status apres provision/suspend/delete, upgrade/downgrade, suspend deja suspended idempotent
+- [x] CI run all green : Go tests → Build GHCR → Deploy staging Dokploy + force pull + cleanup wipe → e2e staging (BLOQUANT) → deploy prod (manual)
+
+**CI/CD pipeline complet**
+- [x] `.github/workflows/veridian-ci.yml` dans le fork : test-go, build self-hosted, deploy staging, e2e staging, deploy prod manual only
+- [x] Runner self-hosted enregistre sur dev-server-1 (`actions-runner-notifuse-veridian` service systemd)
+- [x] Cleanup CI via API HMAC `/api/veridian/admin/wipe-test-tenants` (pas de SQL direct)
+- [x] Deploy prod = workflow_dispatch manual seulement (pas auto-push, regle absolue Veridian)
+
+## ⚠️ Reste a faire (par ordre de priorite)
+
+### Bump prod : passer de v27 upstream → fork veridian:latest
+
+> Bloquant pour activer le pilotage Hub en prod. Aujourd'hui prod tourne v27
+> brute, sans HMAC, sans paywall, sans auto-login. Le fork est valide en
+> staging mais aucun client prod ne beneficie encore des features Veridian.
+
+- [ ] **Backup DB Notifuse prod** (pg_dump avant tout bump — clients reels :
+  ismailelmouaddab, guilhemjacquet1, truy, etc.)
+- [ ] **Pattern green/blue** (cf `project_blue_green_pattern.md` memory) :
+  - [ ] Ajouter service `notifuse-green` au compose prod (image fork) → sous-domaine `notifuse-green.app.veridian.site`
+  - [ ] Partage la meme `notifuse-postgres` que blue (les migrations Veridian sont additives : table `veridian_plan` + 2 methodes UserService, pas de breaking schema)
+  - [ ] Robert teste sur green (provision tenant test, auto-login, envoi mail, suspend, etc.)
+  - [ ] Si OK : switch labels Traefik blue ↔ green (5s downtime)
+  - [ ] Garder blue 24-48h en standby pour rollback rapide
+  - [ ] Apres validation prolongee : drop blue + retag green = `notifuse`
+- [ ] Configurer secrets Dokploy prod compose (NOTIFUSE_HUB_API_SECRET / WEBHOOK_SECRET / WEBHOOK_URL)
+- [ ] Script blue/green pret dans `/tmp/setup_blue_green_prod.py` (a finaliser)
+
+### Endpoint additionnels cote fork (demandes par Hub UI P1.6)
+
+- [ ] `POST /api/veridian/admin/rotate-api-key` — regenere l'API key tenant et invalide l'ancienne (utilise par bouton Hub "Regenerer API key" dans page integrations Notifuse)
+- [ ] `GET /api/veridian/admin/list-tenants` — liste tous les tenants Veridian-managed avec status (paginated, pour admin Hub unifie)
+- [ ] `POST /api/veridian/admin/inject-template` — push un template MJML Veridian default dans un workspace specifique (pour onboarding nouveaux tenants)
+
+### CVE / dette technique upstream
+
+- [ ] **Bumper Go 1.25.4 → 1.25.5+ ou 1.26** dans Dockerfile upstream :
+  19 vulns Go stdlib detectees par govulncheck (crypto/x509, net, html/template,
+  net/http, etc.) — a inclure au prochain rebase tag upstream
+- [ ] **Console frontend npm audit fix** : 1 HIGH `liquidjs` DoS, 1 moderate `postcss` XSS — fix dispo via `npm audit fix` cote upstream
+- [ ] **Notification center** : 1 moderate, non bloquant
+- [ ] **Pas de version `beta` Notifuse upstream en prod** — actuellement on suit les tags stables, OK
+
+### Robustesse e2e CI (improvements continus)
+
+- [ ] **Reduce e2e cleanup spam** : actuellement le workflow boucle sur ~25 prefixes connus. Mieux : exposer `GET /api/veridian/admin/list-tenants?prefix_filter=test` puis wipe en 1 seul appel
+- [ ] **Setup wizard Notifuse auto-skip** au premier boot : actuellement la 1ere fois qu'on deploie un container fresh il faut passer le wizard manuellement (ROOT_EMAIL, SMTP). Patch upstream pour skip si toutes les env vars sont set
+- [ ] **DB connection pool monitoring** : log la metric `connection_count` dans logs structures pour pouvoir alerter avant saturation
+- [ ] **Cleanup hook Playwright** dans `globalTeardown` : appelle wipe-test-tenants avec le prefix du run (`__test_${RUN_ID}_*`) au lieu de cumuler entre runs
+
+### Backlog Notifuse-specific (long terme)
+
+- [ ] **Cron purge workspaces soft-deleted >30j** : Dokploy Schedule Job qui appelle `WipeTestTenants` sur les `deleted_at < now() - 30 days` (hard delete final)
+- [ ] **Cron reset compteurs mensuels** : 1er du mois, appelle `planRepo.ResetMonthlyCounters` pour reset `emails_sent_this_month` (deja code, juste a brancher au cron Dokploy)
+- [ ] **Metrics d'envoi par tenant exposees au Hub** : bounce rate, open rate, click rate via API HMAC (lecture des tables existantes Notifuse upstream)
+- [ ] **Templates emails Veridian par defaut** : logo Veridian, couleurs charte, footer legal RGPD — injectes au provision via `inject-template` endpoint
+- [ ] **Magic link cross-app** : un magic link Hub-side qui logge en meme temps Hub + Notifuse + Twenty + Prospection (vrai SSO Veridian, chantier douloureux dans TODO-LIVE)
+- [ ] **Audit log Notifuse** : event log persistent table pour suspend/resume/delete/plan_changed (defense en profondeur si Hub webhook fail)
 
 ## Bugs connus
 
-_(aucun identifie — app pas encore forkee)_
+### Resolus pendant le sprint
+- ~~`workspace already exists` sur 2eme provision~~ → fix : ctx root pour lookup idempotence (commit `fix(veridian): idempotence Provision utilise ctx root`)
+- ~~`create api key: this user already exists`~~ → fix : prefix unique `veridian-api-<tenant_id>`
+- ~~Magic link prod sans code~~ → fix : `GenerateMagicCodeForVeridian` retourne le code en clair (privileged path)
+- ~~Frontend Notifuse ne consume pas `?code=` URL~~ → solution : auto_login_url HMAC avec page HTML qui localStorage.setItem(jwt) + redirect
+
+### Connus residuels (non bloquants)
+- **Race CreateDatabase** : provisions concurrents (>5 simultanees) peuvent avoir des 5xx transitoires. Le NotifuseClient TS Hub retry 2x sur 5xx. Tolerance e2e : 80% successes au moins. Workaround long terme : mutex Go cote service Veridian sur Provision (1 seul a la fois par tenant_id).
+- **Cache paywall TTL 60s** : window de 60s apres suspend pendant lequel des emails peuvent encore partir. Acceptable pour MVP. Long terme : push invalidation cache (channel Go) quand suspend appele.
+- **CVE Go stdlib v1.25.4** (cf section CVE)
 
 ## Decisions techniques
 
-- **Fork vs image upstream** : on fork pour ajouter Stripe + standard SaaS. Upstream
-  Notifuse n'est pas "SaaS-ready" (pas de paywall, pas de soft delete propre).
-- **Branche dediee `veridian`** : minimise le diff avec upstream pour faciliter les merges.
-  Tous nos changements dans cette branche, jamais sur `main`.
-- **Garder la CI upstream** : leurs tests valident que nos modifs ne cassent pas le coeur.
-  On ajoute nos specs par-dessus, on ne remplace pas.
-- **Boite noire** : aucun appel direct DB Notifuse depuis l'exterieur. Hub parle HTTP, point.
+### Architecture du fork
+- **Branche dediee `veridian`** : minimise le diff avec upstream pour faciliter les merges. Tous nos changements dans cette branche, jamais sur `main`.
+- **Garder la CI upstream + ajouter** : leurs tests valident que nos modifs ne cassent pas le coeur.
+- **Boite noire API-only** : aucun appel direct DB Notifuse depuis l'exterieur. Hub parle HTTP, point. Cleanup CI passe par `/api/veridian/admin/wipe-test-tenants` (pas de SQL).
+
+### Securite
+- **HMAC-SHA256** pour pilotage Hub → Notifuse (`X-Veridian-Hub-Signature`)
+- **HMAC-SHA256** pour events Notifuse → Hub (`X-Veridian-Notifuse-Signature`)
+- **Token auto_login self-contained** : `base64(payload).hex(hmac)` avec TTL 60s
+- **Drift max 5 min** sur les requetes HMAC pour anti-replay
+- **Safety client prefixes** : refus de wipe si tenant_id matche un prefix client reel meme avec HMAC valide
+
+### Magic link self-contained (pas single-use)
+- TTL 60s = "vie courte mais reutilisable dans la fenetre"
+- Pas de tracking usage : evite race conditions entre Hub Generation et user click
+- Securite = TTL court (perd l'URL = invalide en 60s)
+- Frontend Notifuse upstream stocke l'auth dans **localStorage** (pas cookie), donc l'auto-login passe par une page HTML inline qui set localStorage puis redirect
+
+### Plans et quotas
+Hardcoded dans `internal/domain/veridian.go` `PlanQuotas` :
+- free : 500 emails/mois
+- pro : 10 000
+- business : 50 000
+- enterprise : -1 (unlimited)
+
+Override possible via env var `VERIDIAN_QUOTA_OVERRIDE` (a coder si besoin).
+
+## Workflow rebase upstream
+
+Voir `notifuse/MERGING-UPSTREAM.md` du monorepo. Procedure documentee :
+1. `git fetch upstream --tags`
+2. Lire CHANGELOG entre tag actuel et nouveau tag
+3. Tester l'image upstream brute en staging (avant rebase)
+4. `git checkout veridian && git rebase v<NEW>`
+5. Resoudre conflits (zones touchees : `internal/app/app.go`, schema, migrations)
+6. `make test` upstream + nos tests Veridian
+7. Update `.upstream-version` dans monorepo
+8. `git push --force-with-lease origin veridian`
+9. CI rebuild image GHCR + deploy staging
+
+Conflits courants documentes au fil de l'eau dans MERGING-UPSTREAM.md.
 
 ## Notes agents (chantiers en cours)
 
-_(vide — fork pas encore fait)_
+_(sprint P1.3 termine — pas de chantier actif Notifuse cote fork)_
+
+Prochaines actions = bump prod via blue/green (decision Robert), puis pas
+de patches Go avant le prochain rebase upstream (suivre tags stables `vX.Y`).
 
 ## Recently shipped
 
-_(rien — app a creer)_
+- **2026-05-08** : Sprint P1.3 Notifuse-saasification complet. Fork v30.1, 7 endpoints HMAC + auto-login + admin wipe, paywall middleware, webhook emitter, 49 tests Go, e2e CI green, pipeline staging validee. Voir `session_2026-05-08_notifuse_saasification.md` memory.
+- **2026-05-08** : Endpoint admin `/api/veridian/admin/wipe-test-tenants` (HMAC) pour cleanup CI propre — remplace les SQL directs DROP DATABASE par appels API + safety_client_prefixes.
+- **2026-05-08** : Auto-login URL self-contained (`/veridian/auto-login?token=...`) → click bouton Hub = user logge direct dans console Notifuse comme owner, sans saisie code email. Page HTML inline localStorage + redirect SPA.
