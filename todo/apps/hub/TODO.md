@@ -291,7 +291,8 @@ Bascule prod réussie le 08/05/2026 matin. Voir
 - [ ] **Page `/dashboard/integrations/notifuse`** : voir P1.6 plus haut, à reprendre une fois NOTIFUSE_HUB_API_SECRET en place.
 
 **🟢 Cleanup tardif (J+30 minimum, fenêtre rollback expirée)**
-- [ ] Cleanup containers Supabase legacy (gotrue, kong, realtime, supabase-db, postgrest, etc.) du compose `compose-parse-digital-alarm-974mhw`. ATTENTION : check d'abord qu'aucun autre service ne lit la `auth.users` Supabase (potentiellement Analytics, Twenty, etc.).
+- [x] **2026-05-08** : 10 containers Supabase stoppés (storage, auth, studio, realtime, meta, rest, supabase-db, imgproxy, kong, functions) avec `restart=no`. Audit confirmé aucun autre service ne lit Supabase (Hub/Prospection ont les ENV legacy mais ne les utilisent pas runtime). RAM libérée : ~1.8 Gi (5.4→3.6 Gi). Volumes intacts pour rollback.
+- [ ] **J+30 (08 juin)** : suppression définitive du compose Dokploy `compose-parse-digital-alarm-974mhw` + des volumes Docker associés (perte irréversible des hashes bcrypt $2a$ Supabase et de la table `auth.users`). Garder les backups `~/backups/hub-supa-prebascule-20260508-*.sql.gz` 90j minimum.
 - [ ] Retirer les variables d'env Supabase legacy du compose `hub-authjs` (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`). Aujourd'hui gardées 30j pour safety.
 - [ ] Supprimer le compose Dokploy legacy `Rnt_Jz4BhkcyEJ2D6Bugb` (web-dashboard) **uniquement après update du workflow** (sinon CI plante).
 - [ ] Supprimer DNS `hub-green.app.veridian.site` Cloudflare (plus utilisé après bascule).
