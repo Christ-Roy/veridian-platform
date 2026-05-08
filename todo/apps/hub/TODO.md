@@ -4,30 +4,46 @@
 > UI polish solo : [`UI-REVIEW.md`](./UI-REVIEW.md)
 >
 > Le Hub est le point d'entree SaaS : signup, billing, provisioning, vue workspace.
-> Next.js 14, App Router, pnpm, Auth.js (en cours), Stripe, Prisma (partiel), Supabase (legacy).
+> **Next.js 15.5.18, App Router, pnpm, Auth.js v5 (Google + Credentials bcrypt), Stripe, Prisma 7 sur veridian-core-db schema hub_app.**
+> Supabase Auth dégagée le 2026-05-08 (cf section dédiée plus bas).
 
 ## Etat actuel
 
-- **Version** : voir `hub/package.json`
-- **Dernier deploy prod** : voir `gh run list -w hub-ci.yml`
+- **Version** : voir `hub/package.json` (Next 15.5.18, next-auth 5.0.0-beta.30, prisma 7.7.0)
+- **Dernier deploy prod** : voir `gh run list -w hub-ci.yml` (à updater workflow — cf dette)
 - **URL prod** : https://app.veridian.site
 - **URL staging** : https://saas-hub.staging.veridian.site
-- **Sante** : 🟡 (fonctionnel mais incomplet, dette Supabase)
+- **Sante** : 🟢 (post-migration Auth.js + bump CVE Next 15, runtime 0 CVE high, 25 tenants migrés UUIDs préservés)
 
 ## Architecture
 
 ```
 hub/
 ├── app/                  # Next.js App Router
-│   ├── (auth)/           # signup, login, invite
-│   ├── (dashboard)/      # workspace, billing, settings
-│   └── api/              # routes API, webhooks Stripe
+│   ├── (auth)/           # signup, login, reset, mfa, verify
+│   ├── (marketing)/      # pricing, root
+│   ├── dashboard/        # workspace, billing, settings, admin, members
+│   ├── invite/[token]/   # acceptation invitation
+│   └── api/              # routes API, webhooks Stripe + Notifuse
+├── auth.ts               # Auth.js v5 config (Google + Credentials bcrypt + MFA)
+├── auth.config.ts        # Auth.js edge-safe config (middleware)
+├── middleware.ts         # NextAuth middleware
 ├── lib/
-│   ├── supabase/         # LEGACY — a migrer (voir Chantiers douloureux TODO-LIVE)
-│   ├── stripe/
-│   └── prisma/           # partiel, en cours de migration
+│   ├── auth/get-user.ts  # getCurrentUser, requireUser, userUuid (helpers)
+│   ├── admin/check-admin.ts
+│   ├── prisma/           # singleton Prisma client lazy proxy
+│   ├── notifuse/         # NotifuseClient (Hub → Notifuse fork API)
+│   └── stripe/, email/, gtm/, ...
+├── utils/stripe/prisma-sync.ts  # upsert Product/Price/Subscription via Prisma
+├── utils/tenants/provision.ts   # provisioning Twenty + Notifuse + Prospection
 └── prisma/
-    └── schema.prisma
+    ├── schema.prisma     # 15 modèles : User, Account, Session, MfaCode,
+    │                     # Workspace, WorkspaceMember, Invitation, Tenant,
+    │                     # Subscription, Product, Price, Profile,
+    │                     # ProvisioningLog, UsageMetric, VerificationToken
+    └── migrations/
+        ├── 20260410000000_init_hub_auth/
+        └── 20260508000000_add_legacy_tables_workspaces/
 ```
 
 ## Sprint en cours
@@ -64,22 +80,11 @@ hub/
 - Codes 6 chiffres crypto-surs (`crypto.randomInt`), hash bcrypt, TTL 10 min
 - `.all-creds.env` mis a jour avec GOOGLE_OAUTH_CLIENT_ID/_SECRET (JAMAIS commit)
 
-### P1.5 — Page membres workspace + invitations [2026-04-10]
-- [x] Modele Prisma `WorkspaceMember` (workspace_id, user_id, role, invited_at, joined_at)
-- [x] Modele Prisma `Invitation` (workspace_id, email, role, token, expires_at, accepted_at)
-- [x] Modele Prisma `Workspace` + enum `WorkspaceRole` (OWNER/ADMIN/MEMBER/VIEWER)
-- [x] Page `/workspace/members` : liste + invite + change role + remove
-- [x] API `POST /api/workspace/invite` (structure + Brevo integre, stub Prisma)
-- [x] API `POST /api/workspace/invite/accept` (acceptation token)
-- [x] API `PATCH/DELETE /api/workspace/members/[id]` (change role + remove)
-- [x] Page `/invite/[token]` pour acceptation (toutes variantes : valid/expired/consumed/wrong account)
-- [x] UI adaptee par role : owner / admin / member (canInvite / canChangeRole / canRemoveMember)
-- [x] Tests unitaires : permissions par role (24 tests vitest)
-- [x] **Entree UI-REVIEW** creee (2 entrees — members page + invite page)
-- **Note** : Routes API en mode stub (PRISMA_READY=false) — activer apres `pnpm prisma migrate dev`
-  en staging. Les modeles sont dans `prisma/schema.prisma` prets pour la migration.
-- **Correction** : `lib/prisma/index.ts` rendu tolerant a l'absence de DATABASE_URL
-  en build time (fix bug hub-auth-builder P1.4). Adapter `@prisma/adapter-pg` installe.
+### P1.5 — Page membres workspace + invitations ✅ (terminé 2026-05-08, activé via migration)
+- [x] Modele Prisma `WorkspaceMember`, `Invitation`, `Workspace`, enum `WorkspaceRole`
+- [x] Pages + API + UI adaptée par role + tests vitest
+- [x] **Activé** par migration Prisma `20260508000000_add_legacy_tables_workspaces`
+  appliquée en prod. PRISMA_READY=true par défaut maintenant (LOT B a viré le mode stub).
 
 ### P1.2 — Dissociation UI "SaaS" / "Services de suivi"
 - [ ] Home Hub : deux sections distinctes
@@ -236,20 +241,25 @@ hub/
 
 ## Decisions techniques
 
-- **⚠️ ALERTE PRISMA 2026-04-10** : audit de la codebase confirme qu'il n'y a AUCUN
-  fichier `.prisma` dans `hub/`. Le Hub est 100% Supabase SQL (9 migrations dans
-  `supabase/migrations/`). Les sprints P1.4 et P1.5 presupposent l'existence de Prisma
-  pour declarer `WorkspaceMember`, `Invitation`, `mfa_codes`. **Prerequis** : le teammate
-  qui attaque P1.5 doit d'abord initialiser Prisma dans le Hub (schema + migration baseline
-  sur la DB Postgres existante ou une DB dediee Hub). A clarifier avec Robert : on rajoute
-  un Postgres dedie Hub (comme Prospection) ou on branche Prisma sur la Supabase existante
-  via `DATABASE_URL` direct ?
-- **Auth.js vs Supabase Auth** : migration vers Auth.js en cours. Supabase reste legacy
-  tant que la decommission n'est pas lancee (voir chantier douloureux dans TODO-LIVE).
+- **Prisma 7 + veridian-core-db schema hub_app** (résolu 2026-05-08) : Hub partage la DB
+  Postgres dédiée avec Analytics. 15 modèles dans `schema.prisma`. Migrations SQL appliquées
+  manuellement sur prod (pas via `prisma migrate deploy` car pas de shadow DB accessible).
+- **Auth.js v5 stack unique** (post-migration 2026-05-08) : Supabase Auth dégagée. Hashes
+  bcrypt $2a$ Supabase préservés tels quels dans `Account.access_token` (provider=credentials),
+  lus nativement par bcryptjs.compare. Aucune ré-authentification utilisateur.
+- **Bridge UUIDs** : `User.id` TEXT (cuid pour nouveaux signups, UUID stringifié pour migrés)
+  ≠ `Tenant.userId` UUID (préservé Supabase pour FK + références externes Twenty/Notifuse).
+  Pont via `User.supabaseUserId` TEXT. Helper `userUuid(user)` à utiliser systématiquement
+  dans queries Prisma (`prisma.tenant.findMany({ where: { userId: userUuid(user) } })`).
 - **Cookies 3 mois** : decision explicite pour eviter que les tenants perdent leur compte
   facilement. Le 2FA email opt-in compense pour la securite.
-- **Pas d'impersonate au debut** : trop risque, reporte en P3.6 quand le SSO avance sera pret.
+- **Impersonate** : routes `/api/admin/impersonate` créent une vraie Session Auth.js (Session
+  table + sessionToken). Endpoint `/api/auth/impersonate-callback` à créer pour set le cookie
+  cross-domain (TODO LOT D).
 - **Twenty = hands-off** : aucun fork, uniquement API GraphQL. Custom features dans le Hub.
+- **Notifuse = fork `Christ-Roy/notifuse-veridian`** : 7 routes Hub HMAC + magic link tenant-scoped.
+  NotifuseClient TS dans `hub/lib/notifuse/`. ⚠️ `NOTIFUSE_HUB_API_SECRET` non configuré côté
+  Hub post-migration → provisioning échoue pour nouveaux signups (cf dette).
 
 ## ✅ Migration Supabase → Auth.js v5 (TERMINÉE 2026-05-08)
 
@@ -262,14 +272,39 @@ Bascule prod réussie le 08/05/2026 matin. Voir
 **Compose Dokploy** : `_kxAHDCv1LhvsdwNRX3Vk` (`hub-authjs`)
 **Image rollback** : `ghcr.io/christ-roy/veridian-dashboard:rollback-pre-authjs-20260508`
 
-### Dette post-migration à traiter
+### Dette post-migration à traiter (priorisée)
 
-- [ ] **`NOTIFUSE_HUB_API_SECRET`** non configuré côté Hub (agent C a refacto le client Notifuse vers une nouvelle API). Provisioning Notifuse échoue pour les nouveaux signups jusqu'à config côté Notifuse server + ENV Hub.
-- [ ] Helpers e2e Supabase non migrés (`__tests__/api/notifuse-webhook.test.ts` supprimé). À recréer en Auth.js si on remet une CI e2e Hub.
-- [ ] Mettre à jour `.github/workflows/hub-ci.yml` job `deploy-prod` pour pointer sur le nouveau compose `_kxAHDCv1LhvsdwNRX3Vk` (actuellement pointe sur le legacy `Rnt_Jz4BhkcyEJ2D6Bugb`).
-- [ ] J+30 minimum : cleanup containers Supabase legacy (gotrue/kong/realtime/etc.) après confirmation stabilité prod.
-- [ ] Merger `feat/hub-authjs-migration` dans main après 24h de stabilité prod confirmée. ATTENTION : avant merge, basculer le COMPOSE_ID legacy du workflow vers le nouveau, sinon la CI redeploy le compose vide legacy.
-- [ ] Promouvoir image `:hub-authjs-staging` → `:latest` une fois stable (cleanup tag intermédiaire).
+**🔴 Bloquantes pour nouveaux signups**
+- [ ] **`NOTIFUSE_HUB_API_SECRET`** non configuré côté Hub (agent C a refacto le client Notifuse vers la nouvelle API HMAC du fork `Christ-Roy/notifuse-veridian`). Provisioning Notifuse échoue → `[Notifuse Provision] Error: Notifuse client not configured` dans les logs. Action : générer le secret côté Notifuse server + injecter dans ENV Dokploy `hub-authjs`.
+
+**🟠 Avant merge sur main (ordre obligatoire pour ne pas casser prod)**
+- [ ] Mettre à jour `.github/workflows/hub-ci.yml` job `deploy-prod` : `COMPOSE_ID` legacy `Rnt_Jz4BhkcyEJ2D6Bugb` → nouveau `_kxAHDCv1LhvsdwNRX3Vk`. Sinon premier merge main = la CI pull `:latest` et redeploy le compose legacy vide → prod KO.
+- [ ] **Promouvoir image** `:hub-authjs-staging` → `:latest` (re-tag GHCR) APRÈS update workflow, sinon pas grave mais ça unifie. Sinon laisser tag intermédiaire jusqu'à J+30.
+- [ ] Merger `feat/hub-authjs-migration` dans main après 24h de stabilité prod confirmée.
+
+**🟡 Polish post-migration**
+- [ ] Helpers e2e Supabase non migrés. `__tests__/api/notifuse-webhook.test.ts` supprimé (test écrit pour vieille structure idempotence). À recréer en Auth.js si on remet une CI e2e Hub.
+- [ ] **Endpoint `/api/auth/impersonate-callback`** à créer pour set cookie httpOnly cross-domain. La route `/api/admin/impersonate` génère déjà une vraie Session Auth.js + sessionToken, mais il manque le handler côté target user pour le poser en cookie (sinon admin reçoit token mais ne peut pas l'utiliser).
+- [ ] Champs `notifuse_suspended_at`, `notifuse_deleted_at`, `notifuse_emails_sent_this_month` actuellement stockés dans `Tenant.metadata` JSON (par LOT B faute de colonnes dédiées). Ajouter au schema Prisma `Tenant` si on veut indexer dessus.
+- [ ] Idempotence webhook Notifuse stockée dans `tenant.metadata.notifuse_processed_events` (slice 200). Créer table dédiée `NotifuseEventProcessed` pour scaler.
+- [ ] **Page reset password** finale (`/auth/reset?token=...`) : agent A a livré un MVP fonctionnel (VerificationToken + bcrypt update Account.access_token + anti-énumération). À tester end-to-end avec un vrai email avant de communiquer aux users.
+- [ ] **Page `/dashboard/integrations/notifuse`** : voir P1.6 plus haut, à reprendre une fois NOTIFUSE_HUB_API_SECRET en place.
+
+**🟢 Cleanup tardif (J+30 minimum, fenêtre rollback expirée)**
+- [ ] Cleanup containers Supabase legacy (gotrue, kong, realtime, supabase-db, postgrest, etc.) du compose `compose-parse-digital-alarm-974mhw`. ATTENTION : check d'abord qu'aucun autre service ne lit la `auth.users` Supabase (potentiellement Analytics, Twenty, etc.).
+- [ ] Retirer les variables d'env Supabase legacy du compose `hub-authjs` (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`). Aujourd'hui gardées 30j pour safety.
+- [ ] Supprimer le compose Dokploy legacy `Rnt_Jz4BhkcyEJ2D6Bugb` (web-dashboard) **uniquement après update du workflow** (sinon CI plante).
+- [ ] Supprimer DNS `hub-green.app.veridian.site` Cloudflare (plus utilisé après bascule).
+- [ ] Cleanup memory `project_auth_centralization.md` (2026-04-03) — décrit plan obsolète, remplacé par `session_2026-05-08_hub_authjs.md`.
+
+### Leçons apprises (à appliquer aux autres apps)
+
+- **Next 15 useSearchParams + Suspense obligatoire** : tout Client Component qui consomme `useSearchParams()` doit être enveloppé de `<Suspense>` sinon crash client-side intermittent (cas vécu sur AuthTracker dans `app/dashboard/layout.tsx` post-bascule). Grep systématiquement `useSearchParams` à chaque migration Next 15.
+- **Next 15 params async** : `params: Promise<{...}>` puis `await params` dans pages dynamiques + route handlers. 2 fichiers concernés sur Hub (`api/workspace/members/[id]`, `app/invite/[token]`).
+- **`corepack prepare pnpm@latest`** = piège : pnpm 11 exige Node 22+, donc plante sur node:20-alpine. **Pin obligatoire** : `corepack prepare pnpm@10.33.0 --activate`.
+- **2 lockfiles incohérents** = piège silencieux : si `package.json` mis à jour via `npm install`, le `pnpm-lock.yaml` devient obsolète et le Dockerfile `pnpm install --frozen-lockfile` plante. Toujours vérifier le PM utilisé par le Dockerfile AVANT d'installer en local.
+- **3 agents parallèles sur lots disjoints** scalent bien : 56 fichiers refacto en 1 matinée (vs 2 jours sur Prospection en mode séquentiel). Critère : agents reçoivent les helpers partagés DÉJÀ créés par le lead (lib/auth/get-user.ts dans ce cas).
+- **Compte test mdp Robert** : `Mincraft5*55` est le mdp Hub de Robert sur **les deux comptes** (`brunon5robert@gmail.com` ET `robert.brunon@veridian.site`). Mon premier test curl a échoué car le payload n'envoyait pas correctement les cookies CSRF, pas un problème de mdp.
 
 ### Containers prod (référence)
 
@@ -282,18 +317,18 @@ Bascule prod réussie le 08/05/2026 matin. Voir
 _Section mise a jour par les agents au fil de l'eau. Indiquer : qui bosse sur quoi,
 blockers, questions en attente pour Robert._
 
-**2026-04-10 — hub-members-builder (P1.5)** :
-- Livraison en mode "stub Prisma" : toute la structure est en place (pages, API, types,
-  composants UI, tests), mais les routes API retournent 503 tant que `PRISMA_READY=false`.
-- Pour activer : basculer `PRISMA_READY=true` dans les 3 routes + lancer
-  `pnpm prisma migrate dev --name init_hub_workspaces` sur la DB staging.
-- Bug corrige dans `lib/prisma/index.ts` : le client Prisma plantait au build
-  quand DATABASE_URL etait absent. Fix = fallback sans adapter.
-- A discuter : faut-il creer le Workspace automatiquement a la creation du tenant
-  (dans provision.ts) ou a la premiere visite /dashboard/workspace/members ?
+**2026-05-08 — Migration Hub Auth.js v5 + Next 15.5.18 (lead + 3 agents parallèles)** :
+- Bascule prod réussie (cf section dédiée + `session_2026-05-08_hub_authjs.md`).
+- Stub Prisma P1.5 (PRISMA_READY=false) résolu : LOT B a activé Prisma direct, les
+  modèles workspace/invitation sont en prod.
+- Question Workspace auto-création non tranchée : provision.ts ne crée toujours pas
+  de Workspace par défaut. À traiter quand on remettra l'UX onboarding.
+
+**2026-04-10 — hub-members-builder (P1.5)** : ✅ obsolete, livraison stub résolue par migration 2026-05-08.
 
 ## Recently shipped
 
+- **2026-05-08** — 🎉 **Migration Hub Supabase Auth → Auth.js v5 + Prisma 7 + bump Next 15.5.18** (5 CVE high résolues, 165→11 vulns, 0 critical/high). 25 tenants migrés UUIDs préservés, hashes bcrypt $2a$ Supabase préservés tels quels. Bascule blue/green Dokploy en 1 matinée via 3 agents parallèles. Fix post-bascule : Suspense wrap AuthTracker/PurchaseTracker (Next 15 useSearchParams CSR bailout) + ADMIN_EMAILS étendu pour les 2 comptes Robert.
 - **2026-04-10** — Audit sync TODO : `/api/health`, `tenants.deleted_at`, `/api/webhooks` Stripe, `billing.config.ts` plans, `/api/admin/*` deja en place et non suivis dans la TODO
 - **2026-04-07** — `.env.example` mis a jour, docs legacy archives
 - **feat preexistante (hors TODO)** — `/api/admin/impersonate` deja implemente (prevu en P3.6 dans TODO-LIVE, a repositionner)
