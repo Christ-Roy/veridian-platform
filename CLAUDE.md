@@ -14,25 +14,38 @@ courses critiques (corruption d'index Git, vol de branche checkout, fichiers
 édités en concurrence, builds qui se marchent dessus), chaque agent **DOIT**
 travailler dans un worktree dédié à son app/sujet.
 
-### Worktrees disponibles (déjà créés)
+### Worktrees disponibles (état au 2026-05-10)
 
-| Working dir | Branche | Pour quoi |
+**Worktrees app-scopés vierges** (démarrer un nouveau chantier ici) :
+
+| Working dir | Branche par défaut | Pour quoi |
 |---|---|---|
-| `~/Bureau/veridian-platform/` | (variable) | **Robert uniquement** — main worktree, pas pour les agents |
-| `~/Bureau/veridian-platform-hub/` | `work/hub` | App `hub/` (Auth.js, signup, billing, provisioning) |
-| `~/Bureau/veridian-platform-prospection/` | `work/prospection` | App `prospection/` (dashboard B2B, pipeline, leads) |
 | `~/Bureau/veridian-platform-cms/` | `work/cms` | App `cms/` (Payload CMS multi-tenant) |
 | `~/Bureau/veridian-platform-analytics/` | `work/analytics` | App `analytics/` (dashboard tracking) |
 | `~/Bureau/veridian-platform-notifuse/` | `work/notifuse` | App `notifuse/` (email transactionnel fork) |
 | `~/Bureau/veridian-platform-twenty/` | `work/twenty` | App `twenty/` (CRM fork + migrations) |
 | `~/Bureau/veridian-platform-sites/` | `work/sites` | Sites vitrines clients (`sites/avse`, `sites/morel`, etc.) |
 | `~/Bureau/veridian-platform-infra/` | `work/infra` | Dokploy, docker-compose, CI/CD, monitoring |
-| `~/Bureau/veridian-platform-cve/` | `work/cve` | Audits CVE, security patches transverses |
 
-> Worktrees historiques (chantiers en cours, NE PAS REUTILISER) :
-> `veridian-platform-cve-fix/` (chore/dependabot-cve-automation),
-> `veridian-platform-prospection-auth/` (staging, migration auth Prospection),
-> `veridian-platform-prodsnap/` (snapshot prod detached HEAD).
+**Worktrees app-scopés avec chantier ACTIF en cours** (NE PAS écraser sans accord) :
+
+| Working dir | Branche | Chantier |
+|---|---|---|
+| `~/Bureau/veridian-platform-prospection/` | `feat/tenants-magic-link` | PR #12 — endpoint magic-link rotation |
+| `~/Bureau/veridian-platform-prospection-authjs/` | `feat/prospection-authjs-migration` | Migration Supabase Auth → Auth.js v5 |
+| `~/Bureau/veridian-platform-prospection-auth/` | `staging` | Tests staging prospection |
+| `~/Bureau/veridian-platform-hub/` | `feat/hub-authjs-migration` | Migration auth Hub |
+| `~/Bureau/veridian-platform-hub-wip/` | `hub/p14-p15-wip` | WIP P1.4/P1.5 invite flow (jamais pushé) |
+| `~/Bureau/veridian-platform-cve/` | `fix/cve-2026-05-08` | PR #1 — CVE fix transverse |
+| `~/Bureau/veridian-platform-cve-fix/` | `chore/dependabot-cve-automation` | PR #2 — Dependabot auto-merge |
+
+**Worktrees spéciaux** :
+
+| Working dir | Branche | Usage |
+|---|---|---|
+| `~/Bureau/veridian-platform/` | (Robert décide) | **Main worktree — Robert uniquement**. Agents : interdit |
+| `~/Bureau/veridian-platform-main/` | `main` | **Pour commits transverses directs sur main** (CLAUDE.md, doc, règles) |
+| `~/Bureau/veridian-platform-prodsnap/` | (detached) | Snapshot prod intact, ne pas toucher |
 
 ### Règles d'utilisation
 
@@ -40,26 +53,31 @@ travailler dans un worktree dédié à son app/sujet.
    ```bash
    pwd && git worktree list | grep "$(pwd)"
    ```
-2. **Si tu travailles sur `prospection/`**, tu dois être dans `~/Bureau/veridian-platform-prospection/prospection/`. Idem pour les autres apps.
-3. **Pour une nouvelle feature**, partir TOUJOURS d'origin/main frais :
+2. **Travail sur une app spécifique** → worktree app-scopé. Si pour `prospection/`,
+   tu dois être dans `~/Bureau/veridian-platform-prospection/prospection/` (ou un
+   worktree dédié au chantier en cours).
+3. **Modif transverse / globale** (CLAUDE.md racine, doc, règles `.claude/rules/`,
+   TODO globale, scripts `infra/`) → utiliser `~/Bureau/veridian-platform-main/`,
+   commit direct sur `main`, push direct. Pas de branche feature inutile pour ça.
+4. **Pour une nouvelle feature applicative**, partir TOUJOURS d'origin/main frais :
    ```bash
    cd ~/Bureau/veridian-platform-<app>
    git fetch origin
    git checkout -b feat/<app>-<sujet> origin/main
    ```
-4. **Les branches doivent être préfixées par leur app** : `feat/prospection-xxx`,
+5. **Les branches doivent être préfixées par leur app** : `feat/prospection-xxx`,
    `fix/hub-yyy`, `chore/cms-zzz`. Pas de noms ambigus comme `feat/tenants-xxx`.
-5. **Une PR = une app touchée**. Si tu dois toucher 2 apps, ouvre 2 PRs, sauf
+6. **Une PR = une app touchée**. Si tu dois toucher 2 apps, ouvre 2 PRs, sauf
    refacto cross-app explicite.
-6. **JAMAIS travailler dans `~/Bureau/veridian-platform/`** (le main worktree)
+7. **JAMAIS travailler dans `~/Bureau/veridian-platform/`** (le main worktree)
    en tant qu'agent — c'est l'espace de Robert pour les merges et arbitrages.
-7. **JAMAIS faire `git checkout`** d'une branche qui appartient à un autre
+8. **JAMAIS faire `git checkout`** d'une branche qui appartient à un autre
    worktree — Git refuse de toute façon, mais ne pas insister.
-8. **Créer un nouveau worktree** si ton sujet ne rentre dans aucun de ceux
-   listés (ex: gros chantier transverse) :
+9. **Créer un nouveau worktree** si ton chantier doit cohabiter avec un autre sur
+   la même app (ex: 2 chantiers prospection en parallèle) :
    ```bash
    cd ~/Bureau/veridian-platform
-   git worktree add -b work/<sujet> ../veridian-platform-<sujet> origin/main
+   git worktree add -b feat/<app>-<sujet> ../veridian-platform-<app>-<sujet> origin/main
    ```
 
 ### Pourquoi cette discipline
