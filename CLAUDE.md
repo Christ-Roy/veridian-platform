@@ -83,6 +83,41 @@ n'a pas de chantier actif — elles trackent `origin/main` et restent vides.
 - **Builds isolés** → cache `.next/` propre par worktree
 - Les agents peuvent vraiment tourner en parallèle sans se polluer
 
+### Worktree `-main` — référence read-only synchronisée avec `origin/main`
+
+Le worktree `~/Bureau/veridian-platform-main/` est la **source de vérité du repo
+pour les agents**. Sa fonction est unique : refléter `origin/main` à tout moment,
+pour que n'importe quel agent puisse aller voir "à quoi ressemble la prod
+maintenant" sans avoir à fetch/checkout dans son propre worktree.
+
+**Règles absolues** :
+
+1. **JAMAIS coder dans `-main`**. Pas de `git commit`, pas de `git checkout`
+   d'une autre branche, pas de modifs de fichiers. C'est read-only pour les
+   agents (Robert peut y faire un commit transverse exceptionnel — doc/CI —
+   mais en mode conscient).
+2. **JAMAIS rebaser/merger depuis `-main` local**. Toujours depuis
+   `origin/main` après un `git fetch`. Le worktree local peut être en retard
+   sur le remote entre deux syncs.
+3. **`-main` se sync automatiquement** :
+   - **Au lancement de `cc-saas`** : `git fetch origin && git reset --hard origin/main`
+     dans `-main` AVANT d'ouvrir Konsole. Sync immédiate à chaque session.
+   - **Cron utilisateur toutes les 15 min** (backup pour sessions longues) :
+     même commande. Idempotent, silencieux si déjà à jour.
+   - **Guard** : si `-main` a des modifs locales détectées au démarrage, le
+     script `cc-saas` ne sync pas et alerte (= signe que quelqu'un a bricolé,
+     à investiguer manuellement avant écrasement).
+4. Les autres worktrees gèrent leur sync eux-mêmes (`git pull --rebase
+   origin <branche>` quand ils ont besoin). Pas de sync auto sur les
+   worktrees de travail — sinon on écrase du WIP.
+
+**Si tu veux savoir ce qui est en prod maintenant** :
+```bash
+cd ~/Bureau/veridian-platform-main
+git log --oneline -10           # 10 derniers commits sur origin/main
+git diff HEAD~5 --stat          # ce qui a changé sur main ces 5 derniers commits
+```
+
 ## Ce que c'est
 
 Veridian est un **hub SaaS B2B** qui orchestre plusieurs applications open-source
