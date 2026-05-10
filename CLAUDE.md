@@ -1,7 +1,122 @@
 # Veridian Platform
 
 > Monorepo SaaS Veridian. Lire ce fichier en premier a chaque session.
-> Derniere mise a jour : 2026-04-06
+> Derniere mise a jour : 2026-05-10
+
+## ⚠️ RÈGLE WORKTREE — un agent = un worktree (NON NÉGOCIABLE)
+
+> Mise en place le 2026-05-10 après que `feat/tenants-magic-link` ait avalé 18
+> commits de `feat/hub-authjs-migration` à cause d'agents concurrents dans le
+> même working directory.
+
+**Plusieurs agents Claude tournent en parallèle sur ce repo.** Pour éviter les
+courses critiques (corruption d'index Git, vol de branche checkout, fichiers
+édités en concurrence, builds qui se marchent dessus), chaque agent **DOIT**
+travailler dans un worktree dédié à son app/sujet.
+
+### Worktrees disponibles (état au 2026-05-10)
+
+**Modèle : 1 app = 1 worktree permanent**. Tous les chantiers d'une app vivent
+dans le même worktree, accessibles via `git checkout <branche>` à l'intérieur.
+Si plusieurs chantiers concurrents sur la même app doivent vraiment tourner en
+parallèle, créer un worktree temporaire à ce moment-là (pas avant).
+
+| Working dir | Branche actuelle | Branches accessibles via checkout |
+|---|---|---|
+| `~/Bureau/veridian-platform/` | `ci-prod-smoke` | **Robert uniquement** — agents : interdit |
+| `~/Bureau/veridian-platform-main/` | `main` | `main` (commits transverses : CLAUDE.md, doc, `.claude/rules/`) |
+| `~/Bureau/veridian-platform-hub/` | `feat/hub-authjs-migration` | `feat/hub-*`, `hub/p14-p15-wip` |
+| `~/Bureau/veridian-platform-prospection/` | `feat/tenants-magic-link` | `feat/prospection-*`, `feat/tenants-magic-link`, `feat/prospection-authjs-migration`, `staging` |
+| `~/Bureau/veridian-platform-cms/` | `work/cms` | `feat/cms-*`, `fix/cms-*` |
+| `~/Bureau/veridian-platform-analytics/` | `work/analytics` | `feat/analytics-*`, `fix/analytics-*` |
+| `~/Bureau/veridian-platform-notifuse/` | `work/notifuse` | `feat/notifuse-*`, `fix/notifuse-*` |
+| `~/Bureau/veridian-platform-twenty/` | `work/twenty` | `feat/twenty-*`, `fix/twenty-*` |
+| `~/Bureau/veridian-platform-sites/` | `work/sites` | `feat/sites-*`, sites clients |
+| `~/Bureau/veridian-platform-infra/` | `work/infra` | `feat/infra-*`, CI, Docker, Dokploy |
+| `~/Bureau/veridian-platform-cve/` | `fix/cve-2026-05-08` | `fix/cve-*`, `chore/dependabot-*` |
+| `~/Bureau/veridian-platform-prodsnap/` | (detached) | Snapshot prod intact, ne pas toucher |
+
+Les branches `work/<app>` servent juste de point de départ frais quand le worktree
+n'a pas de chantier actif — elles trackent `origin/main` et restent vides.
+
+### Règles d'utilisation
+
+1. **Avant TOUT travail**, vérifier dans quel worktree tu es :
+   ```bash
+   pwd && git worktree list | grep "$(pwd)"
+   ```
+2. **Travail sur une app spécifique** → worktree app-scopé. Si pour `prospection/`,
+   tu dois être dans `~/Bureau/veridian-platform-prospection/prospection/` (ou un
+   worktree dédié au chantier en cours).
+3. **Modif transverse / globale** (CLAUDE.md racine, doc, règles `.claude/rules/`,
+   TODO globale, scripts `infra/`) → utiliser `~/Bureau/veridian-platform-main/`,
+   commit direct sur `main`, push direct. Pas de branche feature inutile pour ça.
+4. **Pour une nouvelle feature applicative**, partir TOUJOURS d'origin/main frais :
+   ```bash
+   cd ~/Bureau/veridian-platform-<app>
+   git fetch origin
+   git checkout -b feat/<app>-<sujet> origin/main
+   ```
+5. **Les branches doivent être préfixées par leur app** : `feat/prospection-xxx`,
+   `fix/hub-yyy`, `chore/cms-zzz`. Pas de noms ambigus comme `feat/tenants-xxx`.
+6. **Une PR = une app touchée**. Si tu dois toucher 2 apps, ouvre 2 PRs, sauf
+   refacto cross-app explicite.
+7. **JAMAIS travailler dans `~/Bureau/veridian-platform/`** (le main worktree)
+   en tant qu'agent — c'est l'espace de Robert pour les merges et arbitrages.
+8. **JAMAIS faire `git checkout`** d'une branche qui appartient à un autre
+   worktree — Git refuse de toute façon, mais ne pas insister.
+9. **Switch de chantier dans le même worktree** : `cd ~/Bureau/veridian-platform-<app> && git checkout <branche>`. Les autres branches de l'app restent accessibles, pas besoin de worktree par chantier.
+10. **Worktree temporaire** uniquement si 2 agents doivent VRAIMENT bosser en parallèle sur 2 branches différentes de la même app **au même moment**. Sinon : 1 worktree par app suffit.
+   ```bash
+   cd ~/Bureau/veridian-platform
+   git worktree add ../veridian-platform-<app>-<sujet> <branche-existante>
+   # ... travail ...
+   git worktree remove ../veridian-platform-<app>-<sujet>  # nettoyer après
+   ```
+
+### Pourquoi cette discipline
+
+- **Index Git séparé par worktree** → zéro race sur `.git/index`
+- **Branche checkout indépendante** → ton agent ne se retrouve pas sur la
+  branche d'un autre par surprise
+- **node_modules séparé par app** → installs concurrents ne se cassent pas
+- **Builds isolés** → cache `.next/` propre par worktree
+- Les agents peuvent vraiment tourner en parallèle sans se polluer
+
+### Worktree `-main` — référence read-only synchronisée avec `origin/main`
+
+Le worktree `~/Bureau/veridian-platform-main/` est la **source de vérité du repo
+pour les agents**. Sa fonction est unique : refléter `origin/main` à tout moment,
+pour que n'importe quel agent puisse aller voir "à quoi ressemble la prod
+maintenant" sans avoir à fetch/checkout dans son propre worktree.
+
+**Règles absolues** :
+
+1. **JAMAIS coder dans `-main`**. Pas de `git commit`, pas de `git checkout`
+   d'une autre branche, pas de modifs de fichiers. C'est read-only pour les
+   agents (Robert peut y faire un commit transverse exceptionnel — doc/CI —
+   mais en mode conscient).
+2. **JAMAIS rebaser/merger depuis `-main` local**. Toujours depuis
+   `origin/main` après un `git fetch`. Le worktree local peut être en retard
+   sur le remote entre deux syncs.
+3. **`-main` se sync automatiquement** :
+   - **Au lancement de `cc-saas`** : `git fetch origin && git reset --hard origin/main`
+     dans `-main` AVANT d'ouvrir Konsole. Sync immédiate à chaque session.
+   - **Cron utilisateur toutes les 15 min** (backup pour sessions longues) :
+     même commande. Idempotent, silencieux si déjà à jour.
+   - **Guard** : si `-main` a des modifs locales détectées au démarrage, le
+     script `cc-saas` ne sync pas et alerte (= signe que quelqu'un a bricolé,
+     à investiguer manuellement avant écrasement).
+4. Les autres worktrees gèrent leur sync eux-mêmes (`git pull --rebase
+   origin <branche>` quand ils ont besoin). Pas de sync auto sur les
+   worktrees de travail — sinon on écrase du WIP.
+
+**Si tu veux savoir ce qui est en prod maintenant** :
+```bash
+cd ~/Bureau/veridian-platform-main
+git log --oneline -10           # 10 derniers commits sur origin/main
+git diff HEAD~5 --stat          # ce qui a changé sur main ces 5 derniers commits
+```
 
 ## Ce que c'est
 

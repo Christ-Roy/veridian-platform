@@ -465,10 +465,6 @@ export async function provisionNotifuseTenant(
 
     logStep('NOTIFUSE', 'Starting provisioning', { email, userId });
 
-    // workspaceId généré via le helper centralisé (lib/notifuse/workspace-id.ts).
-    // Garantit alignement avec la contrainte fork Notifuse `varchar(20)` +
-    // charset `[a-z0-9]`. Si jamais la contrainte upstream change, on patch
-    // ici une seule fois.
     const workspaceId = workspaceIdFromEmail(email);
 
     const workspaceName = email.split('@')[0].slice(0, 32);
