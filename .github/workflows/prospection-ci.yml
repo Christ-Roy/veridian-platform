@@ -506,7 +506,7 @@ jobs:
       - run: npm ci
       - name: Install Playwright browser
         run: npx playwright install --with-deps ${{ matrix.browser }}
-      - name: Run E2E tests against prod (${{ matrix.browser }})
+      - name: Run E2E smoke tests against prod (${{ matrix.browser }})
         env:
           HUB_URL: https://app.veridian.site
           PROSPECTION_URL: https://prospection.app.veridian.site
@@ -518,11 +518,17 @@ jobs:
           BROWSER: ${{ matrix.browser }}
           CI: true
         run: |
-          # SAFETY: e2e-prod must NEVER do signup/provision — it rate-limits
-          # the shared Supabase SERVICE_ROLE_KEY for ALL users.
-          # Only run specs that use existing accounts (loginRobert pattern).
-          npx playwright test e2e/invite-flow-demo.spec.ts --project=${{ matrix.browser }} --reporter=list || echo "WARN: invite-flow-demo"
-          # TODO: add more login-only prod smoke specs here (no signup!)
+          # SAFETY: e2e-prod ne lance QUE des smoke read-only (api-siren,
+          # regression, status-endpoint). Pas de signup/invite/write — ça
+          # rate-limit la SERVICE_ROLE_KEY partagée et frappe la prod en
+          # écriture. Tout flow d'écriture vit en e2e-core/extended sur
+          # staging avec un user throwaway.
+          # Bloquant : tout fail ici déclenche le rollback automatique.
+          npx playwright test \
+            e2e/core/api-siren.spec.ts \
+            e2e/core/regression.spec.ts \
+            e2e/core/status-endpoint.spec.ts \
+            --project=${{ matrix.browser }} --reporter=list
       - name: Upload screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4
