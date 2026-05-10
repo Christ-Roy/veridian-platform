@@ -16,36 +16,28 @@ travailler dans un worktree dédié à son app/sujet.
 
 ### Worktrees disponibles (état au 2026-05-10)
 
-**Worktrees app-scopés vierges** (démarrer un nouveau chantier ici) :
+**Modèle : 1 app = 1 worktree permanent**. Tous les chantiers d'une app vivent
+dans le même worktree, accessibles via `git checkout <branche>` à l'intérieur.
+Si plusieurs chantiers concurrents sur la même app doivent vraiment tourner en
+parallèle, créer un worktree temporaire à ce moment-là (pas avant).
 
-| Working dir | Branche par défaut | Pour quoi |
+| Working dir | Branche actuelle | Branches accessibles via checkout |
 |---|---|---|
-| `~/Bureau/veridian-platform-cms/` | `work/cms` | App `cms/` (Payload CMS multi-tenant) |
-| `~/Bureau/veridian-platform-analytics/` | `work/analytics` | App `analytics/` (dashboard tracking) |
-| `~/Bureau/veridian-platform-notifuse/` | `work/notifuse` | App `notifuse/` (email transactionnel fork) |
-| `~/Bureau/veridian-platform-twenty/` | `work/twenty` | App `twenty/` (CRM fork + migrations) |
-| `~/Bureau/veridian-platform-sites/` | `work/sites` | Sites vitrines clients (`sites/avse`, `sites/morel`, etc.) |
-| `~/Bureau/veridian-platform-infra/` | `work/infra` | Dokploy, docker-compose, CI/CD, monitoring |
-
-**Worktrees app-scopés avec chantier ACTIF en cours** (NE PAS écraser sans accord) :
-
-| Working dir | Branche | Chantier |
-|---|---|---|
-| `~/Bureau/veridian-platform-prospection/` | `feat/tenants-magic-link` | PR #12 — endpoint magic-link rotation |
-| `~/Bureau/veridian-platform-prospection-authjs/` | `feat/prospection-authjs-migration` | Migration Supabase Auth → Auth.js v5 |
-| `~/Bureau/veridian-platform-prospection-auth/` | `staging` | Tests staging prospection |
-| `~/Bureau/veridian-platform-hub/` | `feat/hub-authjs-migration` | Migration auth Hub |
-| `~/Bureau/veridian-platform-hub-wip/` | `hub/p14-p15-wip` | WIP P1.4/P1.5 invite flow (jamais pushé) |
-| `~/Bureau/veridian-platform-cve/` | `fix/cve-2026-05-08` | PR #1 — CVE fix transverse |
-| `~/Bureau/veridian-platform-cve-fix/` | `chore/dependabot-cve-automation` | PR #2 — Dependabot auto-merge |
-
-**Worktrees spéciaux** :
-
-| Working dir | Branche | Usage |
-|---|---|---|
-| `~/Bureau/veridian-platform/` | (Robert décide) | **Main worktree — Robert uniquement**. Agents : interdit |
-| `~/Bureau/veridian-platform-main/` | `main` | **Pour commits transverses directs sur main** (CLAUDE.md, doc, règles) |
+| `~/Bureau/veridian-platform/` | `ci-prod-smoke` | **Robert uniquement** — agents : interdit |
+| `~/Bureau/veridian-platform-main/` | `main` | `main` (commits transverses : CLAUDE.md, doc, `.claude/rules/`) |
+| `~/Bureau/veridian-platform-hub/` | `feat/hub-authjs-migration` | `feat/hub-*`, `hub/p14-p15-wip` |
+| `~/Bureau/veridian-platform-prospection/` | `feat/tenants-magic-link` | `feat/prospection-*`, `feat/tenants-magic-link`, `feat/prospection-authjs-migration`, `staging` |
+| `~/Bureau/veridian-platform-cms/` | `work/cms` | `feat/cms-*`, `fix/cms-*` |
+| `~/Bureau/veridian-platform-analytics/` | `work/analytics` | `feat/analytics-*`, `fix/analytics-*` |
+| `~/Bureau/veridian-platform-notifuse/` | `work/notifuse` | `feat/notifuse-*`, `fix/notifuse-*` |
+| `~/Bureau/veridian-platform-twenty/` | `work/twenty` | `feat/twenty-*`, `fix/twenty-*` |
+| `~/Bureau/veridian-platform-sites/` | `work/sites` | `feat/sites-*`, sites clients |
+| `~/Bureau/veridian-platform-infra/` | `work/infra` | `feat/infra-*`, CI, Docker, Dokploy |
+| `~/Bureau/veridian-platform-cve/` | `fix/cve-2026-05-08` | `fix/cve-*`, `chore/dependabot-*` |
 | `~/Bureau/veridian-platform-prodsnap/` | (detached) | Snapshot prod intact, ne pas toucher |
+
+Les branches `work/<app>` servent juste de point de départ frais quand le worktree
+n'a pas de chantier actif — elles trackent `origin/main` et restent vides.
 
 ### Règles d'utilisation
 
@@ -73,11 +65,13 @@ travailler dans un worktree dédié à son app/sujet.
    en tant qu'agent — c'est l'espace de Robert pour les merges et arbitrages.
 8. **JAMAIS faire `git checkout`** d'une branche qui appartient à un autre
    worktree — Git refuse de toute façon, mais ne pas insister.
-9. **Créer un nouveau worktree** si ton chantier doit cohabiter avec un autre sur
-   la même app (ex: 2 chantiers prospection en parallèle) :
+9. **Switch de chantier dans le même worktree** : `cd ~/Bureau/veridian-platform-<app> && git checkout <branche>`. Les autres branches de l'app restent accessibles, pas besoin de worktree par chantier.
+10. **Worktree temporaire** uniquement si 2 agents doivent VRAIMENT bosser en parallèle sur 2 branches différentes de la même app **au même moment**. Sinon : 1 worktree par app suffit.
    ```bash
    cd ~/Bureau/veridian-platform
-   git worktree add -b feat/<app>-<sujet> ../veridian-platform-<app>-<sujet> origin/main
+   git worktree add ../veridian-platform-<app>-<sujet> <branche-existante>
+   # ... travail ...
+   git worktree remove ../veridian-platform-<app>-<sujet>  # nettoyer après
    ```
 
 ### Pourquoi cette discipline
