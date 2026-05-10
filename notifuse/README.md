@@ -9,9 +9,11 @@ paywall Go natif, magic link cross-app, webhooks sortants vers le Hub.
 - **Upstream** : https://github.com/Notifuse/notifuse (branche `main`, tags `vX.Y`)
 - **Fork Veridian** : https://github.com/Christ-Roy/notifuse-veridian
 - **Branche Veridian** : `veridian` (tous nos patches vivent ici, **jamais** sur `main`)
-- **Image custom** : `ghcr.io/christ-roy/notifuse-veridian:vX.Y-veridian.N`
-  (buildee par le self-hosted runner sur le dev server, voir
-  `.github/workflows/notifuse-ci.yml`)
+- **Image custom** : `ghcr.io/christ-roy/notifuse-veridian:saas-vX.Y.Z`
+  pour la prod (SemVer Veridian, tag manuel — voir `RELEASE.md`).
+  Auto-build `:vUPSTREAM-veridian.<sha8>` + `:latest` a chaque push
+  `veridian` pour le staging. Build par self-hosted runner sur le dev
+  server (workflow `.github/workflows/veridian-ci.yml` cote fork).
 
 ## Version upstream actuelle
 
@@ -23,6 +25,8 @@ Ce dossier **ne contient pas le code Notifuse** — il sert de point de
 synchronisation entre le monorepo Veridian et le fork :
 
 - `README.md` — ce fichier
+- `RELEASE.md` — procedure de release prod versionnee (`saas-vX.Y.Z`)
+- `DEPLOY-STAGING.md` — procedure first-time setup staging
 - `MERGING-UPSTREAM.md` — procedure rebase de la branche `veridian` sur les
   nouveaux tags `vX.Y` upstream
 - `.upstream-version` — version upstream actuellement utilisee
