@@ -9,6 +9,20 @@
 
 ---
 
+## 🔴 INCIDENT 2026-05-10 — Hub login down 3h (Traefik dual-router)
+
+**Workaround appliqué**, prod OK depuis 13:05. **Causes racines à fixer en priorité prochaine session** : carcasses composes Dokploy non nettoyées post blue/green, monitoring trop superficiel, Auth.js v5 silencieux sur erreur de config.
+
+→ Voir détail complet : [`todo/infra/INCIDENT-2026-05-10-hub-traefik-collision.md`](./infra/INCIDENT-2026-05-10-hub-traefik-collision.md)
+
+**À NE PAS RATER prochaine session** :
+1. Audit + nettoyage de tous les composes Dokploy carcasses (5 identifiés)
+2. Smoke test CI hub `/api/auth/providers` aligné sur celui de prospection
+3. Monitoring élargi aux routes critiques métier (pas juste racine HTTPS 200)
+4. Phase 11 "cleanup compose legacy" à graver dans `project_blue_green_pattern.md`
+
+---
+
 ## 🎯 PRIORITE 1 — Hub × Analytics : synchronisation tenants + Stripe trial
 
 > **Analytics POC est TERMINE et en prod** (2026-04-13). La priorite suivante est
