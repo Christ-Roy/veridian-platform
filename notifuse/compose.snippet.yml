@@ -19,8 +19,11 @@ notifuse-postgres:
     retries: 5
 
 # Notifuse Veridian (image custom, pas upstream)
+# Tag : saas-vX.Y.Z (SemVer Veridian, voir notifuse/RELEASE.md).
+# Bump manuel : `git tag saas-vX.Y.Z` sur le fork → workflow build l'image.
+# Update prod : editer ce tag dans le compose Dokploy + redeploy.
 notifuse:
-  image: ghcr.io/christ-roy/notifuse-veridian:v30.1-veridian.1
+  image: ghcr.io/christ-roy/notifuse-veridian:saas-v1.0.0
   container_name: notifuse-api
   restart: unless-stopped
   depends_on:
