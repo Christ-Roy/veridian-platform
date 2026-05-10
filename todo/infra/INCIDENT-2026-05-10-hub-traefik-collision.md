@@ -58,6 +58,61 @@ docker update --restart=no compose-parse-digital-bandwidth-xfd9mu-web-dashboard-
 
 Vérifié : tous endpoints `/api/auth/*` redeviennent 200 immédiatement.
 
+## Découverte étendue 2026-05-10 13:11 — bug propagé sur prospection AUSSI
+
+Pendant l'audit des autres composes carcasses, **prospection était dans le même état** depuis ~3h :
+
+```
+RouterName="prospection-saas@docker"  ← l'ANCIEN
+ServiceURL="http://10.0.1.205:3000"
+```
+
+Le compose `compose-index-solid-state-card-d7uu39` (ancien prospection-saas pre-Auth.js, container `Up 3 hours` avec `restart=unless-stopped`) capait `Host(prospection.app.veridian.site)` et gagnait sur le routeur `prospection-authjs@docker` actuel par ordre alphabétique.
+
+`prospection-saas` < `prospection-authjs` en lexicographique → bingo, on prend l'ancien.
+
+Workaround : stop + restart=no sur l'ancien container. Prospection rétabli.
+
+**Conclusion** : ce n'était pas un coup isolé sur le hub. Tous les anciens composes des migrations blue/green sont des bombes à retardement.
+
+## Cleanup massif 2026-05-10 13:15
+
+Audit complet des 5 composes carcasses identifiés :
+
+| Compose | Hosts captés | État pre-cleanup | Action |
+|---|---|---|---|
+| `compose-parse-digital-bandwidth-xfd9mu` (ancien web-dashboard hub) | `app.veridian.site` | container exited+restart=no (déjà fix) | YAML renommé `.disabled-2026-05-10-collision-fix` |
+| `compose-index-solid-state-card-d7uu39` (ancien prospection-saas) | `prospection.app.veridian.site` | **container UP 3h (restart=unless-stopped)** ⚠️ | container stop+restart=no, YAML renommé |
+| `compose-input-back-end-application-t364gq` (prospection-fr) | `prospection.internal.veridian.site` | aucun container | YAML renommé |
+| `compose-copy-mobile-card-hy9a9f` (multi assets/linkedin/prospection internal) | `assets.internal`, `linkedin.internal`, `prospection.internal` | aucun container | YAML renommé |
+| `compose-program-digital-application-vb1x5n` (CrowdSec doublon historique) | aucun | aucun container, déjà 3 backups `.bak-*` | YAML renommé |
+
+**Backups** : `/home/ubuntu/dokploy-carcasses-backup-20260510-1511/` sur prod-pub.
+
+## Bug architectural Hub : ENV utilisaient noms de containers internes
+
+Au passage, découvert un anti-pattern dans le compose Hub Dokploy :
+
+```yaml
+# AVANT (compose-back-up-online-pixel-nl2k9p)
+PROSPECTION_API_URL: http://compose-connect-redundant-firewall-l5fmki-prospection-authjs-1:3000
+PROSPECTION_INTERNAL_URL: http://compose-connect-redundant-firewall-l5fmki-prospection-authjs-1:3000
+```
+
+Le Hub appelait prospection via le **nom de container Docker** au lieu de l'URL publique. Conséquences :
+- Si le compose prospection est recréé (blue/green, refacto Dokploy), le nom change, le Hub appelle dans le vide
+- Aucune cohérence avec les autres apps (Twenty, Notifuse étaient déjà en URL publique)
+- Pas testable depuis un agent QA externe
+
+**Fix appliqué** : modif compose Dokploy via API (`compose.update` puis `compose.deploy`) pour pointer sur `https://prospection.app.veridian.site`. Container hub-authjs recréé proprement, ENV vérifiées.
+
+**À noter** : pendant le fix j'ai d'abord essayé `docker compose up -d hub-authjs` direct depuis `/etc/dokploy/compose/.../code/`. **Erreur** : ça crée un container avec project=`code` (le nom du dossier parent), pas le nom Dokploy attendu. Résultat = 2 containers hub-authjs en parallèle, tous deux avec les mêmes labels Traefik. Heureusement Traefik n'a qu'un service mais c'était dangereux. **La règle CLAUDE.md "JAMAIS docker compose up sur compose Dokploy" est confirmée — toujours passer par l'API Dokploy `compose.update` + `compose.deploy`**.
+
+## Dette résiduelle après cleanup
+
+- DB postgres carcasse `compose-index-solid-state-card-d7uu39-prospection-saas-db-1` reste UP (pas stoppée par précaution car contient peut-être des data tenants legacy). Squatte le DNS Docker `prospection-saas-db` mais Docker DNS résout vers la bonne DB (`code-prospection-saas-db-1` via IP `10.0.1.81`). À auditer + dump avant suppression.
+- Les composes carcasses restent visibles côté Dokploy UI (juste avec YAML disabled). Robert peut les supprimer définitivement via l'UI quand il aura validé qu'on n'en a plus besoin.
+
 ## ⚠️ TODO PROCHAINE SESSION — Causes racines à fixer durablement
 
 ### 1. Carcasses composes Dokploy post blue/green non nettoyées
