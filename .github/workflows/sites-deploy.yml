@@ -20,7 +20,7 @@ jobs:
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 2
       - id: set
@@ -51,9 +51,9 @@ jobs:
       matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
     name: Deploy ${{ matrix.site }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -63,6 +63,19 @@ jobs:
         working-directory: sites/${{ matrix.site }}
         run: npm ci || npm install
 
+      # Audit CVE non-bloquant pour visibility. Sites en output:'export'
+      # → pas de runtime serveur, donc CVE Next.js server-side
+      # inapplicables. Mais bundles statiques peuvent embarquer XSS
+      # postcss / source code exposure. À rendre bloquant après task #17.
+      - name: CVE audit (visibility, non-bloquant)
+        working-directory: sites/${{ matrix.site }}
+        continue-on-error: true
+        run: |
+          echo "::group::npm audit --omit=dev --audit-level=high"
+          npm audit --omit=dev --audit-level=high \
+            || echo "::warning::CVE high détectée sur sites/${{ matrix.site }} — voir task #17"
+          echo "::endgroup::"
+
       - name: Build
         working-directory: sites/${{ matrix.site }}
         env:
@@ -71,9 +84,44 @@ jobs:
           CMS_API_KEY: ${{ matrix.site == 'demo-cms' && secrets.CMS_API_KEY_DEMO || matrix.site == 'template-artisan' && secrets.CMS_API_KEY_ARTISAN || secrets.CMS_API_KEY_RESTAURANT }}
         run: npm run build
 
+      # Sanity check sur le build : sans index.html, le deploy CF Pages
+      # ne sert à rien (404 sur /). Avant, un build silencieusement vide
+      # (par ex. CMS API down → site sans content) était quand même
+      # déployé.
+      - name: Verify build output
+        working-directory: sites/${{ matrix.site }}
+        run: |
+          if [ ! -d "out" ] || [ ! -f "out/index.html" ]; then
+            echo "::error::Pas de out/index.html après build — output:'export' cassé ou CMS API down"
+            ls -la out/ 2>/dev/null || echo "out/ n'existe pas"
+            exit 1
+          fi
+          echo "out/ : $(find out -type f | wc -l) fichiers, $(du -sh out | cut -f1)"
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN_PAGES }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           command: pages deploy sites/${{ matrix.site }}/out --project-name=${{ matrix.site == 'demo-cms' && 'demo-cms-veridian' || matrix.site }} --branch=main --commit-dirty=true
+
+      # Smoke test : le site déployé doit répondre 200 sur /. Wait jusqu'à
+      # 60s pour propagation CF. Bloquant — un deploy qui rend le site
+      # inaccessible doit faire bruit (et plus tard déclencher rollback).
+      - name: Smoke test post-deploy
+        env:
+          PROJECT_NAME: ${{ matrix.site == 'demo-cms' && 'demo-cms-veridian' || matrix.site }}
+        run: |
+          URL="https://${PROJECT_NAME}.pages.dev/"
+          echo "Smoke test sur $URL (wait jusqu'à 60s)"
+          for i in $(seq 1 6); do
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✓ $URL → HTTP 200 après ${i}0s"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $STATUS — wait 10s..."
+            sleep 10
+          done
+          echo "::error::Smoke test failed — $URL ne répond pas 200 après 60s"
+          exit 1
