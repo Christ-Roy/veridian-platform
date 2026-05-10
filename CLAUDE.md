@@ -1,7 +1,75 @@
 # Veridian Platform
 
 > Monorepo SaaS Veridian. Lire ce fichier en premier a chaque session.
-> Derniere mise a jour : 2026-04-06
+> Derniere mise a jour : 2026-05-10
+
+## ⚠️ RÈGLE WORKTREE — un agent = un worktree (NON NÉGOCIABLE)
+
+> Mise en place le 2026-05-10 après que `feat/tenants-magic-link` ait avalé 18
+> commits de `feat/hub-authjs-migration` à cause d'agents concurrents dans le
+> même working directory.
+
+**Plusieurs agents Claude tournent en parallèle sur ce repo.** Pour éviter les
+courses critiques (corruption d'index Git, vol de branche checkout, fichiers
+édités en concurrence, builds qui se marchent dessus), chaque agent **DOIT**
+travailler dans un worktree dédié à son app/sujet.
+
+### Worktrees disponibles (déjà créés)
+
+| Working dir | Branche | Pour quoi |
+|---|---|---|
+| `~/Bureau/veridian-platform/` | (variable) | **Robert uniquement** — main worktree, pas pour les agents |
+| `~/Bureau/veridian-platform-hub/` | `work/hub` | App `hub/` (Auth.js, signup, billing, provisioning) |
+| `~/Bureau/veridian-platform-prospection/` | `work/prospection` | App `prospection/` (dashboard B2B, pipeline, leads) |
+| `~/Bureau/veridian-platform-cms/` | `work/cms` | App `cms/` (Payload CMS multi-tenant) |
+| `~/Bureau/veridian-platform-analytics/` | `work/analytics` | App `analytics/` (dashboard tracking) |
+| `~/Bureau/veridian-platform-notifuse/` | `work/notifuse` | App `notifuse/` (email transactionnel fork) |
+| `~/Bureau/veridian-platform-twenty/` | `work/twenty` | App `twenty/` (CRM fork + migrations) |
+| `~/Bureau/veridian-platform-sites/` | `work/sites` | Sites vitrines clients (`sites/avse`, `sites/morel`, etc.) |
+| `~/Bureau/veridian-platform-infra/` | `work/infra` | Dokploy, docker-compose, CI/CD, monitoring |
+| `~/Bureau/veridian-platform-cve/` | `work/cve` | Audits CVE, security patches transverses |
+
+> Worktrees historiques (chantiers en cours, NE PAS REUTILISER) :
+> `veridian-platform-cve-fix/` (chore/dependabot-cve-automation),
+> `veridian-platform-prospection-auth/` (staging, migration auth Prospection),
+> `veridian-platform-prodsnap/` (snapshot prod detached HEAD).
+
+### Règles d'utilisation
+
+1. **Avant TOUT travail**, vérifier dans quel worktree tu es :
+   ```bash
+   pwd && git worktree list | grep "$(pwd)"
+   ```
+2. **Si tu travailles sur `prospection/`**, tu dois être dans `~/Bureau/veridian-platform-prospection/prospection/`. Idem pour les autres apps.
+3. **Pour une nouvelle feature**, partir TOUJOURS d'origin/main frais :
+   ```bash
+   cd ~/Bureau/veridian-platform-<app>
+   git fetch origin
+   git checkout -b feat/<app>-<sujet> origin/main
+   ```
+4. **Les branches doivent être préfixées par leur app** : `feat/prospection-xxx`,
+   `fix/hub-yyy`, `chore/cms-zzz`. Pas de noms ambigus comme `feat/tenants-xxx`.
+5. **Une PR = une app touchée**. Si tu dois toucher 2 apps, ouvre 2 PRs, sauf
+   refacto cross-app explicite.
+6. **JAMAIS travailler dans `~/Bureau/veridian-platform/`** (le main worktree)
+   en tant qu'agent — c'est l'espace de Robert pour les merges et arbitrages.
+7. **JAMAIS faire `git checkout`** d'une branche qui appartient à un autre
+   worktree — Git refuse de toute façon, mais ne pas insister.
+8. **Créer un nouveau worktree** si ton sujet ne rentre dans aucun de ceux
+   listés (ex: gros chantier transverse) :
+   ```bash
+   cd ~/Bureau/veridian-platform
+   git worktree add -b work/<sujet> ../veridian-platform-<sujet> origin/main
+   ```
+
+### Pourquoi cette discipline
+
+- **Index Git séparé par worktree** → zéro race sur `.git/index`
+- **Branche checkout indépendante** → ton agent ne se retrouve pas sur la
+  branche d'un autre par surprise
+- **node_modules séparé par app** → installs concurrents ne se cassent pas
+- **Builds isolés** → cache `.next/` propre par worktree
+- Les agents peuvent vraiment tourner en parallèle sans se polluer
 
 ## Ce que c'est
 
