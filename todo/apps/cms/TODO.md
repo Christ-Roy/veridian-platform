@@ -14,7 +14,10 @@
 - **Version** : Payload 3.82.1
 - **URL staging** : https://cms.staging.veridian.site/admin
 - **URL prod** : 🟢 https://cms.veridian.site/admin (déployée 2026-04-25)
-- **Sante** : 🟢 staging stable + prod live + CI/CD complet + monitoring + backup R2 quotidien
+- **Sante** : 🟢 staging stable + prod live + CI/CD complet + monitoring
+  - ⚠️ backup R2 quotidien : Dokploy schedule `schedule-transmit-neural-firewall-jy3xp9`
+    backupe supabase/twenty/notifuse mais **PAS le CMS** (constat 2026-05-11).
+    Diff à appliquer dans script.sh : `backup_db "veridian-cms-postgres-prod" "veridian_cms" "cms" "cms"`
 - **Langue** : FR par defaut (i18n natif), EN fallback
 - **White-label** : actif (logo vert, BeforeLogin/Dashboard FR, favicon)
 - **Theme** : light force
@@ -61,6 +64,39 @@ Pattern **content-first** : `src/content/*.ts` = source de verite initiale,
 seed-from-code provisionne le CMS avec exactement ces blocs.
 
 ## Backlog priorise
+
+### 🔵 Sprint 1 quick wins (2026-05-11) — PR #36
+
+Audit basé sur `~/Bureau/AVSE-CMS-FEATURES-TODO.md` Sprint 1 débloquant.
+
+- [x] **Volume Docker `/app/media`** — Dockerfile crée `/app/media` chown
+  nextjs:nodejs ; `cms-media-prod` ajouté aux composes. Débloque les uploads
+  (EACCES depuis 2026-04-25, 0 doc Media en base avant fix).
+- [x] **CVE high patchées** — `pnpm.overrides` pour `fast-uri >=3.1.2` et
+  `drizzle-orm >=0.45.2`. Audit prod : 0 high / 0 critical.
+- [x] **Job CI audit CVE bloquant** — `_audit-cve.yml` hook dans `cms-ci.yml`,
+  `build needs: [static, audit]`. Pas de publish d'image si CVE high.
+- [x] **Pages.beforeDelete** protège slugs critiques (home, contact,
+  mentions-legales, politique-confidentialite) pour non super-admin.
+- [x] **Products.beforeValidate** rejette name/slug vide (ghost product
+  id=28 sur tenant 1 DELETE manuellement séparément).
+- [x] **seed-from-code** supporte `{ pageTitle, blocks }` (admin label court
+  séparé du hero title long).
+- [ ] **Volume media à monter sur compose live OVH** (à faire post-merge) :
+  ```bash
+  ssh prod-pub
+  cd /home/ubuntu/veridian-cms-prod
+  # ajouter `volumes: [cms-media-prod:/app/media]` sur le service cms
+  # + `volumes: { cms-media-prod: {} }` racine
+  docker compose -f docker-compose.prod.yml -p veridian-cms-prod up -d --force-recreate cms
+  docker exec veridian-cms-prod ls -la /app/media  # writable nextjs:nodejs
+  ```
+- [ ] **Backup CMS Dokploy** : ajouter `backup_db "veridian-cms-postgres-prod"
+  "veridian_cms" "cms" "cms"` au script `schedule-transmit-neural-firewall-jy3xp9`
+  via Dokploy UI.
+- [ ] **`cms.dev.veridian.site`** : DNS fixé (`*.dev.veridian.site` pointait
+  vers un dev-server offline 76 jours), reste à monter le service systemd
+  pnpm dev + reverse proxy + sync script.
 
 ### ✅ P0 DONE — Polish white-label + Live Preview SDK (2026-05-01)
 
