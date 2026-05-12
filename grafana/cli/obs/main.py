@@ -21,6 +21,8 @@ from typing import Annotated, Optional
 import typer
 from rich.console import Console
 
+import os
+from .checks import ALL_CHECKS, Finding, Severity
 from .config import load_config
 from .fingerprint import normalize, reduce_logs
 from .loki import LokiClient, LogEntry
@@ -36,6 +38,55 @@ app = typer.Typer(
     rich_markup_mode="rich",
     pretty_exceptions_show_locals=False,
 )
+
+
+# ============================================================================
+# Global flag --env : filtre toutes les commandes par environnement
+# Défaut = prod (cas d'usage 99%). --dev = dev seul. --all = pas de filtre.
+# Override via env var OBS_DEFAULT_ENV=dev pour changer le défaut.
+# ============================================================================
+
+
+class _Ctx:
+    """Contexte global propagé à toutes les sous-commandes via callback."""
+
+    env: Optional[str] = os.environ.get("OBS_DEFAULT_ENV", "prod")
+
+
+_ctx = _Ctx()
+
+
+def env_selector() -> Optional[str]:
+    """Retourne le label env à passer aux clients Loki/Prom, ou None pour 'all'."""
+    return _ctx.env if _ctx.env != "all" else None
+
+
+@app.callback()
+def _global_options(
+    env: Annotated[
+        str,
+        typer.Option(
+            "--env",
+            "-e",
+            help="Filtre par environnement (prod / dev / all). Défaut: prod.",
+        ),
+    ] = os.environ.get("OBS_DEFAULT_ENV", "prod"),
+    dev: Annotated[
+        bool,
+        typer.Option("--dev", help="Raccourci pour --env dev."),
+    ] = False,
+    all_envs: Annotated[
+        bool,
+        typer.Option("--all", help="Raccourci pour --env all (prod + dev)."),
+    ] = False,
+) -> None:
+    """Options globales appliquées à toutes les sous-commandes."""
+    if dev:
+        _ctx.env = "dev"
+    elif all_envs:
+        _ctx.env = "all"
+    else:
+        _ctx.env = env
 
 
 # ============================================================================
@@ -84,7 +135,7 @@ def cmd_logs(
             container_pattern=pattern,
             since_seconds=since_s,
             limit=limit,
-            env=env,
+            env=env or env_selector(),
             level_filter=level,
             regex_filter=regex,
         )
@@ -153,7 +204,7 @@ def cmd_top(
             container_pattern=pattern,
             since_seconds=since_s,
             limit=fetch,
-            env=env,
+            env=env or env_selector(),
             level_filter=level,
         )
 
@@ -229,7 +280,7 @@ def cmd_loops(
 
     with LokiClient(cfg) as loki:
         # 1. Liste les containers qui ont du volume
-        volumes = loki.container_volumes(since_seconds=since_s, env=env)
+        volumes = loki.container_volumes(since_seconds=since_s, env=env or env_selector())
 
         # 2. Pour chaque container avec volume > min_count, fetch + dédup
         rows = []
@@ -315,7 +366,7 @@ def cmd_errors(
             container_pattern=pattern,
             since_seconds=since_s,
             limit=fetch,
-            env=env,
+            env=env or env_selector(),
             regex_filter=err_regex,
         )
 
@@ -372,7 +423,7 @@ def cmd_containers(
     cfg = load_config()
     since_s = parse_duration(since)
     with LokiClient(cfg) as loki:
-        rows_tuples = loki.container_volumes(since_seconds=since_s, env=env)
+        rows_tuples = loki.container_volumes(since_seconds=since_s, env=env or env_selector())
 
     rows = [
         {"logs": v, "host": h, "env": e, "container": c} for h, e, c, v in rows_tuples
@@ -412,7 +463,7 @@ def cmd_search(
             container_pattern=container,
             since_seconds=since_s,
             limit=limit,
-            env=env,
+            env=env or env_selector(),
             regex_filter=regex,
         )
 
@@ -620,7 +671,7 @@ def cmd_stats(
 
     with LokiClient(cfg) as loki:
         # 1. Volume par container
-        volumes = loki.container_volumes(since_seconds=since_s, env=env)
+        volumes = loki.container_volumes(since_seconds=since_s, env=env or env_selector())
         if pattern:
             volumes = [v for v in volumes if pattern in v[2]]
 
@@ -777,7 +828,7 @@ def cmd_noisy(
     since_s = parse_duration(since)
 
     with LokiClient(cfg) as loki:
-        volumes = loki.container_volumes(since_seconds=since_s, env=env)
+        volumes = loki.container_volumes(since_seconds=since_s, env=env or env_selector())
         rows = []
         for host, env_lbl, container, total in volumes:
             if total < min_count:
@@ -1002,7 +1053,7 @@ def cmd_tail(
                     container_pattern=pattern,
                     since_seconds=since_s,
                     limit=200,
-                    env=env,
+                    env=env or env_selector(),
                 )
                 for e in reversed(entries):  # plus ancien en premier
                     key = (e.timestamp_unix, e.line[:80])
@@ -1023,6 +1074,224 @@ def cmd_tail(
                 _time.sleep(interval)
     except KeyboardInterrupt:
         console.print("\n[dim]Stop.[/dim]")
+
+
+# ============================================================================
+# health — sanity check de la stack
+# ============================================================================
+
+
+# ============================================================================
+# check — COMMANDE MÈRE : scan complet et résumé des sujets chauds
+# ============================================================================
+
+
+@app.command(
+    "check",
+    help="""[bold]Commande mère agent-first[/bold] : scan toute la stack et résume les
+sujets qui méritent attention, classés par sévérité, avec [italic]la commande
+exacte[/italic] de drill-down pour chaque finding.
+
+Lance ~12 heuristiques en parallèle (CPU/RAM/disk, error rate, loops, pics,
+quota Grafana, auth failures, etc.) avec un timeout court.
+
+Exit code : 0 si tout OK, 1 si WARN, 2 si CRIT — utile pour cron alerting.
+
+[bold]Exemples :[/bold]
+
+  obs check                          # scan complet, table colorée
+  obs check --format json            # pour parser dans un agent
+  obs check --severity warn          # n'affiche que warn+crit
+  obs check --check error_rate,loops # ne lance que ces checks
+""",
+)
+def cmd_check(
+    severity: Annotated[
+        str,
+        typer.Option(
+            "--severity",
+            help="Filtre les findings par severity min (crit / warn / info / ok).",
+        ),
+    ] = "info",
+    only_checks: Annotated[
+        Optional[str],
+        typer.Option(
+            "--check",
+            help="Comma-separated liste de check_id à lancer (sinon tous).",
+        ),
+    ] = None,
+    fmt: Annotated[
+        OutputFormat,
+        typer.Option("--format", "-f", help="Format de sortie."),
+    ] = OutputFormat.table,
+    quiet_ok: Annotated[
+        bool,
+        typer.Option(
+            "--quiet-ok/--show-ok",
+            help="Si tout OK : juste une ligne récap (quiet, défaut) vs liste complète.",
+        ),
+    ] = True,
+) -> None:
+    cfg = load_config()
+    sev_min_order = {"crit": 0, "warn": 1, "info": 2, "ok": 3}.get(
+        severity.lower(), 2
+    )
+
+    requested = None
+    if only_checks:
+        requested = {c.strip() for c in only_checks.split(",") if c.strip()}
+
+    # Lance les checks (séquentiel mais rapide, on pourrait paralléliser si besoin)
+    from concurrent.futures import ThreadPoolExecutor
+
+    all_findings: list[Finding] = []
+    errors: list[tuple[str, str]] = []
+    checks_run = 0
+
+    with LokiClient(cfg) as loki, PromClient(cfg) as prom:
+        kwargs = {
+            "loki": loki,
+            "prom": prom,
+            "cfg": cfg,
+            "env_filter": env_selector(),
+        }
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            future_to_id = {}
+            for check_id, fn in ALL_CHECKS:
+                if requested and check_id not in requested:
+                    continue
+                checks_run += 1
+                future_to_id[pool.submit(fn, **kwargs)] = check_id
+
+            for future in future_to_id:
+                check_id = future_to_id[future]
+                try:
+                    result = future.result(timeout=15)
+                except Exception as e:
+                    errors.append((check_id, str(e)))
+                    continue
+                if result.error:
+                    errors.append((check_id, result.error))
+                all_findings.extend(result.findings)
+
+    # Filtrage par severity
+    filtered = [f for f in all_findings if f.severity.order <= sev_min_order]
+
+    # Sort : crit d'abord, puis warn, puis info
+    filtered.sort(key=lambda f: (f.severity.order, f.target))
+
+    # ----- Output -----
+    if fmt in (OutputFormat.json, OutputFormat.ndjson):
+        out = {
+            "timestamp": __import__("datetime").datetime.now().isoformat(),
+            "checks_run": checks_run,
+            "findings_total": len(all_findings),
+            "findings_filtered": len(filtered),
+            "errors": [{"check": c, "error": e} for c, e in errors],
+            "findings": [f.to_dict() for f in filtered],
+        }
+        if fmt == OutputFormat.json:
+            import json as _json
+            _json.dump(out, sys.stdout, ensure_ascii=False, indent=2)
+            sys.stdout.write("\n")
+        else:  # ndjson : un finding par ligne
+            for f in filtered:
+                import json as _json
+                _json.dump(f.to_dict(), sys.stdout, ensure_ascii=False)
+                sys.stdout.write("\n")
+    elif fmt == OutputFormat.silent:
+        print(len(filtered))
+    else:
+        _render_check_pretty(
+            filtered, all_findings, errors, checks_run, quiet_ok
+        )
+
+    # Exit code basé sur la sévérité max
+    if any(f.severity == Severity.CRIT for f in filtered):
+        raise typer.Exit(2)
+    if any(f.severity == Severity.WARN for f in filtered):
+        raise typer.Exit(1)
+    raise typer.Exit(0)
+
+
+def _render_check_pretty(
+    filtered: list[Finding],
+    all_findings: list[Finding],
+    errors: list[tuple[str, str]],
+    checks_run: int,
+    quiet_ok: bool,
+) -> None:
+    """Render Rich pour le mode table : sections par sévérité."""
+    from rich.panel import Panel
+    from datetime import datetime
+
+    n_crit = sum(1 for f in filtered if f.severity == Severity.CRIT)
+    n_warn = sum(1 for f in filtered if f.severity == Severity.WARN)
+    n_info = sum(1 for f in filtered if f.severity == Severity.INFO)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    env_label = _ctx.env if _ctx.env != "all" else "prod+dev"
+
+    if not filtered:
+        if quiet_ok:
+            console.print(
+                f"[bold green]✓ {checks_run}/{checks_run} checks OK[/bold green] "
+                f"[dim](env={env_label}, {timestamp})[/dim]"
+            )
+        else:
+            console.print(
+                f"[bold green]✓ {checks_run}/{checks_run} checks OK[/bold green] "
+                f"[dim](env={env_label}, {timestamp})[/dim]"
+            )
+            console.print(f"  (aucun finding à afficher au-dessus de --severity)")
+        if errors:
+            console.print()
+            console.print(f"[yellow]⚠ {len(errors)} checks ont échoué[/yellow]:")
+            for cid, err in errors:
+                console.print(f"  • {cid} : {err[:200]}")
+        return
+
+    # Header
+    header = (
+        f"[bold]obs check[/bold] — {timestamp} — env=[bold]{env_label}[/bold] — "
+        f"[red]{n_crit} CRIT[/red] · [yellow]{n_warn} WARN[/yellow] · "
+        f"[cyan]{n_info} INFO[/cyan] sur {checks_run} checks"
+    )
+    console.print()
+    console.print(header)
+    console.print("─" * 80)
+
+    # Sections par sévérité
+    by_sev = {Severity.CRIT: [], Severity.WARN: [], Severity.INFO: []}
+    for f in filtered:
+        if f.severity in by_sev:
+            by_sev[f.severity].append(f)
+
+    colors = {Severity.CRIT: "red", Severity.WARN: "yellow", Severity.INFO: "cyan"}
+    icons = {Severity.CRIT: "🔴", Severity.WARN: "🟡", Severity.INFO: "🔵"}
+
+    for sev in (Severity.CRIT, Severity.WARN, Severity.INFO):
+        items = by_sev[sev]
+        if not items:
+            continue
+        color = colors[sev]
+        icon = icons[sev]
+        console.print()
+        console.print(f"{icon} [bold {color}]{sev.value} ({len(items)})[/bold {color}]")
+        for f in items:
+            console.print(
+                f"  [{color}]│[/{color}] [bold]{f.target}[/bold]  {f.summary}"
+            )
+            console.print(
+                f"  [{color}]│[/{color}]   [dim]→[/dim] [italic cyan]{f.drilldown}[/italic cyan]"
+            )
+
+    if errors:
+        console.print()
+        console.print(f"[dim]⚠ {len(errors)} checks ont échoué (vérifier la stack):[/dim]")
+        for cid, err in errors[:5]:
+            console.print(f"  [dim]• {cid} : {err[:150]}[/dim]")
 
 
 # ============================================================================
