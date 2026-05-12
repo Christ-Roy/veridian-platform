@@ -76,3 +76,33 @@ npm run devsafe          # idem mais wipe .next d'abord
 npm run build            # build prod (vérifie que ça compile avant push)
 npm run generate:types   # régénère payload-types.ts après changement collection
 ```
+
+## Tests
+
+```bash
+pnpm test:int            # vitest int (specs tests/int/*.int.spec.ts, ~14s)
+pnpm test:e2e            # Playwright e2e (admin, frontend rendu, ~3-5 min)
+pnpm test                # int + e2e
+```
+
+### Écrire un test int (pattern recommandé)
+
+```ts
+// tests/int/<sujet>.int.spec.ts
+import { getPayload, Payload } from 'payload'
+import config from '@/payload.config'
+import { describe, it, beforeAll, expect } from 'vitest'
+
+let payload: Payload
+beforeAll(async () => { payload = await getPayload({ config: await config }) }, 60_000)
+
+it('mon assertion', async () => {
+  await expect(payload.create({ collection: '...', data: { /*...*/ } }))
+    .rejects.toThrow(/message FR attendu/i)
+})
+```
+
+- **Environnement** : `node` par défaut (cf. `vitest.config.mts`). Pour un spec UI futur qui aurait besoin de jsdom, ajouter `// @vitest-environment jsdom` au top du fichier.
+- **DB** : utilise `DATABASE_URL` du `.env` (Postgres local, port 5434 par défaut).
+- **Pattern sabotage** : pour les hooks, prouver l'utilité en commentant le `throw` dans le code source — les "rejette" doivent fail. Restaurer → vert.
+- **Validators FR** réutilisables : `import { validateSiret, validateFrenchPhone, ... } from '@/lib/validators'`.
