@@ -5,6 +5,7 @@ import {
   validateTvaIntra,
   validateFrenchPhone,
   validateFrenchZip,
+  validateHexColor,
 } from '../lib/validators'
 
 export const Tenants: CollectionConfig = {
@@ -107,6 +108,56 @@ export const Tenants: CollectionConfig = {
         { name: 'rcs', type: 'text', label: 'Ville RCS', admin: { description: 'Ex : Paris, Lyon' } },
         { name: 'directorName', type: 'text', label: 'Nom du dirigeant', admin: { description: 'Ex : Robert Brunon' } },
         { name: 'foundedYear', type: 'number', label: 'Année de création', min: 1900, max: 2100 },
+      ],
+    },
+    {
+      name: 'branding',
+      type: 'group',
+      label: 'Identité visuelle',
+      admin: {
+        description: "Couleurs et typographie du site. Modifier puis publier une page pour déclencher le rebuild Cloudflare Pages.",
+      },
+      fields: [
+        {
+          name: 'primaryColor',
+          type: 'text',
+          label: 'Couleur principale (hex)',
+          validate: validateHexColor,
+          admin: { description: 'Ex : #0a2540 (bleu marine). Utilisée sur boutons primaires, liens, focus rings.' },
+        },
+        {
+          name: 'accentColor',
+          type: 'text',
+          label: 'Couleur d\'accent (hex)',
+          validate: validateHexColor,
+          admin: { description: 'Ex : #ffd23f (jaune). Utilisée pour les highlights, badges, hover states.' },
+        },
+        {
+          name: 'borderRadius',
+          type: 'select',
+          label: 'Style des coins',
+          options: [
+            { label: 'Brutaliste (0px)', value: 'none' },
+            { label: 'Doux (4px)', value: 'sm' },
+            { label: 'Standard (8px)', value: 'md' },
+            { label: 'Arrondi (16px)', value: 'lg' },
+            { label: 'Pilule (9999px)', value: 'pill' },
+          ],
+          defaultValue: 'md',
+        },
+        {
+          name: 'fontFamily',
+          type: 'select',
+          label: 'Typographie',
+          options: [
+            { label: 'Inter (moderne, neutre)', value: 'inter' },
+            { label: 'Playfair Display (chic, sérieux)', value: 'playfair' },
+            { label: 'Cormorant (élégant, classique)', value: 'cormorant' },
+            { label: 'Lora (lisible, magazine)', value: 'lora' },
+            { label: 'System (police OS, défaut)', value: 'system' },
+          ],
+          defaultValue: 'inter',
+        },
       ],
     },
     {

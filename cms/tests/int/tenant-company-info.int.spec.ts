@@ -132,4 +132,38 @@ describe('Tenants — CompanyInfo + Contact (Sprint 3)', () => {
     // Cleanup tenant temporaire
     await payload.delete({ collection: 'tenants', id: tenant.id, overrideAccess: true })
   }, 30_000)
+
+  it('accepte un tenant avec branding valide (hex + select)', async () => {
+    const tenant = await payload.create({
+      collection: 'tenants',
+      data: {
+        slug: `${SUITE_TENANT_SLUG}-branding-ok`,
+        name: 'Branding OK',
+        branding: {
+          primaryColor: '#0a2540',
+          accentColor: '#ffd23f',
+          borderRadius: 'lg',
+          fontFamily: 'playfair',
+        },
+      },
+      overrideAccess: true,
+    })
+    expect(tenant.branding?.primaryColor).toBe('#0a2540')
+    expect(tenant.branding?.borderRadius).toBe('lg')
+    await payload.delete({ collection: 'tenants', id: tenant.id, overrideAccess: true })
+  }, 30_000)
+
+  it('rejette une couleur hex invalide ("blue")', async () => {
+    await expect(
+      payload.create({
+        collection: 'tenants',
+        data: {
+          slug: `${SUITE_TENANT_SLUG}-branding-bad`,
+          name: 'Branding Bad',
+          branding: { primaryColor: 'blue' },
+        },
+        overrideAccess: true,
+      }),
+    ).rejects.toThrow(/primary|couleur/i)
+  }, 30_000)
 })

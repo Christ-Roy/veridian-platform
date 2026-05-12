@@ -243,6 +243,21 @@ export interface Tenant {
     foundedYear?: number | null;
   };
   /**
+   * Couleurs et typographie du site. Modifier puis publier une page pour déclencher le rebuild Cloudflare Pages.
+   */
+  branding?: {
+    /**
+     * Ex : #0a2540 (bleu marine). Utilisée sur boutons primaires, liens, focus rings.
+     */
+    primaryColor?: string | null;
+    /**
+     * Ex : #ffd23f (jaune). Utilisée pour les highlights, badges, hover states.
+     */
+    accentColor?: string | null;
+    borderRadius?: ('none' | 'sm' | 'md' | 'lg' | 'pill') | null;
+    fontFamily?: ('inter' | 'playfair' | 'cormorant' | 'lora' | 'system') | null;
+  };
+  /**
    * Coordonnées affichées sur le site (header, footer, page contact).
    */
   contact?: {
@@ -1341,6 +1356,14 @@ export interface TenantsSelect<T extends boolean = true> {
         rcs?: T;
         directorName?: T;
         foundedYear?: T;
+      };
+  branding?:
+    | T
+    | {
+        primaryColor?: T;
+        accentColor?: T;
+        borderRadius?: T;
+        fontFamily?: T;
       };
   contact?:
     | T
