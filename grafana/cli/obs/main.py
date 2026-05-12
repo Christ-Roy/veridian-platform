@@ -1086,52 +1086,39 @@ def cmd_tail(
 # ============================================================================
 
 
-@app.command(
-    "check",
-    help="""[bold]Commande mère agent-first[/bold] : scan toute la stack et résume les
-sujets qui méritent attention, classés par sévérité, avec [italic]la commande
-exacte[/italic] de drill-down pour chaque finding.
+# ----- check_app : sous-commandes hiérarchisées (obs check <topic>) -----
 
-Lance ~12 heuristiques en parallèle (CPU/RAM/disk, error rate, loops, pics,
-quota Grafana, auth failures, etc.) avec un timeout court.
+check_app = typer.Typer(
+    name="check",
+    help="""[bold]Quick wins agent-first[/bold] — scans rapides classés par topic.
 
-Exit code : 0 si tout OK, 1 si WARN, 2 si CRIT — utile pour cron alerting.
+Chaque check liste les sujets chauds avec [italic]la commande exacte de drill-down[/italic].
 
-[bold]Exemples :[/bold]
+Topics :
+- [bold]obs check[/bold] ou [bold]obs check all[/bold] : scan complet (12+ heuristiques)
+- [bold]obs check infra[/bold] : CPU / RAM / Disk des hosts
+- [bold]obs check apps[/bold] : error rate / loops / pics par container
+- [bold]obs check security[/bold] : ports exposés / SSH brute-force / Docker CVE
+- [bold]obs check quota[/bold] : usage Grafana Cloud vs free tier
+- [bold]obs check traefik[/bold] : 5xx rate, latence Traefik
 
-  obs check                          # scan complet, table colorée
-  obs check --format json            # pour parser dans un agent
-  obs check --severity warn          # n'affiche que warn+crit
-  obs check --check error_rate,loops # ne lance que ces checks
+Format / filtres communs : --format json, --severity warn, --env dev.
 """,
+    invoke_without_command=True,
+    no_args_is_help=False,
 )
-def cmd_check(
-    severity: Annotated[
-        str,
-        typer.Option(
-            "--severity",
-            help="Filtre les findings par severity min (crit / warn / info / ok).",
-        ),
-    ] = "info",
-    only_checks: Annotated[
-        Optional[str],
-        typer.Option(
-            "--check",
-            help="Comma-separated liste de check_id à lancer (sinon tous).",
-        ),
-    ] = None,
-    fmt: Annotated[
-        OutputFormat,
-        typer.Option("--format", "-f", help="Format de sortie."),
-    ] = OutputFormat.table,
-    quiet_ok: Annotated[
-        bool,
-        typer.Option(
-            "--quiet-ok/--show-ok",
-            help="Si tout OK : juste une ligne récap (quiet, défaut) vs liste complète.",
-        ),
-    ] = True,
+app.add_typer(check_app)
+
+
+def _run_check_suite(
+    checks_to_run: list[tuple[str, callable]],
+    severity: str,
+    only_checks: str | None,
+    fmt: OutputFormat,
+    quiet_ok: bool,
+    label: str = "obs check",
 ) -> None:
+    """Lance une suite de checks et render le résultat. Exit code 0/1/2."""
     cfg = load_config()
     sev_min_order = {"crit": 0, "warn": 1, "info": 2, "ok": 3}.get(
         severity.lower(), 2
@@ -1141,7 +1128,6 @@ def cmd_check(
     if only_checks:
         requested = {c.strip() for c in only_checks.split(",") if c.strip()}
 
-    # Lance les checks (séquentiel mais rapide, on pourrait paralléliser si besoin)
     from concurrent.futures import ThreadPoolExecutor
 
     all_findings: list[Finding] = []
@@ -1158,7 +1144,7 @@ def cmd_check(
 
         with ThreadPoolExecutor(max_workers=4) as pool:
             future_to_id = {}
-            for check_id, fn in ALL_CHECKS:
+            for check_id, fn in checks_to_run:
                 if requested and check_id not in requested:
                     continue
                 checks_run += 1
@@ -1167,7 +1153,7 @@ def cmd_check(
             for future in future_to_id:
                 check_id = future_to_id[future]
                 try:
-                    result = future.result(timeout=15)
+                    result = future.result(timeout=30)
                 except Exception as e:
                     errors.append((check_id, str(e)))
                     continue
@@ -1175,16 +1161,13 @@ def cmd_check(
                     errors.append((check_id, result.error))
                 all_findings.extend(result.findings)
 
-    # Filtrage par severity
     filtered = [f for f in all_findings if f.severity.order <= sev_min_order]
-
-    # Sort : crit d'abord, puis warn, puis info
     filtered.sort(key=lambda f: (f.severity.order, f.target))
 
-    # ----- Output -----
     if fmt in (OutputFormat.json, OutputFormat.ndjson):
         out = {
             "timestamp": __import__("datetime").datetime.now().isoformat(),
+            "label": label,
             "checks_run": checks_run,
             "findings_total": len(all_findings),
             "findings_filtered": len(filtered),
@@ -1195,7 +1178,7 @@ def cmd_check(
             import json as _json
             _json.dump(out, sys.stdout, ensure_ascii=False, indent=2)
             sys.stdout.write("\n")
-        else:  # ndjson : un finding par ligne
+        else:
             for f in filtered:
                 import json as _json
                 _json.dump(f.to_dict(), sys.stdout, ensure_ascii=False)
@@ -1203,16 +1186,98 @@ def cmd_check(
     elif fmt == OutputFormat.silent:
         print(len(filtered))
     else:
-        _render_check_pretty(
-            filtered, all_findings, errors, checks_run, quiet_ok
-        )
+        _render_check_pretty(filtered, all_findings, errors, checks_run, quiet_ok, label)
 
-    # Exit code basé sur la sévérité max
     if any(f.severity == Severity.CRIT for f in filtered):
         raise typer.Exit(2)
     if any(f.severity == Severity.WARN for f in filtered):
         raise typer.Exit(1)
     raise typer.Exit(0)
+
+
+@check_app.callback(invoke_without_command=True)
+def _check_callback(ctx: typer.Context) -> None:
+    """Si `obs check` sans sous-commande → équivalent à `obs check all`."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(cmd_check_all)
+
+
+@check_app.command("all", help="Scan complet (tous les checks, ~14 heuristiques).")
+def cmd_check_all(
+    severity: Annotated[str, typer.Option("--severity", help="Min severity affichée.")] = "info",
+    only_checks: Annotated[Optional[str], typer.Option("--check", help="Liste check_id (CSV).")] = None,
+    fmt: Annotated[OutputFormat, typer.Option("--format", "-f")] = OutputFormat.table,
+    quiet_ok: Annotated[bool, typer.Option("--quiet-ok/--show-ok")] = True,
+) -> None:
+    from .checks_security import SECURITY_CHECKS
+    all_suite = list(ALL_CHECKS) + list(SECURITY_CHECKS)
+    _run_check_suite(all_suite, severity, only_checks, fmt, quiet_ok, label="obs check all")
+
+
+@check_app.command("infra", help="État machines : CPU / RAM / Disk + santé Alloy push.")
+def cmd_check_infra(
+    severity: Annotated[str, typer.Option("--severity")] = "info",
+    fmt: Annotated[OutputFormat, typer.Option("--format", "-f")] = OutputFormat.table,
+    quiet_ok: Annotated[bool, typer.Option("--quiet-ok/--show-ok")] = True,
+) -> None:
+    infra_checks = [
+        (cid, fn) for cid, fn in ALL_CHECKS
+        if cid in ("host_cpu", "host_ram", "host_disk", "alloy_push_fail")
+    ]
+    _run_check_suite(infra_checks, severity, None, fmt, quiet_ok, label="obs check infra")
+
+
+@check_app.command("apps", help="État applicatif : error rate, loops, pics, containers muets.")
+def cmd_check_apps(
+    severity: Annotated[str, typer.Option("--severity")] = "info",
+    fmt: Annotated[OutputFormat, typer.Option("--format", "-f")] = OutputFormat.table,
+    quiet_ok: Annotated[bool, typer.Option("--quiet-ok/--show-ok")] = True,
+) -> None:
+    apps_checks = [
+        (cid, fn) for cid, fn in ALL_CHECKS
+        if cid in ("error_rate", "loops", "volume_spike", "silent_containers")
+    ]
+    _run_check_suite(apps_checks, severity, None, fmt, quiet_ok, label="obs check apps")
+
+
+@check_app.command("security", help="Audit cybersec : ports exposés, brute-force SSH, Docker CVE.")
+def cmd_check_security(
+    severity: Annotated[str, typer.Option("--severity")] = "info",
+    fmt: Annotated[OutputFormat, typer.Option("--format", "-f")] = OutputFormat.table,
+    quiet_ok: Annotated[bool, typer.Option("--quiet-ok/--show-ok")] = True,
+    fresh: Annotated[bool, typer.Option("--fresh", help="Bypass cache 1h.")] = False,
+) -> None:
+    import os as _os
+    if fresh:
+        _os.environ["OBS_FRESH"] = "1"
+    from .checks_security import SECURITY_CHECKS
+    _run_check_suite(list(SECURITY_CHECKS), severity, None, fmt, quiet_ok, label="obs check security")
+
+
+@check_app.command("quota", help="Usage Grafana Cloud vs limites free tier + drops Alloy.")
+def cmd_check_quota(
+    severity: Annotated[str, typer.Option("--severity")] = "info",
+    fmt: Annotated[OutputFormat, typer.Option("--format", "-f")] = OutputFormat.table,
+    quiet_ok: Annotated[bool, typer.Option("--quiet-ok/--show-ok")] = True,
+) -> None:
+    quota_checks = [
+        (cid, fn) for cid, fn in ALL_CHECKS
+        if cid in ("quota", "drops")
+    ]
+    _run_check_suite(quota_checks, severity, None, fmt, quiet_ok, label="obs check quota")
+
+
+@check_app.command("traefik", help="État Traefik : 5xx, auth failures, latence.")
+def cmd_check_traefik(
+    severity: Annotated[str, typer.Option("--severity")] = "info",
+    fmt: Annotated[OutputFormat, typer.Option("--format", "-f")] = OutputFormat.table,
+    quiet_ok: Annotated[bool, typer.Option("--quiet-ok/--show-ok")] = True,
+) -> None:
+    traefik_checks = [
+        (cid, fn) for cid, fn in ALL_CHECKS
+        if cid in ("traefik_5xx", "auth_failures")
+    ]
+    _run_check_suite(traefik_checks, severity, None, fmt, quiet_ok, label="obs check traefik")
 
 
 def _render_check_pretty(
@@ -1221,9 +1286,9 @@ def _render_check_pretty(
     errors: list[tuple[str, str]],
     checks_run: int,
     quiet_ok: bool,
+    label: str = "obs check",
 ) -> None:
     """Render Rich pour le mode table : sections par sévérité."""
-    from rich.panel import Panel
     from datetime import datetime
 
     n_crit = sum(1 for f in filtered if f.severity == Severity.CRIT)
@@ -1254,7 +1319,7 @@ def _render_check_pretty(
 
     # Header
     header = (
-        f"[bold]obs check[/bold] — {timestamp} — env=[bold]{env_label}[/bold] — "
+        f"[bold]{label}[/bold] — {timestamp} — env=[bold]{env_label}[/bold] — "
         f"[red]{n_crit} CRIT[/red] · [yellow]{n_warn} WARN[/yellow] · "
         f"[cyan]{n_info} INFO[/cyan] sur {checks_run} checks"
     )
