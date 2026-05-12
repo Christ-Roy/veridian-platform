@@ -65,6 +65,52 @@ seed-from-code provisionne le CMS avec exactement ces blocs.
 
 ## Backlog priorise
 
+### 🔵 Session 2026-05-12 — Tests int + Media public + UploadWithPreview (PR #38/#40/#41/#42)
+
+- [x] **PR #38** `int` job vitest + Postgres dans CI, 5 tests Products guard rails
+  (sabotage prouvé), refactor `rejectEmptyName`, bump `next 16.2.6` (CVE high
+  GHSA-8h8q-6873-q5fj DoS Server Components)
+- [x] **PR #40** `Media.access.read = () => true` — débloque tous les sites CF
+  Pages qui servaient des images broken. Create/update/delete restent auth.
+- [x] **PR #41** `UploadWithPreview` composant + câblage 9 champs upload
+- [x] **PR #42** Fix critique : `useField` v3 retourne l'ID, pas le doc populé.
+  Fetch `/api/<rel>/<id>?depth=0` ajouté.
+
+**Validation visuelle prod** : link media 255 → product 27, reload admin,
+thumbnail 150x100 affichée. OK.
+
+**Bugs identifiés à traiter** (priorité décroissante) :
+
+1. **`cms.dev.veridian.site` cassé** — DB vide (no relations). Cause :
+   `PAYLOAD_DB_PUSH=true` manquant dans le compose dev (le fix pnpm@10.33.0 a
+   été appliqué manuellement sur dev-pub). Ce dev URL est obligatoire pour
+   éviter de pousser des bugs en prod (cf. cas PR #41). Fix : PR `fix(cms):
+   add PAYLOAD_DB_PUSH=true to dev compose`.
+
+2. **Drift compose live ≠ repo** — `/home/ubuntu/veridian-cms-prod/docker-compose.prod.yml`
+   sur le VPS n'est pas dans le repo. Le CI deploy fait `git pull` mais
+   n'écrase pas ce compose. Conséquences : modifs des composes du repo
+   restent décoratives. À réconcilier proprement (sync repo → live ou
+   l'inverse).
+
+3. **Branch protection main absente** — `gh api .../branches/main/protection`
+   → 404. `gh pr merge --auto` peut merger avant CI. À sécuriser côté GitHub
+   settings.
+
+4. **Tests e2e n'a aucun test "linker un media à un upload field"** — c'est
+   pourquoi PR #41 cassée a passé tout vert. À combler par l'agent CI
+   bouclage : créer page → ajouter bloc Hero → lier média → vérifier
+   thumbnail visible dans admin.
+
+5. **Lint cassé** (`pnpm run lint` crash sur eslint-config-next schema error).
+   Pas dans la CI, donc silent. À fixer.
+
+6. **AVSE n'utilise aucun média Payload** — confirmé via API (fetch
+   `/api/pages?tenant=1&depth=2` → aucun bloc avec `image` populé). Tout
+   passe par `imageFallbackUrl`. Pour que les uploads CMS de Didier
+   apparaissent sur le site, audit AVSE côté `site/src/components/` :
+   ordre `block.image.url ?? block.imageFallbackUrl ?? placeholder`.
+
 ### 🔵 Sprint 1 quick wins (2026-05-11) — PR #36
 
 Audit basé sur `~/Bureau/AVSE-CMS-FEATURES-TODO.md` Sprint 1 débloquant.
