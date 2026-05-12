@@ -22,10 +22,17 @@ export default defineConfig({
     environment: 'node',
     setupFiles: ['./vitest.setup.ts'],
     include: ['tests/int/**/*.int.spec.ts'],
-    // Payload schema push runs on getPayload() — two concurrent pushes against
-    // the same Postgres race on pg_type. Force a single fork so int specs
-    // share one Payload instance / one push. (Vitest 4 top-level pool fields.)
+    // Payload schema push runs on getPayload() — deux pushs séparés sur le
+    // même Postgres collisionnent (relation "users_roles" already exists
+    // observé en CI 2026-05-12). Pour partager une seule instance Payload
+    // entre tous les fichiers .int.spec.ts :
+    //  - `pool: 'forks'` : utilise des processus enfants (besoin pour pg + payload natif)
+    //  - `singleFork: true` : un seul fork pour tous les specs (séquentiel)
+    //  - `isolate: false` : ne reset PAS le module graph entre les specs,
+    //    donc `getPayload({ config })` retourne le même singleton et
+    //    pushDevSchema ne s'exécute qu'au premier appel.
     pool: 'forks',
+    isolate: false,
     forks: {
       singleFork: true,
     },
