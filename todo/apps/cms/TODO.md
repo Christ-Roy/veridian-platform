@@ -65,7 +65,45 @@ seed-from-code provisionne le CMS avec exactement ces blocs.
 
 ## Backlog priorise
 
-### 🔵 Session 2026-05-12 — Tests int + Media public + UploadWithPreview (PR #38/#40/#41/#42)
+### 🟢 Session 2026-05-12 (PM) — Sprint 1 Didier-ready (PR #TBD `feat/cms-sprint1-didier-ready`)
+
+Branche unique groupée. Toutes les modifs CMS pour livrer le client AVSE
+proprement (cf. `cms/CMS-DIDIER-READY-TODO.md`).
+
+- [x] **UploadWithPreview UX** (section 1 TODO Didier)
+  - Bouton "🔄 Remplacer cette image" 150px sous la vignette (clear value)
+  - Reset `fetched=null` immédiat au changement d'id (kill stale preview)
+  - Overlay drag&drop + upload direct via POST /api/<rel>
+  - Hint "💡 glissez-déposez ici" quand champ vide
+  - Validé visuellement sur cms.dev.veridian.site
+- [x] **Bloquer suppressions accidentelles** (section 3 TODO Didier)
+  - Header.beforeDelete : super-admin only (était : sans guard)
+  - Footer.beforeDelete : idem
+  - Media.beforeDelete : refuse si referenced par Pages(blocks.image/items.image/cards.image/items.avatar), Products.image, Header.logo. Bypass super-admin avec warn log. APIError 409 + breakdown FR.
+- [x] **Validators FR réutilisables** (section 7 TODO Didier)
+  - `cms/src/lib/validators.ts` : SIRET, SIREN, TVA intra, téléphone FR,
+    code postal FR, hex color, https URL
+  - Hero.title maxLength 120, Hero.subtitle maxLength 300, Hero.eyebrow maxLength 80
+  - Utilisables pour Sprint 3 (CompanyInfo / Branding tenant)
+- [x] **MediaGrid beforeListTable** (section 2.1 TODO Didier — Option B pragmatique)
+  - Vignettes en bande au-dessus de la table standard
+  - Apparaît dans /admin/collections/media + drawer "Choisir parmi les existants"
+  - click vignette → navigate (list) / onSelect (drawer)
+  - Table native intacte en dessous (recherche, filtres, bulk select, pagination)
+  - Limites : pas de checkbox sur vignette + serializer where→bracket minimal
+    (différé Sprint 2 si besoin full grid view)
+- [x] **Tests vitest int + env Node par défaut**
+  - vitest.config.mts : `environment: 'node'` par défaut (jsdom cassait
+    `file-type` v21 sur Buffer/Uint8Array)
+  - 45 tests `validators.int.spec.ts` (purs, sans Payload)
+  - 4 tests `media-delete-guard.int.spec.ts` (vrai pipeline upload, pas SQL direct)
+  - 54 tests int total en 13.6s, tous green
+- [x] **Cleanup produit fantôme prod (id=28)** : déjà supprimé en session
+  précédente, vérifié via API (404).
+- [ ] **Patch alts media génériques** (section 2.2 TODO Didier) — différé
+  Sprint 2 (253 docs à patcher, script séparé).
+
+### 🔵 Session 2026-05-12 (AM) — Tests int + Media public + UploadWithPreview (PR #38/#40/#41/#42)
 
 - [x] **PR #38** `int` job vitest + Postgres dans CI, 5 tests Products guard rails
   (sabotage prouvé), refactor `rejectEmptyName`, bump `next 16.2.6` (CVE high
