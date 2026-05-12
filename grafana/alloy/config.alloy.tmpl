@@ -244,6 +244,34 @@ prometheus.scrape "alloy" {
   job_name        = "alloy"
 }
 
+// Scrape Traefik metrics si exposé sur le host (port 8082).
+// Si Traefik n'a pas de metrics entrypoint → silently fails côté scrape.
+prometheus.scrape "traefik" {
+  targets = [
+    { __address__ = "127.0.0.1:8082", job = "traefik" },
+  ]
+  forward_to      = [prometheus.relabel.traefik_metrics.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.relabel "traefik_metrics" {
+  // Whitelist : on garde uniquement les metrics utiles, le reste explose les séries
+  rule {
+    source_labels = ["__name__"]
+    regex         = "traefik_(router|service|entrypoint)_(requests_total|request_duration_seconds_count|request_duration_seconds_sum|open_connections|requests_tls_total)"
+    action        = "keep"
+  }
+  rule {
+    target_label = "host"
+    replacement  = "{{HOSTNAME}}"
+  }
+  rule {
+    target_label = "env"
+    replacement  = "{{ENV}}"
+  }
+  forward_to = [prometheus.remote_write.gcloud.receiver]
+}
+
 prometheus.remote_write "gcloud" {
   endpoint {
     url = sys.env("GCLOUD_MIMIR_URL")
@@ -285,7 +313,9 @@ otelcol.exporter.otlphttp "gcloud" {
   }
 }
 
+// L'OTLP gateway utilise le stack ID comme username (différent des tenants
+// natifs Loki/Mimir/Tempo). Vérifié 2026-05-12 par push test HTTP 200.
 otelcol.auth.basic "gcloud" {
-  username = sys.env("GCLOUD_TEMPO_USER")
+  username = sys.env("GCLOUD_OTLP_USER")
   password = sys.env("GCLOUD_TOKEN")
 }
