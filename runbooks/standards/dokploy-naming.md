@@ -41,12 +41,49 @@ services:
 Le container final s'appellera `compose-xxx-yyy-hub-prod-1` au lieu de
 l'illisible `compose-parse-digital-bandwidth-xfd9mu-web-dashboard-1`.
 
-### App name (slug interne Dokploy)
+### App name (slug interne Dokploy) — IMMUTABLE après création
 
-Dokploy génère automatiquement un slug aléatoire pour le préfixe de container
-(`compose-parse-digital-bandwidth-xfd9mu`). **On accepte ce préfixe**, ce n'est
-pas modifiable sans patcher Dokploy. Le suffixe (nom du service) est ce qui
-compte.
+Dokploy permet de saisir le `appName` **à la création** d'une stack (champ
+visible dans le formulaire Add Compose, défaut `${slug-projet}-`). Une fois
+créée, **`appName` n'est plus modifiable** :
+
+- ❌ Pas d'endpoint UI (formulaire Update n'a que `name` + `description`)
+- ❌ Pas d'API (le champ existe dans `compose.update` mais est ignoré côté
+  Dokploy server)
+- ❌ Override `command` (Advanced > Run Command avec `docker compose -p X`)
+  **NE marche PAS** : le redeploy continue d'utiliser le slug par défaut.
+  Testé en prod 2026-05-12, confirmé via code source `createCommand` dans
+  `packages/server/src/utils/builders/compose.ts` — le champ `command` est
+  stocké mais d'autres parties du deploy (env `APP_NAME`, networks, mounts)
+  utilisent toujours `appName` directement.
+- ❌ Issue Dokploy [#3671](https://github.com/Dokploy/dokploy/issues/3671)
+  est OPEN — pas encore implémenté
+
+**Conséquence** : le préfixe `compose-xxx-yyy-` est **gravé pour la vie de la
+stack**. La seule façon d'avoir un nom propre type `linkedin-prod-<service>-1`
+c'est de **recréer la stack** avec un `appName` propre dès la création.
+
+**Workflow recommandé** :
+
+À la prochaine bascule blue-green de chaque app, créer la stack `<app>-green`
+avec un **`appName` saisi manuellement** :
+
+```
+# Dans le formulaire Add Compose de Dokploy :
+Name        : hub-green
+App Name    : hub-green                ← saisir manuellement, écraser le défaut
+Description : ...
+```
+
+Le container final s'appellera `hub-green-<service>-1` (pas
+`compose-random-slug-xyz-<service>-1`).
+
+À la bascule, l'ancienne stack `hub-prod` (avec slug pourri) est supprimée,
+la `hub-green` est renommée en `hub-prod` (via API `compose.update` champ
+`name`). Au prochain blue-green, on recrée à nouveau avec nom propre, etc.
+
+**Au fil des bascules naturelles, l'infra devient propre**, sans downtime
+supplémentaire.
 
 ## Convention pour blue-green
 
