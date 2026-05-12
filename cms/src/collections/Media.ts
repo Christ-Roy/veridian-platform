@@ -123,6 +123,13 @@ export const Media: CollectionConfig = {
     useAsTitle: 'alt',
     description: 'Toutes vos images du site. Téléversez, recadrez, réutilisez.',
     group: 'Mon site',
+    // Vignettes en grille au-dessus de la table standard (list view +
+    // drawer "Choisir parmi les existants"). La table native reste
+    // en dessous avec recherche/filtres/pagination/bulk select intacts.
+    // cf. cms/src/components/MediaGrid/index.tsx pour le rationale.
+    components: {
+      beforeListTable: ['/components/MediaGrid/index.tsx#MediaGrid'],
+    },
   },
   access: {
     // Public : les sites clients servent les médias via cms.veridian.site/api/media/file/*
