@@ -77,7 +77,12 @@ jobs:
     env:
       DATABASE_URL: postgresql://cms:testpass@localhost:5432/veridian_cms_test
       PAYLOAD_SECRET: ci_secret_not_for_prod_64chars_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      PAYLOAD_DB_PUSH: "true"
+      # Push DESACTIVE pendant les tests : on applique les migrations dans un
+      # step dédié AVANT vitest, comme ça la DB a déjà tout son schema quand
+      # getPayload() boot. Évite la race condition pushDevSchema concurrent
+      # entre les 3 spec files (CREATE TYPE enum_users_roles already exists,
+      # SQLSTATE 42710, intermittent).
+      PAYLOAD_DB_PUSH: "false"
       NODE_ENV: test
       SERVER_URL: http://localhost:3000
     steps:
@@ -91,6 +96,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: cms/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Apply Payload migrations (schéma prêt avant getPayload)
+        run: pnpm exec payload migrate
       - name: Run integration tests
         run: pnpm run test:int
 
