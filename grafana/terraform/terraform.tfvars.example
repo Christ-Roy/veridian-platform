@@ -1,0 +1,5 @@
+# Copy to terraform.tfvars (gitignored) and fill from ~/credentials/.all-creds.env
+# Or use `./scripts/tofu-wrap.sh plan` which reads creds directly and skips this file.
+
+grafana_stack_url      = "https://brunon5robert.grafana.net"
+grafana_stack_sa_token = "glsa_xxxxxxxxxxxxxxxx_yyyyyyyy"

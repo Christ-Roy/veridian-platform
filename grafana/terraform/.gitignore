@@ -1,0 +1,19 @@
+# OpenTofu state — local backend (committé dans git pour pouvoir reconstruire,
+# mais on ignore les *.backup et le lock).
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+# Secrets : tfvars rempli avec les vrais tokens, ne JAMAIS commit
+terraform.tfvars
+*.auto.tfvars
+
+# Plan files (toujours générés à la volée)
+*.tfplan
+
+# Provider cache (lourd, régénéré par `tofu init`)
+.terraform/
+
+# NOTE: terraform.tfstate EST commité. Il ne contient pas le SA token (passé en
+# input provider via TF_VAR_*) — juste les IDs des ressources créées (folders,
+# dashboards, etc.). Permet de reconstruire sur une autre machine sans réimport.
