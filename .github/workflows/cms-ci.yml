@@ -54,6 +54,15 @@ jobs:
       omit-dev: true
 
   int:
+    # ============================================================================
+    # Tests int CMS — pattern aligné dev local.
+    # Reproduire en local : `pnpm test:int:fresh` (wipe + recrée Postgres, applique
+    # migrations Payload, lance vitest avec exactement les mêmes vars env).
+    # Architecture validée 2026-05-12 par ci-architect (option A : migrate avant
+    # vitest, PAYLOAD_DB_PUSH=false). Évite la race pushDevSchema concurrent.
+    # Specs : tests/int/*.int.spec.ts (validators, products-guard, media-delete,
+    # patch-media-alts). Vitest singleFork + fileParallelism:false séquentiel.
+    # ============================================================================
     name: Integration tests (vitest + Postgres)
     needs: static
     runs-on: ubuntu-latest
