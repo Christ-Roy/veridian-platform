@@ -63,17 +63,17 @@ jobs:
         working-directory: sites/${{ matrix.site }}
         run: npm ci || npm install
 
-      # Audit CVE non-bloquant pour visibility. Sites en output:'export'
+      # Audit CVE BLOQUANT (high+critical). Sites en output:'export'
       # → pas de runtime serveur, donc CVE Next.js server-side
       # inapplicables. Mais bundles statiques peuvent embarquer XSS
-      # postcss / source code exposure. À rendre bloquant après task #17.
-      - name: CVE audit (visibility, non-bloquant)
+      # postcss / source code exposure → on bloque quand même.
+      # Passage de non-bloquant → bloquant le 2026-05-12 après
+      # découverte du malware @tanstack/history (GHSA-rmmr-r34h-pfm5).
+      - name: CVE audit (high+critical bloquant)
         working-directory: sites/${{ matrix.site }}
-        continue-on-error: true
         run: |
           echo "::group::npm audit --omit=dev --audit-level=high"
-          npm audit --omit=dev --audit-level=high \
-            || echo "::warning::CVE high détectée sur sites/${{ matrix.site }} — voir task #17"
+          npm audit --omit=dev --audit-level=high
           echo "::endgroup::"
 
       - name: Build
