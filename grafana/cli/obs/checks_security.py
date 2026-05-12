@@ -128,24 +128,56 @@ def _scan_host_ports(ssh_alias: str) -> dict:
     return {"tcp": tcp_ports, "udp": udp_ports}
 
 
-def _probe_external(public_ip: str, port: int, proto: str = "tcp") -> bool:
+def _probe_external(public_ip: str, port: int, proto: str = "tcp", timeout: float = 0.8) -> bool:
     """Test rapide depuis localhost : le port est-il vraiment OPEN sur Internet ?"""
     import socket
     try:
         if proto == "tcp":
-            s = socket.create_connection((public_ip, port), timeout=2)
+            s = socket.create_connection((public_ip, port), timeout=timeout)
             s.close()
             return True
         else:
-            # UDP : on ne peut pas tester sans paquet d'application, skip
             return False
     except (socket.timeout, ConnectionRefusedError, OSError):
         return False
 
 
+def _probe_external_batch(public_ip: str, ports: list[int]) -> dict[int, bool]:
+    """Test en parallèle plusieurs ports d'un host. Cache 5 min PAR IP.
+
+    On parallélise avec ThreadPoolExecutor — 16 workers, timeout 0.8s/port,
+    pire cas total ~1s.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from . import cache as _cache
+
+    cache_key = f"probe_{public_ip.replace('.', '_')}"
+    cached_val = _cache.get(cache_key, max_age_seconds=300)
+    if cached_val is not None:
+        # cached_val keys sont string (JSON), recast en int
+        return {int(k): v for k, v in cached_val.items()}
+
+    results: dict[int, bool] = {}
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        futures = {pool.submit(_probe_external, public_ip, p, "tcp"): p for p in ports}
+        for fut in futures:
+            port = futures[fut]
+            try:
+                results[port] = fut.result(timeout=2)
+            except Exception:
+                results[port] = False
+
+    _cache.set(cache_key, results)
+    return results
+
+
 def check_security_ports(env_filter: str | None = None, **_) -> CheckResult:
     """Audit les ports LISTEN exposés sur Internet (filtre dynamiquement les
-    ports qui répondent depuis localhost = bloqués par iptables)."""
+    ports qui répondent depuis localhost = bloqués par iptables).
+
+    Optimisé : SSH scan caché 10 min, probes externes cachées 5 min,
+    probes lancées en parallèle (16 workers).
+    """
     findings = []
     hosts = _hosts_to_audit(env_filter)
 
@@ -166,17 +198,24 @@ def check_security_ports(env_filter: str | None = None, **_) -> CheckResult:
             ))
             continue
 
-        for port, process in scan.get("tcp", {}).items():
-            if port in PORTS_PUBLIC_OK:
-                continue  # accepté (SSH 22, HTTP 80, HTTPS 443)
-            # Test réel depuis Internet (filtre iptables)
-            really_open = _probe_external(public_ip, port, "tcp")
-            if not really_open:
+        # Ports à probe externalement (= tous sauf whitelist)
+        candidate_ports = [
+            p for p in scan.get("tcp", {}).keys()
+            if p not in PORTS_PUBLIC_OK
+        ]
+        if not candidate_ports:
+            continue
+
+        # Probe en batch parallèle (cache 5 min par IP)
+        probe_results = _probe_external_batch(public_ip, candidate_ports)
+
+        tcp_ports = scan.get("tcp", {})
+        for port in candidate_ports:
+            if not probe_results.get(port, False):
                 continue  # iptables bloque, pas un risque
+            process = tcp_ports.get(port, "?")
             label = PORTS_PRIVATE_EXPECTED.get(port, "service inconnu")
             sev = Severity.WARN
-            # Ports critiques qu'on avait explicitement fermés : si on les voit
-            # ouverts, c'est qu'iptables est cassé → CRIT
             if port in (2377, 7946, 4317, 4318, 4789):
                 sev = Severity.CRIT
             findings.append(Finding(
