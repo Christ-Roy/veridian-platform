@@ -68,15 +68,31 @@ echo "==> [1/6] Récupère hostname distant..."
 REMOTE_HOSTNAME=$(ssh -o BatchMode=yes "$SSH_TARGET" "hostname")
 echo "    Hostname distant : $REMOTE_HOSTNAME"
 
-# 2. Render la config localement
+# 2. Render la config localement (template + filters env-specific)
 echo "==> [2/6] Render config.alloy depuis le template..."
 TMP_CONFIG=$(mktemp)
 trap 'rm -f "$TMP_CONFIG"' EXIT
-sed \
-  -e "s|{{HOSTNAME}}|${REMOTE_HOSTNAME}|g" \
-  -e "s|{{ENV}}|${ENV_LABEL}|g" \
-  "$GRAFANA_DIR/alloy/config.alloy.tmpl" > "$TMP_CONFIG"
-echo "    Config rendue : $(wc -l < "$TMP_CONFIG") lignes"
+
+FILTERS_FILE="$GRAFANA_DIR/alloy/filters.${ENV_LABEL}.alloy"
+if [[ ! -f "$FILTERS_FILE" ]]; then
+  echo "    ATTENTION : $FILTERS_FILE introuvable, fallback dev (pas de filtres)"
+  FILTERS_FILE="$GRAFANA_DIR/alloy/filters.dev.alloy"
+fi
+FILTERS_CONTENT=$(cat "$FILTERS_FILE")
+
+# awk pour gérer le {{PROD_FILTERS}} multi-ligne (sed est tricky avec ça)
+awk -v hostname="$REMOTE_HOSTNAME" -v env_label="$ENV_LABEL" -v filters="$FILTERS_CONTENT" '
+{
+  gsub(/\{\{HOSTNAME\}\}/, hostname);
+  gsub(/\{\{ENV\}\}/, env_label);
+  if (/\{\{PROD_FILTERS\}\}/) {
+    print filters;
+    next;
+  }
+  print;
+}
+' "$GRAFANA_DIR/alloy/config.alloy.tmpl" > "$TMP_CONFIG"
+echo "    Config rendue : $(wc -l < "$TMP_CONFIG") lignes (filtres : $(basename $FILTERS_FILE))"
 
 # 3. Crée le fichier d'env pour Alloy (secrets, chmod 0600)
 TMP_ENV=$(mktemp)

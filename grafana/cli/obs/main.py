@@ -589,6 +589,447 @@ def cmd_trace(
 # ============================================================================
 
 
+# ============================================================================
+# stats — distribution par niveau de log + volume estimé (par container)
+# ============================================================================
+
+
+@app.command(
+    "stats",
+    help="""Statistiques détaillées par container : volume total, distribution
+par level, top 3 messages, taille moyenne, %% bruit.
+
+[bold]Exemples :[/bold]
+
+  obs stats --since 1h
+  obs stats notifuse --since 6h --format json
+""",
+)
+def cmd_stats(
+    pattern: Annotated[Optional[str], typer.Argument(help="Pattern container.")] = None,
+    since: Annotated[str, typer.Option("--since", "-s")] = "1h",
+    env: Annotated[Optional[str], typer.Option(help="Filtre env.")] = None,
+    sample: Annotated[
+        int,
+        typer.Option(help="Lignes à échantillonner par container pour l'analyse."),
+    ] = 500,
+    fmt: Annotated[OutputFormat, typer.Option("--format", "-f")] = OutputFormat.table,
+) -> None:
+    cfg = load_config()
+    since_s = parse_duration(since)
+
+    with LokiClient(cfg) as loki:
+        # 1. Volume par container
+        volumes = loki.container_volumes(since_seconds=since_s, env=env)
+        if pattern:
+            volumes = [v for v in volumes if pattern in v[2]]
+
+        # 2. Pour chaque container actif, fetch un sample et calcule stats
+        from collections import Counter
+
+        rows = []
+        for host, env_lbl, container, total in volumes[:30]:
+            if total == 0:
+                continue
+            entries = loki.query_range(
+                logql=f'{{container="{container}"}}',
+                since_seconds=since_s,
+                limit=sample,
+            )
+            if not entries:
+                continue
+
+            # Distribution par level (via label level qu'Alloy a posé, ou via regex)
+            levels = Counter()
+            for e in entries:
+                lvl = (e.labels.get("level") or "").lower()
+                if not lvl:
+                    line_lower = e.line[:200].lower()
+                    for kw in ("fatal", "error", "warn", "info", "debug", "trace"):
+                        if kw in line_lower:
+                            lvl = kw
+                            break
+                levels[lvl or "?"] += 1
+
+            avg_len = sum(len(e.line) for e in entries) // max(1, len(entries))
+            est_bytes_h = (total * avg_len) // max(1, since_s // 3600 or 1)
+
+            triples = [(e.timestamp_unix, e.container, e.line) for e in entries]
+            classes = reduce_logs(triples)
+            top1_pct = (classes[0].count * 100 // len(entries)) if classes else 0
+
+            levels_str = " ".join(
+                f"{lvl}:{cnt}" for lvl, cnt in levels.most_common()
+            )
+
+            rows.append(
+                {
+                    "container": container,
+                    "host": host,
+                    "env": env_lbl,
+                    "logs": total,
+                    "levels": levels_str,
+                    "avg_len_b": avg_len,
+                    "est_KB_h": est_bytes_h // 1024,
+                    "top1_pct": f"{top1_pct}%",
+                    "unique_classes": len(classes),
+                }
+            )
+
+    render(
+        rows,
+        ["container", "host", "env", "logs", "levels", "avg_len_b", "est_KB_h", "top1_pct", "unique_classes"],
+        fmt,
+        title=f"Stats containers (sample {sample} / container, période {since})",
+    )
+
+
+# ============================================================================
+# levels — breakdown par niveau de log, barres ASCII
+# ============================================================================
+
+
+@app.command(
+    "levels",
+    help="""Distribution des niveaux de log (error/warn/info/debug) globale.
+
+[bold]Exemples :[/bold]
+
+  obs levels --since 1h
+  obs levels --env prod --since 24h --format json
+""",
+)
+def cmd_levels(
+    since: Annotated[str, typer.Option("--since", "-s")] = "1h",
+    env: Annotated[Optional[str], typer.Option(help="Filtre env.")] = None,
+    fmt: Annotated[OutputFormat, typer.Option("--format", "-f")] = OutputFormat.table,
+) -> None:
+    cfg = load_config()
+    since_s = parse_duration(since)
+
+    sel = '{level=~".+"}'
+    if env:
+        sel = f'{{level=~".+",env="{env}"}}'
+
+    logql = f"sum by (level) (count_over_time({sel}[{since}]))"
+
+    with LokiClient(cfg) as loki:
+        res = loki.query_instant(logql)
+
+    if not res:
+        error_console.print("(aucune donnée — Alloy a-t-il bien posé le label `level` ?)")
+        raise typer.Exit(0)
+
+    # Normalize les levels en lowercase + alias warning→warn
+    raw = {r["metric"].get("level", "?"): int(float(r["value"][1])) for r in res}
+    counts: dict[str, int] = {}
+    for k, v in raw.items():
+        n = k.strip().lower()
+        if n == "warning":
+            n = "warn"
+        counts[n] = counts.get(n, 0) + v
+    total = sum(counts.values()) or 1
+
+    rows = []
+    for lvl in ("fatal", "error", "warn", "info", "debug", "trace"):
+        c = counts.pop(lvl, 0)
+        if c:
+            pct = c * 100 // total
+            bar = "█" * (pct // 2)
+            rows.append({"level": lvl, "count": c, "pct": f"{pct}%", "bar": bar})
+    # Ajoute le reste si jamais d'autres levels traînent
+    for lvl, c in counts.items():
+        pct = c * 100 // total
+        bar = "█" * (pct // 2)
+        rows.append({"level": lvl, "count": c, "pct": f"{pct}%", "bar": bar})
+
+    render(rows, ["level", "count", "pct", "bar"], fmt, title=f"Distribution levels ({since})")
+
+
+# ============================================================================
+# noisy — flag les containers où >X% du volume est dans une seule classe
+# ============================================================================
+
+
+@app.command(
+    "noisy",
+    help="""Liste les containers candidats au filtrage : ceux où une classe de
+message domine fortement (= bons candidats à mettre dans filters.prod.alloy).
+
+[bold]Exemples :[/bold]
+
+  obs noisy --since 1h --threshold 50
+  obs noisy --env prod --since 24h --format json
+""",
+)
+def cmd_noisy(
+    since: Annotated[str, typer.Option("--since", "-s")] = "1h",
+    threshold: Annotated[
+        float,
+        typer.Option(help="% min de logs occupés par la classe dominante."),
+    ] = 40.0,
+    min_count: Annotated[int, typer.Option(help="Count absolu min.")] = 100,
+    env: Annotated[Optional[str], typer.Option(help="Filtre env.")] = None,
+    sample: Annotated[int, typer.Option(help="Lignes à analyser par container.")] = 500,
+    fmt: Annotated[OutputFormat, typer.Option("--format", "-f")] = OutputFormat.table,
+) -> None:
+    cfg = load_config()
+    since_s = parse_duration(since)
+
+    with LokiClient(cfg) as loki:
+        volumes = loki.container_volumes(since_seconds=since_s, env=env)
+        rows = []
+        for host, env_lbl, container, total in volumes:
+            if total < min_count:
+                continue
+            entries = loki.query_range(
+                logql=f'{{container="{container}"}}',
+                since_seconds=since_s,
+                limit=sample,
+            )
+            if not entries:
+                continue
+            triples = [(e.timestamp_unix, e.container, e.line) for e in entries]
+            classes = reduce_logs(triples)
+            if not classes:
+                continue
+            top_class = classes[0]
+            top_pct = (top_class.count / len(entries)) * 100
+            if top_pct >= threshold:
+                rows.append(
+                    {
+                        "container": container,
+                        "host": host,
+                        "env": env_lbl,
+                        "total": total,
+                        "top_pct": f"{top_pct:.0f}%",
+                        "top_count": top_class.count,
+                        "wasted_logs": int(total * top_pct / 100),
+                        "normalized": top_class.normalized[:150],
+                    }
+                )
+
+    rows.sort(key=lambda r: r["wasted_logs"], reverse=True)
+    render(
+        rows,
+        ["container", "host", "env", "total", "top_pct", "top_count", "wasted_logs", "normalized"],
+        fmt,
+        title=f"Noisy containers (top class ≥{threshold:.0f}%, min_count≥{min_count})",
+    )
+
+
+# ============================================================================
+# quota — usage Grafana Cloud actuel vs limites free tier
+# ============================================================================
+
+
+@app.command(
+    "quota",
+    help="""Affiche l'usage actuel Loki + Mimir + Tempo vs limites free tier.
+
+Interroge la Grafana Cloud Billing API + les datasources insights.
+
+[bold]Exemples :[/bold]
+
+  obs quota
+  obs quota --format json
+""",
+)
+def cmd_quota(
+    fmt: Annotated[OutputFormat, typer.Option("--format", "-f")] = OutputFormat.table,
+) -> None:
+    cfg = load_config()
+
+    # Free tier hard caps (vérifiés 2026-05-12)
+    LIMITS = {
+        "loki_logs_gb": 50,
+        "mimir_series": 10_000,
+        "tempo_traces_gb": 50,
+        "pyroscope_profiles_gb": 50,
+    }
+
+    # On utilise le datasource "grafanacloud-usage" qui expose les vraies metrics
+    with PromClient(cfg) as prom:
+        # Switch sur le datasource usage en construisant un client custom
+        usage_url = cfg.stack_url + "/api/datasources/proxy/uid/grafanacloud-usage"
+        import httpx as _httpx
+        client = _httpx.Client(base_url=usage_url, headers=cfg.auth_headers, timeout=30.0)
+
+        rows = []
+
+        # Loki ingest bytes 30j
+        try:
+            r = client.get("/api/v1/query", params={"query": 'sum(increase(grafanacloud_logs_instance_bytes_received_total[30d]))'})
+            r.raise_for_status()
+            res = r.json().get("data", {}).get("result", [])
+            if res:
+                bytes_v = float(res[0]["value"][1])
+                gb = bytes_v / 1024**3
+                pct = gb / LIMITS["loki_logs_gb"] * 100
+                rows.append({
+                    "resource": "Loki logs (30j)",
+                    "used": f"{gb:.2f} GB",
+                    "limit": f"{LIMITS['loki_logs_gb']} GB",
+                    "pct": f"{pct:.1f}%",
+                    "bar": "█" * min(50, int(pct / 2)),
+                })
+        except Exception as e:
+            rows.append({"resource": "Loki logs", "used": f"erreur: {e}", "limit": "", "pct": "", "bar": ""})
+
+        # Mimir active series
+        try:
+            r = client.get("/api/v1/query", params={"query": 'sum(grafanacloud_instance_active_series)'})
+            r.raise_for_status()
+            res = r.json().get("data", {}).get("result", [])
+            if res:
+                series = int(float(res[0]["value"][1]))
+                pct = series / LIMITS["mimir_series"] * 100
+                rows.append({
+                    "resource": "Mimir series",
+                    "used": f"{series:,}",
+                    "limit": f"{LIMITS['mimir_series']:,}",
+                    "pct": f"{pct:.1f}%",
+                    "bar": "█" * min(50, int(pct / 2)),
+                })
+        except Exception as e:
+            rows.append({"resource": "Mimir series", "used": f"erreur: {e}", "limit": "", "pct": "", "bar": ""})
+
+        # Tempo bytes 30j
+        try:
+            r = client.get("/api/v1/query", params={"query": 'sum(increase(grafanacloud_traces_instance_bytes_received_total[30d]))'})
+            r.raise_for_status()
+            res = r.json().get("data", {}).get("result", [])
+            if res:
+                bytes_v = float(res[0]["value"][1])
+                gb = bytes_v / 1024**3
+                pct = gb / LIMITS["tempo_traces_gb"] * 100
+                rows.append({
+                    "resource": "Tempo traces (30j)",
+                    "used": f"{gb:.2f} GB",
+                    "limit": f"{LIMITS['tempo_traces_gb']} GB",
+                    "pct": f"{pct:.1f}%",
+                    "bar": "█" * min(50, int(pct / 2)),
+                })
+        except Exception as e:
+            rows.append({"resource": "Tempo traces", "used": f"erreur: {e}", "limit": "", "pct": "", "bar": ""})
+
+        client.close()
+
+    render(rows, ["resource", "used", "limit", "pct", "bar"], fmt, title="Grafana Cloud quota (free tier)")
+
+
+# ============================================================================
+# drops — combien Alloy a-t-il filtré et pour quelle raison ?
+# ============================================================================
+
+
+@app.command(
+    "drops",
+    help="""Combien de lignes Alloy a-t-il droppé pour quelle raison ?
+
+Utile pour valider l'efficacité des filtres dans filters.prod.alloy.
+
+[bold]Exemples :[/bold]
+
+  obs drops --since 1h
+""",
+)
+def cmd_drops(
+    since: Annotated[str, typer.Option("--since", "-s")] = "1h",
+    fmt: Annotated[OutputFormat, typer.Option("--format", "-f")] = OutputFormat.table,
+) -> None:
+    cfg = load_config()
+    since_s = parse_duration(since)
+    with PromClient(cfg) as prom:
+        # rate(...[since]) * since donne le delta sur la fenêtre
+        res = prom.query(
+            f"sum by (reason, host) (increase(loki_process_dropped_lines_total[{since}]))"
+        )
+
+    rows = []
+    for s in res:
+        m = s.metric
+        v = int(float(s.values[0][1]))
+        if v == 0:
+            continue
+        rows.append({
+            "host": m.get("host", "?"),
+            "reason": m.get("reason", "?"),
+            "dropped": v,
+        })
+    rows.sort(key=lambda r: r["dropped"], reverse=True)
+    render(rows, ["host", "reason", "dropped"], fmt,
+           title=f"Lignes droppées par Alloy ({since})")
+
+
+# ============================================================================
+# tail — live follow d'un container (équivalent docker logs -f distant)
+# ============================================================================
+
+
+@app.command(
+    "tail",
+    help="""Live tail des logs d'un container (équivalent docker logs -f mais distant).
+
+Note: Loki est en pull, donc on poll toutes les --interval secondes.
+
+[bold]Exemples :[/bold]
+
+  obs tail hub-prod
+  obs tail notifuse --interval 2 --truncate 300
+""",
+)
+def cmd_tail(
+    pattern: Annotated[str, typer.Argument(help="Pattern container.")],
+    interval: Annotated[float, typer.Option(help="Intervalle de poll (sec).")] = 3.0,
+    truncate: Annotated[int, typer.Option(help="Tronque chaque ligne.")] = 250,
+    env: Annotated[Optional[str], typer.Option(help="Filtre env.")] = None,
+) -> None:
+    cfg = load_config()
+    import time as _time
+
+    seen: set[tuple[float, str]] = set()
+    last_ts = _time.time() - 5  # commence 5s avant pour catch-up
+
+    console.print(f"[bold]Tail '{pattern}'[/bold] (Ctrl+C pour stop)\n")
+
+    try:
+        with LokiClient(cfg) as loki:
+            while True:
+                now = _time.time()
+                since_s = max(2, int(now - last_ts))
+                entries = loki.fetch_logs(
+                    container_pattern=pattern,
+                    since_seconds=since_s,
+                    limit=200,
+                    env=env,
+                )
+                for e in reversed(entries):  # plus ancien en premier
+                    key = (e.timestamp_unix, e.line[:80])
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    line = e.line.rstrip()
+                    if truncate and len(line) > truncate:
+                        line = line[:truncate] + "…"
+                    t = to_short_time(e.timestamp_unix)
+                    console.print(
+                        f"[dim]{t}[/dim] [cyan]{e.container[:40]:40s}[/cyan] {line}"
+                    )
+                last_ts = now
+                # Cleanup vieille entries du set pour pas grossir indéfiniment
+                if len(seen) > 5000:
+                    seen = set(list(seen)[-2000:])
+                _time.sleep(interval)
+    except KeyboardInterrupt:
+        console.print("\n[dim]Stop.[/dim]")
+
+
+# ============================================================================
+# health — sanity check de la stack
+# ============================================================================
+
+
 @app.command(
     "health",
     help="Sanity check : la stack obs reçoit-elle bien les données ?",

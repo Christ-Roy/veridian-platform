@@ -1,0 +1,8 @@
+  // ========== DEV : pas de filtre, tout passe ==========
+  // En dev on veut la visibilité maximale pour comprendre les bugs.
+  // Si un container devient trop bruyant, on l'ajoute ici explicitement.
+  //
+  // (Bloc vide intentionnel — laissé en commentaire pour que la config soit valide)
+  stage.static_labels {
+    values = { dev_mode = "verbose" }
+  }
