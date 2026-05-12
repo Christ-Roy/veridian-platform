@@ -151,6 +151,11 @@ def check_security_ports(env_filter: str | None = None, **_) -> CheckResult:
 
     for host_label, ssh_alias, public_ip in hosts:
         scan = _scan_host_ports(ssh_alias)
+        # Le cache JSON convertit les int keys en string : recast en int
+        for proto in ("tcp", "udp"):
+            if isinstance(scan.get(proto), dict):
+                scan[proto] = {int(k): v for k, v in scan[proto].items()}
+
         if "error" in scan:
             findings.append(Finding(
                 check_id="security_ports",

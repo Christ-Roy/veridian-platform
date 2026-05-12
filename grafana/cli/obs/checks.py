@@ -435,6 +435,64 @@ def check_traefik_5xx(loki: LokiClient, env_filter: str | None = None, **_) -> C
     )
 
 
+def check_license_trial(cfg, **_) -> CheckResult:
+    """Vérifie expiration du trial Grafana Cloud + édition.
+
+    Endpoint : /api/frontend/settings → licenseInfo.expiry (timestamp Unix)
+    """
+    findings = []
+    import httpx as _httpx
+    try:
+        client = _httpx.Client(
+            base_url=cfg.stack_url,
+            headers=cfg.auth_headers,
+            timeout=10.0,
+        )
+        r = client.get("/api/frontend/settings")
+        client.close()
+        if r.status_code != 200:
+            return CheckResult("license_trial", [])
+        data = r.json()
+    except Exception as e:
+        return CheckResult("license_trial", [], error=str(e))
+
+    lic = data.get("licenseInfo", {})
+    edition = lic.get("edition", "?")
+    expiry = lic.get("expiry", 0)
+    if not expiry or edition == "Open Source":
+        return CheckResult("license_trial", [])
+
+    import time
+    now = time.time()
+    days_left = (expiry - now) / 86400
+
+    if days_left < 0:
+        sev = Severity.CRIT
+        msg = f"Trial '{edition}' EXPIRÉ il y a {-days_left:.0f}j"
+    elif days_left < 7:
+        sev = Severity.CRIT
+        msg = f"Trial '{edition}' expire dans {days_left:.0f}j — basculer Pro ou self-host MAINTENANT"
+    elif days_left < 30:
+        sev = Severity.WARN
+        msg = f"Trial '{edition}' expire dans {days_left:.0f}j — décider Pro vs free tier vs self-host"
+    elif days_left < 90:
+        sev = Severity.INFO
+        msg = f"Trial '{edition}' expire dans {days_left:.0f}j (puis bascule free tier)"
+    else:
+        # > 90j : pas un signal, mais on l'expose en INFO pour visibilité
+        sev = Severity.INFO
+        msg = f"Trial '{edition}' encore {days_left:.0f}j (puis bascule free tier)"
+
+    findings.append(Finding(
+        check_id="license_trial",
+        severity=sev,
+        target="grafana-cloud",
+        summary=msg,
+        drilldown=f"curl -sH 'Authorization: Bearer $TOKEN' {cfg.stack_url}/api/frontend/settings | jq '.licenseInfo'",
+    ))
+    return CheckResult("license_trial", findings)
+
+
 def check_quota(prom: PromClient, cfg, **_) -> CheckResult:
     """Usage Grafana Cloud vs limites free tier."""
     findings = []
@@ -688,6 +746,7 @@ ALL_CHECKS: list[tuple[str, Callable]] = [
     ("loops", check_loops),
     ("volume_spike", check_volume_spike),
     ("traefik_5xx", check_traefik_5xx),
+    ("license_trial", check_license_trial),
     ("quota", check_quota),
     ("drops", check_drops),
     ("alloy_push_fail", check_alloy_push_failures),

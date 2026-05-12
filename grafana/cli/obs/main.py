@@ -1195,11 +1195,297 @@ def _run_check_suite(
     raise typer.Exit(0)
 
 
+# Mapping topic → check_ids émis dans Finding (peuvent différer de la registry).
+# Attention : un check function peut émettre PLUSIEURS check_ids différents
+# (ex: 'quota' check → quota_mimir / quota_loki).
+CHECK_TOPICS: dict[str, list[str]] = {
+    "infra":    ["host_cpu", "host_ram", "host_disk", "alloy_push_fail"],
+    "apps":     ["error_rate", "loops", "volume_spike", "silent_container"],
+    "security": ["security_ports", "security_ssh", "security_docker_version"],
+    "quota":    ["quota_mimir", "quota_loki", "quota_tempo", "drops_dominant", "license_trial"],
+    "traefik":  ["traefik_5xx", "auth_failures"],
+}
+
+# Registry key (dans ALL_CHECKS) → topic. Pour le count "X chk" par topic.
+REGISTRY_TO_TOPIC: dict[str, str] = {
+    "host_cpu": "infra", "host_ram": "infra", "host_disk": "infra", "alloy_push_fail": "infra",
+    "error_rate": "apps", "loops": "apps", "volume_spike": "apps", "silent_containers": "apps",
+    "security_ports": "security", "security_ssh": "security", "security_docker_version": "security",
+    "quota": "quota", "drops": "quota", "license_trial": "quota",
+    "traefik_5xx": "traefik", "auth_failures": "traefik",
+}
+
+TOPIC_ICONS = {
+    "infra": "🖥️",
+    "apps": "📦",
+    "security": "🔐",
+    "quota": "💰",
+    "traefik": "🌐",
+}
+
+
+def _all_checks_resolved() -> list[tuple[str, callable]]:
+    """Concatène ALL_CHECKS (base) + SECURITY_CHECKS sans doublons."""
+    from .checks_security import SECURITY_CHECKS
+    seen = set()
+    out: list[tuple[str, callable]] = []
+    for cid, fn in list(ALL_CHECKS) + list(SECURITY_CHECKS):
+        if cid in seen:
+            continue
+        seen.add(cid)
+        out.append((cid, fn))
+    return out
+
+
 @check_app.callback(invoke_without_command=True)
-def _check_callback(ctx: typer.Context) -> None:
-    """Si `obs check` sans sous-commande → équivalent à `obs check all`."""
-    if ctx.invoked_subcommand is None:
-        ctx.invoke(cmd_check_all)
+def _check_callback(
+    ctx: typer.Context,
+    detail: Annotated[
+        bool,
+        typer.Option(
+            "--detail", "-d",
+            help="Affiche les findings de chaque topic (verbose). Sinon : 1 ligne par topic.",
+        ),
+    ] = False,
+    fmt: Annotated[
+        OutputFormat,
+        typer.Option("--format", "-f", help="Format de sortie."),
+    ] = OutputFormat.table,
+    severity: Annotated[
+        str,
+        typer.Option("--severity", help="Filtre findings par severity min (crit/warn/info)."),
+    ] = "info",
+) -> None:
+    """`obs check` (sans sous-commande) → vue synthétique : 1 ligne par topic.
+
+    Pour le détail d'un topic : `obs check <topic>`.
+    Pour tout dérouler : `obs check --detail` ou `obs check all`.
+    """
+    if ctx.invoked_subcommand is not None:
+        # Une sous-commande est appelée, on ne fait rien ici
+        return
+    _run_check_summary(detail=detail, fmt=fmt, severity=severity)
+
+
+def _run_check_summary(detail: bool, fmt: OutputFormat, severity: str) -> None:
+    """Lance TOUS les checks et affiche soit un résumé compact (1 ligne / topic)
+    soit le détail complet selon --detail."""
+    cfg = load_config()
+    sev_min_order = {"crit": 0, "warn": 1, "info": 2, "ok": 3}.get(
+        severity.lower(), 2
+    )
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    all_findings: list[Finding] = []
+    errors: list[tuple[str, str]] = []
+    checks_run = 0
+
+    with LokiClient(cfg) as loki, PromClient(cfg) as prom:
+        kwargs = {"loki": loki, "prom": prom, "cfg": cfg, "env_filter": env_selector()}
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            future_to_id = {}
+            for check_id, fn in _all_checks_resolved():
+                checks_run += 1
+                future_to_id[pool.submit(fn, **kwargs)] = check_id
+            for future in future_to_id:
+                check_id = future_to_id[future]
+                try:
+                    result = future.result(timeout=30)
+                except Exception as e:
+                    errors.append((check_id, str(e)))
+                    continue
+                if result.error:
+                    errors.append((check_id, result.error))
+                all_findings.extend(result.findings)
+
+    # Filtre par severity min
+    filtered = [f for f in all_findings if f.severity.order <= sev_min_order]
+
+    # Groupe par topic
+    topic_of: dict[str, str] = {}
+    for topic, ids in CHECK_TOPICS.items():
+        for cid in ids:
+            topic_of[cid] = topic
+
+    by_topic: dict[str, list[Finding]] = {t: [] for t in CHECK_TOPICS}
+    by_topic["other"] = []
+    for f in filtered:
+        topic = topic_of.get(f.check_id, "other")
+        by_topic[topic].append(f)
+
+    # Compte les check_ids LANCÉS par topic (registry, pas findings)
+    checks_per_topic: dict[str, int] = {t: 0 for t in CHECK_TOPICS}
+    for cid, _ in _all_checks_resolved():
+        t = REGISTRY_TO_TOPIC.get(cid, "other")
+        checks_per_topic.setdefault(t, 0)
+        checks_per_topic[t] += 1
+
+    # ----- Output JSON / ndjson : structure compatible avec les agents -----
+    if fmt in (OutputFormat.json, OutputFormat.ndjson):
+        out = {
+            "timestamp": __import__("datetime").datetime.now().isoformat(),
+            "label": "obs check (summary)",
+            "checks_run": checks_run,
+            "findings_total": len(all_findings),
+            "findings_filtered": len(filtered),
+            "errors": [{"check": c, "error": e} for c, e in errors],
+            "topics": {
+                topic: {
+                    "checks_count": checks_per_topic.get(topic, 0),
+                    "crit": sum(1 for f in flist if f.severity == Severity.CRIT),
+                    "warn": sum(1 for f in flist if f.severity == Severity.WARN),
+                    "info": sum(1 for f in flist if f.severity == Severity.INFO),
+                    "drilldown": f"obs check {topic}" if topic != "other" else None,
+                    "findings": [f.to_dict() for f in flist] if detail else [],
+                }
+                for topic, flist in by_topic.items() if flist or checks_per_topic.get(topic)
+            },
+        }
+        if fmt == OutputFormat.json:
+            import json as _json
+            _json.dump(out, sys.stdout, ensure_ascii=False, indent=2)
+            sys.stdout.write("\n")
+        else:
+            import json as _json
+            for topic, info in out["topics"].items():
+                line = {"topic": topic, **info}
+                _json.dump(line, sys.stdout, ensure_ascii=False)
+                sys.stdout.write("\n")
+        # Exit code
+        if any(f.severity == Severity.CRIT for f in filtered):
+            raise typer.Exit(2)
+        if any(f.severity == Severity.WARN for f in filtered):
+            raise typer.Exit(1)
+        raise typer.Exit(0)
+
+    if fmt == OutputFormat.silent:
+        print(len(filtered))
+        if any(f.severity == Severity.CRIT for f in filtered):
+            raise typer.Exit(2)
+        if any(f.severity == Severity.WARN for f in filtered):
+            raise typer.Exit(1)
+        raise typer.Exit(0)
+
+    # ----- Output table (Rich) : vue synthétique -----
+    _render_check_summary_table(by_topic, checks_per_topic, errors, checks_run, detail)
+
+    # Exit code
+    if any(f.severity == Severity.CRIT for f in filtered):
+        raise typer.Exit(2)
+    if any(f.severity == Severity.WARN for f in filtered):
+        raise typer.Exit(1)
+    raise typer.Exit(0)
+
+
+def _render_check_summary_table(
+    by_topic: dict[str, list[Finding]],
+    checks_per_topic: dict[str, int],
+    errors: list[tuple[str, str]],
+    checks_run: int,
+    detail: bool,
+) -> None:
+    """Render vue synthétique : 1 ligne par topic, ou détaillée si --detail."""
+    from datetime import datetime
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    env_label = _ctx.env if _ctx.env != "all" else "prod+dev"
+
+    n_crit_total = sum(1 for flist in by_topic.values() for f in flist if f.severity == Severity.CRIT)
+    n_warn_total = sum(1 for flist in by_topic.values() for f in flist if f.severity == Severity.WARN)
+    n_info_total = sum(1 for flist in by_topic.values() for f in flist if f.severity == Severity.INFO)
+
+    # Header global
+    if n_crit_total == 0 and n_warn_total == 0:
+        status = "[bold green]✓ sain[/bold green]"
+    elif n_crit_total > 0:
+        status = f"[bold red]{n_crit_total} CRIT[/bold red] · [yellow]{n_warn_total} WARN[/yellow]"
+    else:
+        status = f"[yellow]{n_warn_total} WARN[/yellow] · [cyan]{n_info_total} INFO[/cyan]"
+
+    console.print()
+    console.print(
+        f"[bold]obs check[/bold] — {timestamp} — env=[bold]{env_label}[/bold] — {status} "
+        f"[dim]({checks_run} checks)[/dim]"
+    )
+    console.print("─" * 80)
+
+    # Une ligne par topic
+    topic_order = ["security", "infra", "apps", "traefik", "quota", "other"]
+    for topic in topic_order:
+        flist = by_topic.get(topic, [])
+        nck = checks_per_topic.get(topic, 0)
+        if nck == 0 and not flist:
+            continue  # topic vide (pas de checks ni findings)
+        n_crit = sum(1 for f in flist if f.severity == Severity.CRIT)
+        n_warn = sum(1 for f in flist if f.severity == Severity.WARN)
+        n_info = sum(1 for f in flist if f.severity == Severity.INFO)
+
+        icon = TOPIC_ICONS.get(topic, "•")
+        if n_crit > 0:
+            status_icon = "🔴"
+            color = "red"
+        elif n_warn > 0:
+            status_icon = "🟡"
+            color = "yellow"
+        elif n_info > 0:
+            status_icon = "🔵"
+            color = "cyan"
+        else:
+            status_icon = "✅"
+            color = "green"
+
+        # Composition de la ligne
+        counts = []
+        if n_crit:
+            counts.append(f"[red]{n_crit}🔴[/red]")
+        if n_warn:
+            counts.append(f"[yellow]{n_warn}🟡[/yellow]")
+        if n_info:
+            counts.append(f"[cyan]{n_info}🔵[/cyan]")
+        counts_str = " ".join(counts) if counts else "[green]all OK[/green]"
+
+        drilldown = f"[italic cyan]obs check {topic}[/italic cyan]" if topic != "other" else ""
+        if topic == "other":
+            drilldown = "[dim]checks non topiqués[/dim]"
+
+        console.print(
+            f"  {status_icon} [{color}]{topic:9s}[/{color}]  "
+            f"{nck:>2} chk  {counts_str:35s}  {drilldown if (n_crit or n_warn or n_info) else ''}"
+        )
+
+        # Mode --detail : développe les findings sous chaque topic
+        if detail and flist:
+            for f in flist[:10]:
+                color_f = {"CRIT": "red", "WARN": "yellow", "INFO": "cyan"}[f.severity.value]
+                console.print(f"      [{color_f}]│[/{color_f}] [bold]{f.target}[/bold]  {f.summary}")
+                console.print(f"      [{color_f}]│[/{color_f}]   [dim]→[/dim] [italic cyan]{f.drilldown}[/italic cyan]")
+            if len(flist) > 10:
+                console.print(f"      [dim]│ … et {len(flist) - 10} autres findings (voir `obs check {topic}` ou `--detail`)[/dim]")
+
+    # Erreurs internes éventuelles
+    if errors:
+        console.print()
+        console.print(f"[dim]⚠ {len(errors)} checks ont échoué (vérifier la stack obs):[/dim]")
+        for cid, err in errors[:3]:
+            console.print(f"  [dim]• {cid} : {err[:120]}[/dim]")
+
+    # Hints adaptatifs
+    if n_crit_total == 0 and n_warn_total == 0 and n_info_total == 0:
+        console.print()
+        console.print("[dim]Aucun signal détecté. Pour explorer quand même : `obs check --detail`.[/dim]")
+    elif not detail and (n_crit_total + n_warn_total + n_info_total) <= 5:
+        console.print()
+        console.print(
+            f"[dim]Peu de findings ({n_crit_total + n_warn_total + n_info_total}). "
+            f"`obs check --detail` les développe tous.[/dim]"
+        )
+    elif not detail:
+        console.print()
+        console.print(
+            f"[dim]→ Pour creuser un topic : `obs check <topic>`. "
+            f"Pour tout dérouler : `obs check --detail` ou `obs check all`.[/dim]"
+        )
 
 
 @check_app.command("all", help="Scan complet (tous les checks, ~14 heuristiques).")
@@ -1254,7 +1540,7 @@ def cmd_check_security(
     _run_check_suite(list(SECURITY_CHECKS), severity, None, fmt, quiet_ok, label="obs check security")
 
 
-@check_app.command("quota", help="Usage Grafana Cloud vs limites free tier + drops Alloy.")
+@check_app.command("quota", help="Usage Grafana Cloud vs free tier + drops Alloy + trial expiration.")
 def cmd_check_quota(
     severity: Annotated[str, typer.Option("--severity")] = "info",
     fmt: Annotated[OutputFormat, typer.Option("--format", "-f")] = OutputFormat.table,
@@ -1262,7 +1548,7 @@ def cmd_check_quota(
 ) -> None:
     quota_checks = [
         (cid, fn) for cid, fn in ALL_CHECKS
-        if cid in ("quota", "drops")
+        if cid in ("quota", "drops", "license_trial")
     ]
     _run_check_suite(quota_checks, severity, None, fmt, quiet_ok, label="obs check quota")
 
