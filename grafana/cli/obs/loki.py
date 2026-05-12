@@ -125,10 +125,12 @@ class LokiClient:
             selectors.append(f'env="{env}"')
         logql = "{" + ",".join(selectors) + "}"
         if level_filter:
-            # case-insensitive match dans la ligne
-            logql += f' |~ "(?i){level_filter}"'
+            # case-insensitive match dans la ligne (échappe les " dans le pattern)
+            escaped = level_filter.replace("\\", "\\\\").replace('"', '\\"')
+            logql += f' |~ "(?i){escaped}"'
         if regex_filter:
-            logql += f' |~ "{regex_filter}"'
+            escaped = regex_filter.replace("\\", "\\\\").replace('"', '\\"')
+            logql += f' |~ "{escaped}"'
         return self.query_range(logql, since_seconds, limit)
 
     def container_volumes(

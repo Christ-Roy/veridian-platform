@@ -1,0 +1,40 @@
+  // ========== PROD : filtres anti-quota ==========
+  // En prod on drop le bruit pour rester sous le quota Loki 50GB/mois.
+  // Stratégie : stage.drop avec regex RE2 sur la ligne brute.
+  // Note : on utilise des backtick `` strings pour échapper proprement les regex.
+
+  // 1. Drop les Traefik healthchecks (path /health, /ping, /metrics)
+  stage.drop {
+    expression          = `"RequestPath":"/(health|ping|metrics)`
+    drop_counter_reason = "traefik_healthcheck"
+  }
+
+  // 2. Drop level=debug et level=trace UNIQUEMENT quand c'est clairement le level
+  // structuré (JSON, logfmt, ou pinpoint au début de ligne). On ÉVITE de matcher
+  // "debug" dans un message libre genre "debug this issue".
+  stage.drop {
+    expression          = `^.{0,50}(?i:"level"\s*:\s*"(?:debug|trace)"|\blevel=(?:debug|trace)\b|\bDEBUG\b\s*[:|\]]|\bTRACE\b\s*[:|\]])`
+    drop_counter_reason = "debug_trace"
+  }
+
+  // 3. Drop Twenty workflow cron spam (60% du volume Twenty worker)
+  stage.drop {
+    expression          = `WorkflowCronTrigger.*found 0 cron triggers`
+    drop_counter_reason = "twenty_cron_empty"
+  }
+
+  // 4. Drop healthchecks applicatifs (GET /health côté Supabase imgproxy/realtime)
+  stage.drop {
+    expression          = `GET /health(check)?(\s|$)`
+    drop_counter_reason = "app_healthcheck"
+  }
+
+  // 5. Drop Notifuse postgres "Connection reset by peer"
+  stage.drop {
+    expression          = `could not receive data from client: Connection reset by peer`
+    drop_counter_reason = "pg_connreset"
+  }
+
+  // Note: chaque drop expose le counter Prometheus
+  // `loki_process_dropped_lines_total{reason="X"}` qu'on peut interroger via :
+  //   obs metric 'sum by (reason) (rate(loki_process_dropped_lines_total[5m]))'

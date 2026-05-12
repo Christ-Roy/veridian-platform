@@ -24,6 +24,36 @@ obs loops --since 1h --threshold 70
 ```
 Liste les containers où > 70% des logs sont **la même classe de message** (= loop).
 
+### "Quels sont les bons candidats au filtrage anti-quota ?"
+```bash
+obs noisy --since 1h --threshold 40
+```
+Identifie les containers dont une classe de message domine — bons candidats à
+ajouter dans `alloy/filters.prod.alloy`.
+
+### "Combien Alloy a filtré et pourquoi ?"
+```bash
+obs drops --since 1h
+```
+Montre `loki_process_dropped_lines_total` par `reason` → mesure l'efficacité
+des filtres anti-quota.
+
+### "Où on en est sur le quota Grafana Cloud ?"
+```bash
+obs quota
+```
+Loki/Mimir/Tempo % d'usage vs limites free tier.
+
+### "Distribution des niveaux de log (sanité globale) ?"
+```bash
+obs levels --since 1h
+```
+
+### "Stats détaillées d'un container (volume, levels, top class, taille moy.) ?"
+```bash
+obs stats hub --since 1h
+```
+
 ### "Quels containers sont les plus bruyants ?"
 ```bash
 obs containers --since 1h
@@ -38,6 +68,11 @@ obs errors hub --since 30m --dedup
 ### "Quelles sont les classes de messages les plus fréquentes sur Notifuse ?"
 ```bash
 obs top notifuse --since 1h --top 10
+```
+
+### "Live tail sur un container (équivalent docker logs -f distant)"
+```bash
+obs tail notifuse --interval 2
 ```
 
 ### "Cherche-moi un pattern précis dans les 6 dernières heures"

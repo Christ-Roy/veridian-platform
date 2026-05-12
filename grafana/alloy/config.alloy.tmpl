@@ -6,14 +6,9 @@
 //   {{ENV}}        = prod / dev / local
 //
 // Credentials lus depuis /etc/alloy/gcloud.env (mode 0600, owner alloy)
-//   GCLOUD_TOKEN (commun)
-//   GCLOUD_LOKI_URL  + GCLOUD_LOKI_USER  (tenant Loki)
-//   GCLOUD_MIMIR_URL + GCLOUD_MIMIR_USER (tenant Mimir)
-//   GCLOUD_TEMPO_URL + GCLOUD_TEMPO_USER (tenant Tempo)
-//   GCLOUD_OTLP_URL  + GCLOUD_OTLP_USER  (= stack ID, pour OTLP gateway unifié)
 
 // =========================================================================
-// LOGS Docker → Loki (push natif Loki, pas OTLP — plus efficace pour Loki)
+// LOGS Docker → Loki (avec parsing JSON Traefik et filtres anti-quota)
 // =========================================================================
 
 discovery.docker "containers" {
@@ -47,11 +42,72 @@ loki.source.docker "containers" {
   host          = "unix:///var/run/docker.sock"
   targets       = discovery.docker.containers.targets
   labels        = {
-    host = "{{HOSTNAME}}",
-    env  = "{{ENV}}",
+    host   = "{{HOSTNAME}}",
+    env    = "{{ENV}}",
+    source = "docker",
   }
   relabel_rules = discovery.relabel.containers.rules
-  forward_to    = [loki.write.gcloud.receiver]
+  forward_to    = [loki.process.docker_router.receiver]
+}
+
+// -------------------------------------------------------------------------
+// Pipeline de traitement des logs Docker :
+//   1. Si container == dokploy-traefik : parse le JSON accessLog
+//   2. Détection du level (info/warn/error/fatal) via regex
+//   3. Filtres ENV-dépendants : prod = strict, dev = laisse tout passer
+//   4. Metric counter dropped_logs_total pour mesurer l'efficacité
+// -------------------------------------------------------------------------
+
+loki.process "docker_router" {
+  // ----- Détection du niveau de log (commun à tous containers) -----
+  stage.regex {
+    expression = "(?i)\\b(?P<level>fatal|error|warn(ing)?|info|debug|trace)\\b"
+  }
+
+  // Si on a trouvé un level, on l'ajoute en label (low cardinality, 6 valeurs max)
+  stage.labels {
+    values = { level = "" }
+  }
+
+  // ----- Si dokploy-traefik : extrait status + method + route depuis JSON -----
+  stage.match {
+    selector = "{container=\"dokploy-traefik\"}"
+
+    stage.json {
+      expressions = {
+        status = "DownstreamStatus",
+        method = "RequestMethod",
+        route  = "RouterName",
+        path   = "RequestPath",
+      }
+    }
+    stage.labels {
+      values = { status = "", method = "", route = "" }
+    }
+  }
+
+  // ----- Metric : compte les logs en INFO/DEBUG/TRACE avant filtrage -----
+  stage.metrics {
+    metric.counter {
+      name        = "alloy_logs_processed_total"
+      description = "Logs traités par Alloy avant filtrage, par level/container."
+      action      = "inc"
+      max_idle_duration = "5m"
+    }
+  }
+
+  forward_to = [loki.process.prod_filter.receiver]
+}
+
+// -------------------------------------------------------------------------
+// FILTRES PROD ONLY — drop le bruit pour rester sous le quota
+// En dev on laisse tout passer (visibilité maximale).
+// -------------------------------------------------------------------------
+
+loki.process "prod_filter" {
+{{PROD_FILTERS}}
+
+  forward_to = [loki.write.gcloud.receiver]
 }
 
 loki.write "gcloud" {
@@ -63,6 +119,49 @@ loki.write "gcloud" {
       password = sys.env("GCLOUD_TOKEN")
     }
   }
+}
+
+// =========================================================================
+// LOGS systemd journald → Loki (auth, sshd, sudo, fail2ban, kernel)
+// =========================================================================
+
+// Pas de `matches` (les filtres OR ne sont pas possibles dans la syntaxe systemd
+// journal). On lit tout le journal du host et on filtre/labelise dans loki.process.
+
+loki.relabel "journal_unit" {
+  forward_to = []
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "priority"
+  }
+  rule {
+    source_labels = ["__journal_syslog_identifier"]
+    target_label  = "ident"
+  }
+}
+
+loki.source.journal "system" {
+  forward_to    = [loki.process.journal_filter.receiver]
+  relabel_rules = loki.relabel.journal_unit.rules
+  labels        = {
+    host   = "{{HOSTNAME}}",
+    env    = "{{ENV}}",
+    source = "journald",
+  }
+}
+
+loki.process "journal_filter" {
+  // Drop journal noise : audit messages benign, kernel cgroup events
+  stage.drop {
+    expression          = `audit(_log)?:|cgroup: Removed`
+    drop_counter_reason = "journald_audit_noise"
+  }
+
+  forward_to = [loki.write.gcloud.receiver]
 }
 
 // =========================================================================
@@ -112,14 +211,12 @@ prometheus.scrape "docker" {
 }
 
 prometheus.relabel "docker" {
-  // Garde uniquement les metrics utiles, drop le reste
   rule {
     source_labels = ["__name__"]
     regex         = "container_(cpu_usage_seconds_total|memory_working_set_bytes|memory_usage_bytes|network_receive_bytes_total|network_transmit_bytes_total|fs_reads_bytes_total|fs_writes_bytes_total|last_seen)"
     action        = "keep"
   }
 
-  // Drop les labels haute cardinalité qui font exploser les séries
   rule {
     action = "labeldrop"
     regex  = "id|container_label_.*"
@@ -137,6 +234,16 @@ prometheus.relabel "docker" {
   forward_to = [prometheus.remote_write.gcloud.receiver]
 }
 
+// Métriques Alloy lui-même → utile pour le dashboard "obs health"
+prometheus.exporter.self "alloy" {}
+
+prometheus.scrape "alloy" {
+  targets         = prometheus.exporter.self.alloy.targets
+  forward_to      = [prometheus.relabel.host.receiver]
+  scrape_interval = "60s"
+  job_name        = "alloy"
+}
+
 prometheus.remote_write "gcloud" {
   endpoint {
     url = sys.env("GCLOUD_MIMIR_URL")
@@ -150,7 +257,6 @@ prometheus.remote_write "gcloud" {
 
 // =========================================================================
 // OTLP RECEIVER (pour traces Traefik) → Tempo
-// Traefik push ses traces ici via gRPC sur :4317, Alloy forward vers Tempo.
 // =========================================================================
 
 otelcol.receiver.otlp "traefik" {
