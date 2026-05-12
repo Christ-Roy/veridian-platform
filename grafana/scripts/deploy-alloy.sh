@@ -65,10 +65,21 @@ echo "==> Tempo $GCLOUD_TEMPO_USER → $GCLOUD_TEMPO_URL"
 echo "==> OTLP  → $GCLOUD_OTLP_URL"
 echo
 
-# 1. Récupère le hostname distant (utilisé pour les labels Alloy)
-echo "==> [1/6] Récupère hostname distant..."
+# 1. Récupère le hostname distant + IP du bridge Docker dokploy-network
+echo "==> [1/6] Récupère hostname distant + bind IP..."
 REMOTE_HOSTNAME=$(ssh -o BatchMode=yes "$SSH_TARGET" "hostname")
 echo "    Hostname distant : $REMOTE_HOSTNAME"
+
+# Bind IP pour le receiver OTLP : gateway du réseau dokploy-network
+# Fallback sur 127.0.0.1 si pas de réseau dokploy-network (cas dev sans Traefik)
+REMOTE_OTLP_BIND=$(ssh -o BatchMode=yes "$SSH_TARGET" \
+  "sudo docker network inspect dokploy-network --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null || true")
+if [[ -z "$REMOTE_OTLP_BIND" ]]; then
+  REMOTE_OTLP_BIND="127.0.0.1"
+  echo "    Pas de dokploy-network sur $SSH_TARGET → bind OTLP sur 127.0.0.1"
+else
+  echo "    Bind OTLP receiver sur : $REMOTE_OTLP_BIND (gateway dokploy-network)"
+fi
 
 # 2. Render la config localement (template + filters env-specific)
 echo "==> [2/6] Render config.alloy depuis le template..."
@@ -110,6 +121,10 @@ GCLOUD_TEMPO_URL=${GCLOUD_TEMPO_URL}
 GCLOUD_TEMPO_USER=${GCLOUD_TEMPO_USER}
 GCLOUD_OTLP_URL=${GCLOUD_OTLP_URL}
 GCLOUD_OTLP_USER=${GCLOUD_OTLP_USER}
+# Bind IP pour OTLP receiver — gateway dokploy-network = atteignable par
+# containers Veridian mais pas par Internet. Override avec OTLP_RECEIVER_BIND=0.0.0.0
+# si débogage temporaire (et seulement pendant un debug actif).
+OTLP_RECEIVER_BIND=${REMOTE_OTLP_BIND}
 EOF
 chmod 0600 "$TMP_ENV"
 

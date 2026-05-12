@@ -285,6 +285,9 @@ prometheus.remote_write "gcloud" {
 
 // =========================================================================
 // OTLP RECEIVER (pour traces Traefik) → Tempo
+// SÉCURITÉ : Alloy bind sur 0.0.0.0 (nécessaire pour que les containers
+// Docker Swarm le joignent), mais iptables drop les paquets venant de WAN.
+// Voir grafana/scripts/secure-alloy.sh pour les règles iptables.
 // =========================================================================
 
 otelcol.receiver.otlp "traefik" {

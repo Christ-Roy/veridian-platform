@@ -1,0 +1,192 @@
+{
+  "title": "Veridian — Errors Explorer",
+  "uid": "veridian-errors-explorer",
+  "tags": ["veridian", "errors", "drill-down"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "type": "custom",
+        "query": "prod,dev,All",
+        "current": {"text": "prod", "value": "prod"},
+        "options": [
+          {"text": "prod", "value": "prod", "selected": true},
+          {"text": "dev", "value": "dev"},
+          {"text": "All", "value": ".+"}
+        ]
+      },
+      {
+        "name": "container",
+        "type": "query",
+        "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+        "query": "label_values({env=~\"$env\"}, container)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {"text": "All", "value": "$__all"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Erreurs en 1 coup d'oeil",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Total errors (1h)",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 1},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "sum(count_over_time({env=~\"$env\",container=~\"$container\"} |~ \"(?i)(error|panic|fatal|traceback|unhandled)\" [1h]))",
+        "refId": "A"
+      }],
+      "options": {"reduceOptions": {"calcs": ["last"]}, "colorMode": "value", "graphMode": "area"},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [
+        {"color": "green", "value": null},
+        {"color": "yellow", "value": 100},
+        {"color": "red", "value": 1000}
+      ]}}}
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Total fatal/panic (1h)",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 1},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "sum(count_over_time({env=~\"$env\",container=~\"$container\"} |~ \"(?i)(fatal|panic)\" [1h]))",
+        "refId": "A"
+      }],
+      "options": {"reduceOptions": {"calcs": ["last"]}, "colorMode": "value", "graphMode": "area"},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [
+        {"color": "green", "value": null},
+        {"color": "red", "value": 1}
+      ]}}}
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Containers avec erreurs",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 1},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "count(count by (container) (count_over_time({env=~\"$env\",container=~\"$container\"} |~ \"(?i)(error|panic|fatal)\" [1h])))",
+        "refId": "A"
+      }],
+      "options": {"reduceOptions": {"calcs": ["last"]}, "colorMode": "value"}
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Auth failures journald (1h)",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 1},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "sum(count_over_time({source=\"journald\",env=~\"$env\"} |~ \"Failed password|invalid user|authentication failure\" [1h]))",
+        "refId": "A"
+      }],
+      "options": {"reduceOptions": {"calcs": ["last"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [
+        {"color": "green", "value": null},
+        {"color": "yellow", "value": 10},
+        {"color": "red", "value": 50}
+      ]}}}
+    },
+    {
+      "id": 2,
+      "type": "row",
+      "title": "Distribution par niveau et timeline",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5}
+    },
+    {
+      "id": 20,
+      "type": "piechart",
+      "title": "Distribution levels (1h)",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 6},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "sum by (level) (count_over_time({level=~\".+\",env=~\"$env\",container=~\"$container\"}[1h]))",
+        "legendFormat": "{{level}}",
+        "refId": "A"
+      }],
+      "options": {"legend": {"displayMode": "table", "placement": "right", "values": ["value", "percent"]}}
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Erreurs par minute (cliquer un point pour Explore)",
+      "gridPos": {"h": 8, "w": 16, "x": 8, "y": 6},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "sum by (container) (count_over_time({env=~\"$env\",container=~\"$container\"} |~ \"(?i)(error|panic|fatal)\" [1m]))",
+        "legendFormat": "{{container}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}}
+    },
+    {
+      "id": 3,
+      "type": "row",
+      "title": "Top containers par volume d'erreurs",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14}
+    },
+    {
+      "id": 30,
+      "type": "table",
+      "title": "Top containers avec erreurs (cliquer pour drill-down)",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 15},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "topk(20, sum by (container, host, env) (count_over_time({env=~\"$env\",container=~\"$container\"} |~ \"(?i)(error|panic|fatal|traceback|unhandled)\" [1h])))",
+        "instant": true,
+        "refId": "A",
+        "format": "table"
+      }],
+      "transformations": [
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"Value": "errors/h"}}}
+      ],
+      "fieldConfig": {"defaults": {
+        "custom": {"align": "auto"},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 10},
+          {"color": "orange", "value": 100},
+          {"color": "red", "value": 1000}
+        ]},
+        "links": [{
+          "title": "Explorer logs erreurs de ce container",
+          "url": "/explore?orgId=1&left=%7B%22datasource%22:%22grafanacloud-logs%22,%22queries%22:%5B%7B%22expr%22:%22%7Bcontainer%3D%5C%22${__data.fields.container}%5C%22%7D%20%7C~%20%5C%22(?i)(error%7Cpanic%7Cfatal)%5C%22%22%7D%5D%7D",
+          "targetBlank": false
+        }]
+      }}
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "Logs erreurs récents (live, derniers 100)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 25}
+    },
+    {
+      "id": 40,
+      "type": "logs",
+      "title": "Derniers logs erreurs",
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 26},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "{env=~\"$env\",container=~\"$container\"} |~ \"(?i)(error|panic|fatal|traceback|unhandled)\"",
+        "refId": "A"
+      }],
+      "options": {"showTime": true, "wrapLogMessage": true, "enableLogDetails": true, "dedupStrategy": "exact", "sortOrder": "Descending"}
+    }
+  ]
+}
