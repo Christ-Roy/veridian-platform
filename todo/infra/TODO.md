@@ -103,15 +103,17 @@
 
 
 
-### P0.1 — Backups DB testés et runbook restore
+### P0.1 — ✅ RÉSOLU 2026-05-12 : Backups DB testés et runbook restore
 
-- [ ] Inventaire toutes les DBs critiques (prospection, hub, analytics, cms, notifuse, supabase legacy, twenty)
-- [ ] Vérifier que rclone backup R2 couvre toutes les DBs (cron `0 7 * * *` sur local KDE)
-- [ ] Script `scripts/restore-db.sh <app> <date>` qui restore dans un Postgres temporaire (pas en prod direct)
-- [ ] Lancer le script une fois pour valider qu'il marche
-- [ ] Cron mensuel qui rejoue le restore + ping Telegram si fail
-- [ ] Runbook `runbooks/disaster-recovery.md` avec scénarios A (DB corrompue), B (volume perdu), C (VPS HS), D (compromission)
-- [ ] Documenter RPO (24h) et RTO (30 min) par app
+- [x] Inventaire toutes les DBs critiques (prospection, veridian-core/Hub/Analytics, cms, notifuse, supabase, twenty, verger-shop)
+- [x] Vérifier rclone backup R2 — **trou découvert** : prospection, veridian-core, verger-shop absents !
+- [x] Script `infra/scripts/backup-postgres.sh` générique + `/etc/cron.d/veridian-backups` (04:00/04:10/04:20 UTC) → 3 DBs manquantes maintenant backupées
+- [x] Script `infra/scripts/restore-db.sh <app> [date]` qui restore dans un Postgres temporaire sur localhost:15999 — validé sur verger-shop et prospection (490MB)
+- [x] Cron mensuel local : `infra/scripts/test-restore-monthly.sh` (1er du mois 03:00) + alert Telegram
+- [x] Runbook `runbooks/disaster-recovery.md` avec scénarios A (DB corrompue), B (volume perdu), C (VPS HS), D (compromission)
+- [x] RPO (24h) et RTO (30 min A/B / 2-4h C) documentés
+
+**Commit** : `2c2ee0e` sur `work/infra`.
 
 **Déclencheur** : incident 2026-05-08 — j'ai cassé la DB prospection avec un `docker compose up`, sauvée par chance par le volume historique. Plus jamais ça.
 
