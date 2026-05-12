@@ -6,6 +6,7 @@ import * as migration_20260501_081226_add_products_collection from './20260501_0
 import * as migration_20260502_090527 from './20260502_090527';
 import * as migration_20260512_145547_add_tenant_company_contact from './20260512_145547_add_tenant_company_contact';
 import * as migration_20260512_150457_add_tenant_branding from './20260512_150457_add_tenant_branding';
+import * as migration_20260512_154828_add_stats_and_faq_blocks from './20260512_154828_add_stats_and_faq_blocks';
 import * as migration_20260512_160636_add_partners_and_features from './20260512_160636_add_partners_and_features';
 
 export const migrations = [
@@ -50,8 +51,13 @@ export const migrations = [
     name: '20260512_150457_add_tenant_branding',
   },
   {
+    up: migration_20260512_154828_add_stats_and_faq_blocks.up,
+    down: migration_20260512_154828_add_stats_and_faq_blocks.down,
+    name: '20260512_154828_add_stats_and_faq_blocks',
+  },
+  {
     up: migration_20260512_160636_add_partners_and_features.up,
     down: migration_20260512_160636_add_partners_and_features.down,
-    name: '20260512_160636_add_partners_and_features'
+    name: '20260512_160636_add_partners_and_features',
   },
 ];
