@@ -22,16 +22,24 @@ from .loki import LokiClient
 from .prom import PromClient
 
 
-# ----- Configuration : ports attendus exposés Internet (whitelist) -----
+# =============================================================================
+# CONFIGURATION — édite directement ces constantes pour ajuster les seuils
+# et le comportement des checks de sécurité.
+#
+# Ces valeurs sont aussi overrideables via env vars OBS_<NAME>. Voir checks.py
+# pour les seuils performance/erreur (CPU_CRIT_PCT, ERROR_RATE_WARN, etc.).
+# =============================================================================
 
 # Ports qu'on accepte d'avoir exposés sur Internet (services publics légitimes)
+# → silencieux dans `obs check security`, jamais flag.
 PORTS_PUBLIC_OK = {
     22: "SSH",
     80: "HTTP (Traefik redirect HTTPS)",
     443: "HTTPS (Traefik)",
 }
 
-# Ports à filtrer (privés mais utiles via Tailscale ou Docker bridges)
+# Ports privés (servent en LAN/Tailscale/Docker bridges). S'ils sont
+# RÉELLEMENT accessibles depuis Internet → flag WARN ou CRIT.
 PORTS_PRIVATE_EXPECTED = {
     2377: "Docker Swarm management",
     7946: "Docker Swarm gossip",
@@ -41,6 +49,19 @@ PORTS_PRIVATE_EXPECTED = {
     3000: "Dokploy UI",
     2222: "SSH alt",
 }
+
+# Hostnames de hosts qui n'acceptent QUE la clé SSH (pas password).
+# Conséquence : les brute-force SSH sont juste du bruit Internet → INFO
+# au lieu de CRIT. Si tu actives PasswordAuthentication un jour, retire
+# le hostname de cette liste.
+HOSTS_SSH_KEY_ONLY = {
+    "vps-10f2bc7c",     # OVH prod
+    "dev-server",       # OVH dev
+}
+
+# Seuils SSH brute-force (par host, sur 1h)
+SSH_BRUTE_NORMAL_NOISE = 200    # < ce seuil : Internet noise normal sur key-only
+SSH_BRUTE_HIGH_VOLUME = 500     # > ce seuil : volume anormalement élevé, suspect
 
 
 # ----- Helpers SSH -----
@@ -235,11 +256,16 @@ def check_security_ports(env_filter: str | None = None, **_) -> CheckResult:
 def check_security_ssh_bruteforce(
     loki: LokiClient, env_filter: str | None = None, **_
 ) -> CheckResult:
-    """Compte les tentatives SSH échouées par IP source sur 1h."""
+    """Compte les tentatives SSH échouées sur 1h.
+
+    Severity adaptée selon la config SSH du host :
+    - host key-only (dans HOSTS_SSH_KEY_ONLY) : bruit Internet normal,
+      flag uniquement si volume anormalement élevé (> SSH_BRUTE_HIGH_VOLUME)
+    - host avec password auth : tout > 50/h est suspect (CRIT)
+    """
     findings = []
     env_lbl = f',env="{env_filter}"' if env_filter else ""
     try:
-        # Aggrège par host : nb total + IPs distinctes
         res = loki.query_instant(
             f'sum by (host) (count_over_time({{source="journald",unit="ssh.service"{env_lbl}}} '
             f'|~ "Failed password|invalid user|authentication failure" [1h]))'
@@ -253,17 +279,37 @@ def check_security_ssh_bruteforce(
             n = int(float(s["value"][1]))
         except (ValueError, IndexError):
             continue
-        if n >= 50:
-            sev = Severity.CRIT
-        elif n >= 10:
-            sev = Severity.WARN
+
+        is_key_only = host in HOSTS_SSH_KEY_ONLY
+
+        if is_key_only:
+            # Host key-only : le bruit Internet est inoffensif.
+            # On flag uniquement si volume anormalement élevé (DoS suspect ou 0day SSH).
+            if n >= SSH_BRUTE_HIGH_VOLUME:
+                sev = Severity.WARN
+                msg = f"{n} tentatives SSH /h (key-only mais volume anormal)"
+            elif n >= SSH_BRUTE_NORMAL_NOISE:
+                # Visible mais pas inquiétant — on garde un INFO pour visibilité
+                sev = Severity.INFO
+                msg = f"{n} tentatives SSH /h (bruit Internet normal sur key-only)"
+            else:
+                continue
         else:
-            continue
+            # Host avec password auth : sérieux
+            if n >= 50:
+                sev = Severity.CRIT
+                msg = f"{n} tentatives SSH /h (brute-force probable, password auth active)"
+            elif n >= 10:
+                sev = Severity.WARN
+                msg = f"{n} tentatives SSH /h (brute-force débutant, password auth active)"
+            else:
+                continue
+
         findings.append(Finding(
             check_id="security_ssh",
             severity=sev,
             target=host,
-            summary=f"{n} tentatives SSH échouées /h (brute-force probable)",
+            summary=msg,
             drilldown=f'obs search "Failed password|invalid user" --since 1h --format table',
         ))
     return CheckResult("security_ssh", findings)
