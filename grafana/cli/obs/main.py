@@ -1142,10 +1142,15 @@ def _run_check_suite(
             "env_filter": env_selector(),
         }
 
+        # Allow skipping via OBS_DISABLED_CHECKS="check_id1,check_id2" env var
+        disabled = {c.strip() for c in os.environ.get("OBS_DISABLED_CHECKS", "").split(",") if c.strip()}
+
         with ThreadPoolExecutor(max_workers=4) as pool:
             future_to_id = {}
             for check_id, fn in checks_to_run:
                 if requested and check_id not in requested:
+                    continue
+                if check_id in disabled:
                     continue
                 checks_run += 1
                 future_to_id[pool.submit(fn, **kwargs)] = check_id

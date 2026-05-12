@@ -27,9 +27,14 @@ from .loki import LokiClient
 from .prom import PromClient
 
 
-# ---------------------------------------------------------------------------
-# Seuils (overrideables via env var OBS_<NAME>)
-# ---------------------------------------------------------------------------
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  🎛  POUR AJUSTER LES SEUILS DES CHECKS — édite ci-dessous                 ║
+# ║                                                                            ║
+# ║  Modifier une valeur ici prend effet au prochain `obs check`.              ║
+# ║  Ou override one-shot via env var : `OBS_CPU_CRIT=90 obs check infra`.     ║
+# ║                                                                            ║
+# ║  Pour les seuils sécurité (SSH brute, ports), voir checks_security.py     ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
 
 
 def _env_float(name: str, default: float) -> float:
@@ -70,6 +75,10 @@ LOOP_MIN_COUNT = _env_int("LOOP_MIN_COUNT", 200)
 
 VOLUME_SPIKE_RATIO = _env_float("VOLUME_SPIKE_RATIO", 3.0)
 VOLUME_SPIKE_MIN_PER_HOUR = _env_int("VOLUME_SPIKE_MIN_PER_HOUR", 500)
+
+# Si tu veux désactiver complètement un check sans toucher au code :
+# `OBS_DISABLED_CHECKS="volume_spike,silent_containers" obs check`
+# (Géré dans main.py — feature à venir si besoin)
 
 # Quota
 QUOTA_WARN_PCT = _env_float("QUOTA_WARN", 70.0)
@@ -614,35 +623,11 @@ def check_alloy_push_failures(prom: PromClient, env_filter: str | None = None, *
 
 
 def check_auth_failures(loki: LokiClient, env_filter: str | None = None, **_) -> CheckResult:
-    """SSH/sudo auth failures (journald) sur 1h."""
-    findings = []
-    env_lbl = f',env="{env_filter}"' if env_filter else ''
-    try:
-        res = loki.query_instant(
-            f'sum by (host) (count_over_time({{source="journald"{env_lbl}}} |~ "Failed password|authentication failure|invalid user" [1h]))'
-        )
-    except Exception as e:
-        return CheckResult("auth_failures", [], error=str(e))
-
-    for s in res:
-        host = s["metric"].get("host", "?")
-        n = int(float(s["value"][1]))
-        if n >= AUTH_FAIL_CRIT:
-            sev = Severity.CRIT
-        elif n >= AUTH_FAIL_WARN:
-            sev = Severity.WARN
-        else:
-            continue
-        findings.append(
-            Finding(
-                check_id="auth_failures",
-                severity=sev,
-                target=host,
-                summary=f"{n} auth failures journald sur 1h (seuil {AUTH_FAIL_WARN}/{AUTH_FAIL_CRIT})",
-                drilldown=f'obs search "Failed password|invalid user" --since 1h',
-            )
-        )
-    return CheckResult("auth_failures", findings)
+    """Stub — la logique a migré dans checks_security.check_security_ssh_bruteforce
+    qui gère key-only vs password auth proprement. Garde-cul pour pas casser
+    la registry ALL_CHECKS.
+    """
+    return CheckResult("auth_failures", [])
 
 
 def check_silent_containers(loki: LokiClient, env_filter: str | None = None, **_) -> CheckResult:
