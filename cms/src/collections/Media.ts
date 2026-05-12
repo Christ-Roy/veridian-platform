@@ -12,7 +12,7 @@ export const Media: CollectionConfig = {
     group: 'Mon site',
   },
   access: {
-    read: ({ req }) => Boolean(req.user),
+    read: () => true,
   },
   fields: [
     {
