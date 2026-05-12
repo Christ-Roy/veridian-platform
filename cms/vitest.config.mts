@@ -36,5 +36,12 @@ export default defineConfig({
     forks: {
       singleFork: true,
     },
+    // Force séquentiel entre les fichiers .int.spec.ts. Sans ça, Vitest
+    // peut lancer 3 fichiers en parallèle dans le même fork, et chacun
+    // appelle `getPayload({ config })` qui trigger pushDevSchema en
+    // parallèle → 3 `CREATE TYPE enum_users_roles` concurrents →
+    // "type already exists" (code 42710). singleFork limite à 1 fork
+    // (séquentiel entre forks) mais pas entre files dans le même fork.
+    fileParallelism: false,
   },
 })
