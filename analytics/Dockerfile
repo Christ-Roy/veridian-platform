@@ -15,7 +15,10 @@ COPY package.json pnpm-lock.yaml* ./
 COPY prisma ./prisma
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
-RUN pnpm install --frozen-lockfile
+# pnpm 10+ refuse les build scripts non-allowlistes (ERR_PNPM_IGNORED_BUILDS).
+# On install sans scripts, puis on rebuild explicitement les deps natives.
+RUN pnpm install --frozen-lockfile --ignore-scripts \
+    && pnpm rebuild @prisma/client prisma esbuild sharp
 
 # ----------------------------------------------------------------------------
 # STAGE 2: Builder
