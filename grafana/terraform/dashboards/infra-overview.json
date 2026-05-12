@@ -1,0 +1,242 @@
+{
+  "title": "Veridian — Infra Overview",
+  "uid": "veridian-infra-overview",
+  "tags": ["veridian", "infra", "hosts"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "host",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "grafanacloud-prom"},
+        "query": "label_values(node_load1, host)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {"text": "All", "value": "$__all"}
+      },
+      {
+        "name": "env",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "grafanacloud-prom"},
+        "query": "label_values(node_load1, env)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {"text": "All", "value": "$__all"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Vue d'ensemble",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "collapsed": false
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Hosts vus par Alloy (Loki)",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 1},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [
+        {
+          "expr": "count(count by (host) (count_over_time({container=~\".+\"}[5m])))",
+          "refId": "A"
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["last"]}, "colorMode": "value", "graphMode": "none"},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [
+        {"color": "red", "value": null},
+        {"color": "yellow", "value": 1},
+        {"color": "green", "value": 2}
+      ]}}}
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Containers actifs (5 min)",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 1},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{"expr": "count(count by (container) (count_over_time({container=~\".+\",env=~\"$env\",host=~\"$host\"}[5m])))", "refId": "A"}],
+      "options": {"reduceOptions": {"calcs": ["last"]}, "colorMode": "value", "graphMode": "area"}
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Logs/min ingérés",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 1},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{"expr": "sum(rate({container=~\".+\",env=~\"$env\",host=~\"$host\"}[1m])) * 60", "refId": "A"}],
+      "options": {"reduceOptions": {"calcs": ["last"]}, "colorMode": "value", "graphMode": "area"},
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 0}}
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Lignes droppées/h (anti-quota)",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 1},
+      "datasource": {"type": "prometheus", "uid": "grafanacloud-prom"},
+      "targets": [{"expr": "sum(rate(loki_process_dropped_lines_total[5m])) * 3600", "refId": "A"}],
+      "options": {"reduceOptions": {"calcs": ["last"]}, "colorMode": "value", "graphMode": "area"},
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 0}}
+    },
+    {
+      "id": 2,
+      "type": "row",
+      "title": "État des machines (cliquer un host pour drill-down)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+      "collapsed": false
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "CPU usage % par host",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "grafanacloud-prom"},
+      "targets": [{
+        "expr": "100 * (1 - avg by (host) (rate(node_cpu_seconds_total{mode=\"idle\",host=~\"$host\",env=~\"$env\"}[5m])))",
+        "legendFormat": "{{host}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent",
+        "min": 0,
+        "max": 100,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 70},
+          {"color": "red", "value": 85}
+        ]}
+      }}
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "RAM usage % par host",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "grafanacloud-prom"},
+      "targets": [{
+        "expr": "100 * (1 - (node_memory_MemAvailable_bytes{host=~\"$host\",env=~\"$env\"} / node_memory_MemTotal_bytes{host=~\"$host\",env=~\"$env\"}))",
+        "legendFormat": "{{host}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent",
+        "min": 0,
+        "max": 100,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 80},
+          {"color": "red", "value": 90}
+        ]}
+      }}
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Disk / usage % par host",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "grafanacloud-prom"},
+      "targets": [{
+        "expr": "100 * (1 - (node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\",host=~\"$host\",env=~\"$env\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\",host=~\"$host\",env=~\"$env\"}))",
+        "legendFormat": "{{host}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {
+        "unit": "percent",
+        "min": 0,
+        "max": 100,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 80},
+          {"color": "red", "value": 90}
+        ]}
+      }}
+    },
+    {
+      "id": 3,
+      "type": "row",
+      "title": "Logs par niveau (cliquer une cell pour explore)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
+      "collapsed": false
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "Logs par niveau (par minute)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "sum by (level) (count_over_time({level=~\".+\",env=~\"$env\",host=~\"$host\"}[1m]))",
+        "legendFormat": "{{level}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}}
+    },
+    {
+      "id": 31,
+      "type": "table",
+      "title": "Top 15 containers par volume — cliquer pour Explore",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "topk(15, sum by (container, host, env) (count_over_time({container=~\".+\",env=~\"$env\",host=~\"$host\"}[1h])))",
+        "instant": true,
+        "refId": "A",
+        "format": "table"
+      }],
+      "transformations": [
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "indexByName": {"container": 0, "host": 1, "env": 2, "Value": 3}, "renameByName": {"Value": "logs/h"}}}
+      ],
+      "fieldConfig": {"defaults": {
+        "custom": {"align": "auto"},
+        "links": [{
+          "title": "Voir les logs dans Explore",
+          "url": "/explore?orgId=1&left=%7B%22datasource%22:%22grafanacloud-logs%22,%22queries%22:%5B%7B%22expr%22:%22%7Bcontainer%3D%5C%22${__data.fields.container}%5C%22%7D%22%7D%5D%7D",
+          "targetBlank": false
+        }]
+      }}
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "Santé Alloy (push pipeline)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 23},
+      "collapsed": false
+    },
+    {
+      "id": 40,
+      "type": "timeseries",
+      "title": "Lignes droppées par raison (anti-quota)",
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "grafanacloud-prom"},
+      "targets": [{
+        "expr": "sum by (reason) (rate(loki_process_dropped_lines_total[5m])) * 60",
+        "legendFormat": "{{reason}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "none", "custom": {"drawStyle": "line", "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"]}}
+    },
+    {
+      "id": 41,
+      "type": "timeseries",
+      "title": "Throughput vers Grafana Cloud (bytes/sec)",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "grafanacloud-prom"},
+      "targets": [
+        {"expr": "sum by (host) (rate(loki_write_sent_bytes_total[5m]))", "legendFormat": "Loki / {{host}}", "refId": "A"},
+        {"expr": "sum by (host) (rate(prometheus_remote_storage_bytes_total[5m]))", "legendFormat": "Mimir / {{host}}", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "Bps"}}
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "title": "Veridian — Traefik Overview",
+  "uid": "veridian-traefik-overview",
+  "tags": ["veridian", "traefik", "http"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Requêtes total (1h)",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "sum(count_over_time({container=\"dokploy-traefik\"}[1h]))",
+        "refId": "A"
+      }],
+      "options": {"reduceOptions": {"calcs": ["last"]}, "colorMode": "value", "graphMode": "area"}
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Taux 5xx (1h)",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "100 * sum(count_over_time({container=\"dokploy-traefik\",status=~\"5..\"}[1h])) / sum(count_over_time({container=\"dokploy-traefik\"}[1h]))",
+        "refId": "A"
+      }],
+      "options": {"reduceOptions": {"calcs": ["last"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {
+        "unit": "percent",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 1},
+          {"color": "red", "value": 5}
+        ]}
+      }}
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Taux 4xx (1h)",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "100 * sum(count_over_time({container=\"dokploy-traefik\",status=~\"4..\"}[1h])) / sum(count_over_time({container=\"dokploy-traefik\"}[1h]))",
+        "refId": "A"
+      }],
+      "options": {"reduceOptions": {"calcs": ["last"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {
+        "unit": "percent",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "yellow", "value": 10},
+          {"color": "orange", "value": 25}
+        ]}
+      }}
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Spans trace envoyés à Tempo (5min)",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "grafanacloud-prom"},
+      "targets": [{
+        "expr": "sum(increase(otelcol_exporter_sent_spans_total[5m]))",
+        "refId": "A"
+      }],
+      "options": {"reduceOptions": {"calcs": ["last"]}, "colorMode": "value", "graphMode": "area"}
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Requêtes par status (par minute)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "sum by (status) (count_over_time({container=\"dokploy-traefik\"}[1m]))",
+        "legendFormat": "{{status}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}}
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Requêtes par route (top 10)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "topk(10, sum by (route) (rate({container=\"dokploy-traefik\",route!=\"\"}[5m])))",
+        "legendFormat": "{{route}}",
+        "refId": "A"
+      }],
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean"]}}
+    },
+    {
+      "id": 30,
+      "type": "table",
+      "title": "Top routes — volume + erreurs (cliquer pour explore)",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 12},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "topk(20, sum by (route, method, status) (count_over_time({container=\"dokploy-traefik\",route!=\"\"}[1h])))",
+        "instant": true,
+        "refId": "A",
+        "format": "table"
+      }],
+      "transformations": [
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"Value": "requests/h"}}}
+      ],
+      "fieldConfig": {"defaults": {
+        "custom": {"align": "auto"},
+        "links": [{
+          "title": "Voir les logs Traefik pour cette route",
+          "url": "/explore?orgId=1&left=%7B%22datasource%22:%22grafanacloud-logs%22,%22queries%22:%5B%7B%22expr%22:%22%7Bcontainer%3D%5C%22dokploy-traefik%5C%22,route%3D%5C%22${__data.fields.route}%5C%22%7D%22%7D%5D%7D",
+          "targetBlank": false
+        }]
+      }}
+    },
+    {
+      "id": 40,
+      "type": "logs",
+      "title": "Traefik 5xx live (derniers logs)",
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 22},
+      "datasource": {"type": "loki", "uid": "grafanacloud-logs"},
+      "targets": [{
+        "expr": "{container=\"dokploy-traefik\",status=~\"5..\"}",
+        "refId": "A"
+      }],
+      "options": {"showTime": true, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending"}
+    }
+  ]
+}
