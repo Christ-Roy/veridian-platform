@@ -70,3 +70,9 @@ sites/*/.next
 sites/*/out
 sites/*/.wrangler
 sites/template-website/
+
+# === Claude Code session lock (per-session) ===
+.claude/scheduled_tasks.lock
+
+# === Forensics snapshots (peut contenir secrets, garder local) ===
+runbooks/forensics/

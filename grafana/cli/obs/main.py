@@ -1110,6 +1110,12 @@ Format / filtres communs : --format json, --severity warn, --env dev.
 app.add_typer(check_app)
 
 
+# ----- pentest_app : red team actif (obs pentest <preset>) -----
+
+from .pentest import pentest_app  # noqa: E402
+app.add_typer(pentest_app)
+
+
 def _run_check_suite(
     checks_to_run: list[tuple[str, callable]],
     severity: str,
