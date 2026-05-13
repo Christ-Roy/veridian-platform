@@ -59,6 +59,7 @@ entryPoints:
     http:
       middlewares:
         - crowdsec@file
+        - rate-limit-fuse@file
       tls:
         certResolver: letsencrypt
     forwardedHeaders:
