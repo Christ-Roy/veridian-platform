@@ -9,6 +9,96 @@
 
 ---
 
+## ✅ P0 RÉSOLU 2026-05-13 — Prospection passée en vrai GitOps
+
+Prospection était en `sourceType=raw` Dokploy avec un `composePath` qui pointait sur l'ancien monorepo (`github.com/Christ-Roy/veridian-platform.git`). Symptômes : push GitHub ignoré, ENV désynchronisées, image jamais pull automatiquement, healthcheck IPv6 vs IPv4 cassait Traefik.
+
+**Recette appliquée — modèle à dupliquer pour les autres apps** :
+
+1. Repo polyrepo public (`gh api -X PATCH repos/Christ-Roy/<app> -f visibility=public`) — sinon Dokploy n'a pas les credentials pour clone (la GitHub App n'est pas branchée sur les composes custom-git, voir `project_dokploy_clone_creds`).
+2. Compose `infra/docker-compose.yml` propre dans le repo polyrepo avec :
+   - **Pas de `container_name` forcé** (laisser Compose préfixer avec l'appName Dokploy, sinon Traefik docker provider ignore le container)
+   - **Healthcheck en `127.0.0.1`** pas `localhost` (Next.js standalone listen IPv4 only)
+   - **`pull_policy: always`** sur le service pour forcer GHCR pull à chaque deploy
+   - Variables `${VAR}` pour tout ce qui change selon l'env, gérées via `env:` field Dokploy
+3. Update Dokploy compose via API `compose.update` :
+   ```json
+   {"composeId":"<id>","sourceType":"git","customGitUrl":"https://github.com/Christ-Roy/<repo>.git","customGitBranch":"main","composePath":"infra/docker-compose.yml","autoDeploy":true,"composeFile":""}
+   ```
+4. Vérifier que toutes les variables référencées dans le compose Git existent dans le champ `env` Dokploy (DATABASE_URL, AUTH_SECRET, NEXTAUTH_URL, etc.).
+5. Webhook GitHub vers Dokploy :
+   ```bash
+   gh api -X POST repos/Christ-Roy/<repo>/hooks \
+     -f name=web -F active=true -F 'events[]=push' \
+     -f 'config[url]=https://dokploy.veridian.site/api/deploy/compose/<refreshToken>' \
+     -f 'config[content_type]=application/json'
+   ```
+6. Test push → vérifier `/etc/dokploy/logs/<appName>/` qu'un deploy se déclenche tout seul avec `Source Type: docker git ✅`.
+
+**Flow GitOps cible (validé sur Prospection)** :
+push GitHub → webhook ping Dokploy → Dokploy fait `git pull` + `docker pull --force` + `docker compose up -d` → Traefik picke les nouveaux labels via docker provider → routing automatique. Zéro intervention manuelle.
+
+---
+
+## 🔴 P0 2026-05-13 — Migrer les autres stacks Veridian en GitOps réel
+
+État des stacks Veridian côté Dokploy :
+
+| Stack | sourceType | composePath | Webhook GitHub | Action |
+|---|---|---|---|---|
+| **prospection-prod** | ✅ git | infra/docker-compose.yml | ✅ configuré | rien (modèle) |
+| **hub-prod** | git | docker-compose.yml | ❓ à vérifier | webhook si manquant |
+| **analytics-prod** | git | ? | ❓ | vérifier + webhook |
+| **notifuse-prod** | git | ? | ❓ | vérifier + webhook |
+| **cms-prod** | git | ? | ❓ | vérifier + webhook |
+| **twenty-prod** | raw | — | — | legacy, à dégager (cf P0 dégagement Twenty) |
+| **crowdsec-prod** | raw | — | — | migrer si on continue à itérer dessus |
+| **asset-bank-prod**, **linkedin-prod**, **prospection-fr**, **internal-tools-legacy** | raw | — | — | apps internes, P1 (pas critique business) |
+| **supabase-prod** | raw | — | — | dégage, voir incident Supabase ci-dessous |
+
+**Pour chaque app `git` déjà migrée** : vérifier que la recette Prospection est appliquée :
+- `pull_policy: always` dans le compose
+- Healthcheck IPv4 (pas localhost)
+- Webhook GitHub configuré côté repo
+- Pas de `container_name` forcé qui casserait Traefik
+
+**Tickets P0 par app** :
+- [ ] **hub-prod** : audit GitOps complet (webhook, pull_policy, healthcheck IPv4) — Hub est critique billing/auth, on veut zéro intervention manuelle
+- [ ] **notifuse-prod** : idem, critique pour magic links cross-app
+- [ ] **analytics-prod** : idem, déjà partiellement audité (commit récent migre vers GitOps)
+- [ ] **cms-prod** : idem
+- [ ] **twenty-prod** : décision dégagement vs GitOps — alignée avec la vision "Twenty dégage P0"
+
+---
+
+## ✅ RÉSOLU 2026-05-13 — Prospection migré Auth.js v5 + Supabase prod coupé
+
+**Découverte de la nuit** : la migration Auth.js v5 de Prospection annoncée le 2026-05-08 **n'avait jamais été mergée sur main** — elle vivait sur `origin/staging` du monorepo et a été perdue lors de l'extraction polyrepo le 2026-05-13. L'image prod tournait donc encore sur Supabase Auth, et la dépendance `getTenantId()` via `@supabase/supabase-js` faisait fallback silencieusement au tenant `00000000-0000-0000-0000-000000000000` (tenant système, leads orphelins).
+
+Symptôme observé : pipeline UI 380 leads alors que DB en a 644 sur le tenant Veridian. Robert voyait un **tenant fantôme** tout en étant authentifié sur le sien.
+
+**Recovery appliquée** :
+1. Récupération des 6 commits Auth.js v5 depuis `origin/staging` du monorepo (`5c2cc88` → `10eb844` → `7ce8363` → `3593bd4` → ...) via replace total `src/` dans `veridian-prospection`
+2. Patch CVE (12 high) via `npm audit fix` post-récupération
+3. `getTenantId()` réécrit pour utiliser Prisma local au lieu de Supabase (cf `src/lib/supabase/tenant.ts` — à renommer en P1)
+4. Compose corrigé : pas de `container_name` forcé, healthcheck en `127.0.0.1`, `pull_policy: always`
+5. Bascule Dokploy `raw` → `git` avec webhook GitHub
+6. Stack Supabase prod stoppée 21:30 (10 containers `Exited`), zéro impact business depuis
+
+**État final 2026-05-13 23:30** :
+- Prospection prod : 626 leads visibles, tenant Veridian `359b76d5-...`, login OK, Auth.js v5 + GitOps webhook
+- Supabase prod : tous containers `Exited (0|1)`, `api.app.veridian.site` → 404 (dead)
+- Hub : tournait déjà sans Supabase depuis le rebuild 17:34, OK
+
+**Tâches de finition** (P1, pas urgentes) :
+1. Supprimer la stack Dokploy Supabase complètement (actuellement juste stoppée) — composeId `xhlNGckdeiH1ZdSqZv2HT`
+2. Retirer DNS Cloudflare `api.app.veridian.site` une fois la stack supprimée
+3. Backup DB Supabase avant destruction définitive (data legacy users avant migration Auth.js)
+4. Renommer `src/lib/supabase/` → `src/lib/tenant/` dans `veridian-prospection` (path historique trompeur, le code à l'intérieur tape uniquement sur Prisma local maintenant)
+5. Ajouter `prospectionPlan` au schema Prisma de Prospection (champ existe en DB, query actuelle en `$queryRawUnsafe`)
+
+---
+
 ## 🔴 INCIDENT 2026-05-10 — Hub login down 3h (Traefik dual-router)
 
 **Workaround appliqué**, prod OK depuis 13:05. **Causes racines à fixer en priorité prochaine session** : carcasses composes Dokploy non nettoyées post blue/green, monitoring trop superficiel, Auth.js v5 silencieux sur erreur de config.
