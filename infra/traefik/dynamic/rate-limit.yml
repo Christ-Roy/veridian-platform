@@ -1,0 +1,63 @@
+# Traefik rate-limit — fusible DDoS volumetric uniquement
+#
+# Statut : DRAFT 2026-05-13, pas encore référencé par un router.
+# À activer en ajoutant `- rate-limit-fuse` dans `entryPoints.websecure.http.middlewares`
+# de traefik.yml (chain global, en plus de crowdsec@file).
+#
+# Pourquoi : la collection crowdsec/http-dos installée 2026-05-13 11:08 couvre
+# les patterns DDoS sophistiqués (random URIs, UA switching, cache bypass) mais
+# PAS le DDoS volumetric simple (1000 req/30s sur `/` depuis 1 IP).
+#
+# IMPORTANT — philosophie "fusible vs pixel-perfect"
+# ===================================================
+# Les apps Veridian sont des Next.js / SPA qui peuvent légitimement faire des
+# pics de requêtes (prefetch Next 14+, polling tRPC, useSWR, retry sur 500).
+# Si une app rentre en boucle d'erreur, on NE VEUT PAS que le user se fasse
+# bannir : on veut juste que la prod ne tombe pas pendant qu'on debug.
+#
+# Donc : seuils TRÈS larges. Le but est de fusil l'extrême (botnet 500 req/s
+# soutenu) pas de filtrer le trafic légitime ou même un user un peu agressif.
+#
+# Si une app bug, l'user voit des 429 sur quelques secondes au pire, puis ça
+# repart. Pas de ban CrowdSec déclenché par notre rate-limit (Traefik renvoie
+# 429, pas un signal vers CrowdSec).
+
+http:
+  middlewares:
+    # Fusible global anti-DDoS volumetric
+    # Seuils volontairement larges pour ne PAS toucher l'usage légitime :
+    # - average=100 req/s = 6000 req/min par IP (largement plus qu'un user normal,
+    #   même avec prefetch Next.js + 5 onglets + polling tRPC actif)
+    # - burst=300 = autorise des pics ponctuels (déploiement, navigation rapide,
+    #   tests CI depuis 1 IP, etc.)
+    # - period=1s
+    #
+    # Seuil de déclenchement effectif : 300 req instantané OU >100 req/s soutenu.
+    # En pratique : il faut un nuclei agressif ou un botnet pour atteindre ça.
+    # Une app en boucle infinie côté client = max ~20-30 req/s = passe sous le
+    # fusible. Même chose pour 10 onglets ouverts qui polling tous les 5s.
+    rate-limit-fuse:
+      rateLimit:
+        average: 100
+        period: 1s
+        burst: 300
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
+          # depth: 0 = lit l'IP TCP source. Avec forwardedHeaders.trustedIPs CF
+          # configuré dans traefik.yml, l'IP "source" devient celle du X-Forwarded-For
+          # quand le trafic vient de Cloudflare. Donc on rate-limit l'IP client réelle.
+
+# Activation : décommenter cette ligne dans traefik.yml
+#
+# entryPoints:
+#   websecure:
+#     http:
+#       middlewares:
+#         - crowdsec@file
+#         - rate-limit-fuse@file   # <-- AJOUTER
+#
+# Effet : tout endpoint Veridian protégé. Pour exclure un endpoint (ex webhook
+# Stripe qui peut burst à 200 events/min sur une rotation), créer un router
+# dédié sans ce middleware OU augmenter les seuils pour cet endpoint via un
+# `rate-limit-stripe` séparé.
