@@ -1,0 +1,13 @@
+# Trivy ignore list — Veridian Platform
+#
+# Format : un CVE ID par ligne. Lignes vides et `#` ignorees.
+# Toute entree DOIT etre justifiee par un commentaire en ligne au-dessus :
+# - pourquoi on ignore cette CVE (code path non utilise, faux positif, etc.)
+# - jusqu'a quelle date on accepte de l'ignorer (a re-evaluer)
+# - qui a valide l'exception
+#
+# Ce fichier est lu par Trivy (TRIVY_IGNOREFILE=/etc/trivy/.trivyignore).
+# Revue trimestrielle obligatoire : retirer les entries pour CVE patchees
+# upstream, ou re-justifier celles encore ignorees.
+
+# (vide pour V1 — toute CVE critical/high doit etre patchee ou justifiee)

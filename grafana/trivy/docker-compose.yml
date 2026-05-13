@@ -1,0 +1,60 @@
+version: "3.8"
+
+# Trivy — scanner CVE on-demand pour les images Docker Veridian.
+#
+# Ce compose ne demarre AUCUN service en arriere-plan : Trivy est invoque
+# en mode ephemere via `docker compose run --rm trivy ...`.
+#
+# Usage typique (lance sur prod-pub ou dev-pub) :
+#   cd /home/ubuntu/veridian/grafana/trivy
+#   docker compose run --rm trivy image <image:tag>
+#
+# Le scanner CLI `obs` (grafana/cli/) appelle cette commande via SSH pour
+# alimenter `obs check security` et `obs security images`.
+#
+# Volumes :
+# - trivy-cache : base CVE persistante (~400 Mo apres premier scan).
+#   Trivy maj cette base 2x/jour automatiquement.
+# - /var/run/docker.sock (read-only) : permet a Trivy de scanner les images
+#   locales du daemon Docker sans avoir a les pull depuis un registry.
+#
+# Securite :
+# - Aucun port expose.
+# - Socket Docker monte en read-only (Trivy a juste besoin de lire les
+#   manifests d'image, pas de creer de containers).
+# - Tag d'image pinne (pas de `latest`) — bump explicite via PR.
+
+services:
+  trivy:
+    image: aquasec/trivy:0.59.1
+    profiles: ["manual"]  # interdit `docker compose up` accidentel
+    environment:
+      # Cache de la base CVE (sinon Trivy re-DL 400 Mo a chaque run)
+      TRIVY_CACHE_DIR: /cache
+      # Severities reportees par defaut. Override possible via -e en CLI.
+      TRIVY_SEVERITY: "CRITICAL,HIGH"
+      # JSON par defaut pour parsing programmatique par `obs`.
+      TRIVY_FORMAT: json
+      # Pas de barre de progression (cassent les logs en CI/automation).
+      TRIVY_NO_PROGRESS: "true"
+      TRIVY_QUIET: "true"
+      # Timeout par image (Trivy peut bloquer si registry indispo).
+      TRIVY_TIMEOUT: 5m
+      # 0 = on remonte les findings sans fail le exit code.
+      # Pour la CI on overridera --exit-code 1 explicite.
+      TRIVY_EXIT_CODE: "0"
+      # Ignorer les CVE sans patch dispo (sinon bruit ingerable).
+      # Override possible : -e TRIVY_IGNORE_UNFIXED=false
+      TRIVY_IGNORE_UNFIXED: "true"
+      # Ne pas update la DB a chaque run (on la maj via cron 1x/jour
+      # ou via TRIVY_SKIP_DB_UPDATE=false explicite).
+      TRIVY_SKIP_DB_UPDATE: "false"  # premier run = DL la DB
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - trivy-cache:/cache
+      # Fichier d'exclusions versionne (CVE acceptees, documentees)
+      - ./.trivyignore:/etc/trivy/.trivyignore:ro
+
+volumes:
+  trivy-cache:
+    name: veridian-trivy-cache

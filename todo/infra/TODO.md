@@ -441,6 +441,162 @@ L'app a fetché l'URL OAST (out-of-band) externe via son `/_next/image` proxy �
 
 **Lien** : `runbooks/incidents/2026-05-13-pentest-manuel.md` à updater.
 
+### P0.8 — 🔥 Migration GitOps Dokploy : fixer la double source de vérité
+
+**Statut** : ouvert, décidé 2026-05-13 12:50 (session audit Trivy + bump Traefik).
+
+**Le vrai problème** : Dokploy gère ses composes dans `/etc/dokploy/compose/<random-slug>/code/docker-compose.yml` sur le VPS — ces fichiers sont **édités via l'UI**, pas dans le repo Git. Conséquence : le repo `infra/docker-compose.*.yml` n'est plus la source de vérité, juste de la doc qui dérive en silence. Robert découvre régulièrement le drift (cf. mémoire `session_2026-05-12_cms_thumbnail.md`).
+
+**Ce que ça bloque concrètement** :
+- ❌ **Pas de pinning d'images** : Dokploy écrase nos tags dans son YAML d'origine, on ne peut pas figer `redis:7-alpine@sha256:...`
+- ❌ **Pas de Dependabot/Renovate** : scannent le repo Git, qui ne reflète plus la prod
+- ❌ **Pas de Trivy CI bloquant** : la CI ne scanne pas les images réellement en prod
+- ❌ **Pas de blue/green propre** : faut passer par l'UI Dokploy à chaque fois
+- ❌ **`obs check` doit aller en SSH** chercher les composes live au lieu de lire le repo
+- ❌ **Incidents drift répétés** : `session_2026-05-12_cms_thumbnail.md` mentionne "drift compose live OVH" comme bug connu
+- ❌ **Rollback git ne marche pas** : un `git revert` du repo n'a aucun effet sur Dokploy
+- ❌ **Tout fix sécu = manuel** : voir audit Trivy 2026-05-13 (8 images CRIT, dont CrowdSec/redis/dokploy/supabase) qu'on ne peut pas patcher automatiquement
+
+**Coût observé du problème** : audit Trivy 2026-05-13 a révélé 50+ CRIT cumulées sur 8 images. Bump Traefik v3.6.7→v3.6.17 a nécessité un script `bump-traefik.sh` custom qui contourne Dokploy. Sans GitOps, **chaque CVE en prod = intervention manuelle**, sans audit trail Git, sans review.
+
+**Approche cible : Stratégie B "GitOps via Dokploy Compose type Git Provider"**
+
+Dokploy supporte nativement (mais sous-utilisé) un **provider "Git"** pour les Compose, documenté dans `~/Bureau/dokploy-infra/docs/content/docs/core/docker-compose/providers.mdx`. À chaque webhook GitHub, Dokploy `git pull` puis `docker compose up`. On garde Dokploy pour les certs/dashboard/backups, on récupère le repo comme source de vérité.
+
+**Pourquoi on ne l'a pas fait au début** (analyse honnête 2026-05-13) :
+- Le mode par défaut Dokploy quand on crée un Compose via l'UI est **"Raw"** (compose collé dans l'éditeur), pas "Git". On colle son YAML → on déploie → ça marche immédiatement. Aucun guard-rail ne pousse vers "Git provider".
+- Quand on a démarré, le monorepo Veridian n'était pas encore structuré. Coller dans Dokploy était plus rapide.
+- Le coût du drift "Raw" est invisible jusqu'à ce qu'on veuille brancher Dependabot/Trivy/blue-green. Personne ne sent le problème les premiers mois.
+- La doc Dokploy met "Raw" en avant dans les tutoriels. "Git provider" est mentionné en passant dans `docker-compose/providers.mdx` + `auto-deploy.mdx`.
+
+**Bonne nouvelle** : la migration est **bien plus rapide qu'envisagée** — provider switch + webhook = ~3 min de UI par stack. Pas un chantier 8-15 sessions, plutôt **1-3 sessions**.
+
+```
+[infra/<service>/docker-compose.yml] ← push  ← Dependabot/Renovate PRs
+       │
+       │ webhook GitHub
+       ▼
+[Dokploy] git pull + docker compose up
+       │
+       ▼
+[containers en prod, identiques au repo]
+```
+
+**Plan d'attaque incrémental — réaliste après lecture doc Dokploy 2026-05-13**
+
+#### Phase 1 — Pilot sur 1 service (1 session)
+
+- [ ] Choisir le service pilote : **Notifuse** (2 containers, peu critique, Robert le maîtrise)
+- [ ] Créer `infra/services/notifuse/` dans le repo avec `docker-compose.yml` propre + `.env.example` + `README.md`
+- [ ] Pinner toutes les images en `image:tag@sha256:...` pour Notifuse
+- [ ] Dans Dokploy UI : **changer le provider de "Raw" à "Git"** sur la stack Notifuse existante (ou créer une nouvelle Compose en "Git" si on préfère pas toucher l'existante)
+- [ ] Renseigner URL repo + branche `main` + path `infra/services/notifuse/`
+- [ ] Activer "Auto Deploy", récupérer l'URL webhook Dokploy
+- [ ] Ajouter le webhook dans GitHub repo settings
+- [ ] Tester un PR qui bump un patch mineur de Notifuse → vérifier que Dokploy déploie automatiquement après merge
+- [ ] Vérifier que les certs Traefik continuent de marcher (labels dans le compose Git, pas dans l'UI)
+- [ ] Documenter le pattern dans `runbooks/dokploy-gitops-pattern.md` (pour la suite + sessions futures + ticket par app)
+- [ ] Si tout OK : delete l'ancienne stack Notifuse "Raw" Dokploy
+
+#### Phase 2 — Migration en série (1 session, ~30 min de UI clicks)
+
+Une fois le pattern validé sur Notifuse, basculer chaque stack Dokploy "Raw" → "Git" prend ~3 min. Sessions courtes.
+
+- [ ] **CrowdSec stack** (bouncer + LAPI) — déjà en CRIT (8 CVE)
+- [ ] **Twenty CRM** (4 containers : server + worker + redis + db)
+- [ ] **Supabase** (10 containers — vérifier qu'on peut tout faire dans un seul compose Git)
+- [ ] **Hub, Prospection, Analytics, CMS** (apps Veridian)
+- [ ] **Asset-bank, linkedin-dashboard, verger-shop, veridian-cms** (apps tertiaires)
+
+Procédure unique par stack (documentée dans `runbooks/dokploy-gitops-pattern.md`) :
+1. Vérifier que le compose `infra/services/<app>/docker-compose.yml` est à jour dans le repo
+2. UI Dokploy → Compose `<app>` → Settings → Provider : Raw → Git
+3. Renseigner repo + branche + path
+4. Activer Auto Deploy + ajouter webhook GitHub
+5. Test : push un changement mineur → vérifier deploy auto
+6. Smoke prod : `curl -I https://<app>.veridian.site`
+
+#### Phase 3 — Branchement CI complet (1 session, ouvre la voie à toutes les automations)
+
+Une fois N services en GitOps :
+
+- [ ] Activer **Dependabot** dans `.github/dependabot.yml` pour Docker images des composes Git-managed
+- [ ] Étendre `_audit-cve.yml` workflow pour scanner aussi les images Docker buildées (cf P1.1 — Trivy CI bloquant)
+- [ ] Workflow CI security par app — voir détail dans **ticket par app worktree** (cf section "Ticket vers team leads apps" ci-dessous)
+- [ ] Brancher **Renovate** pour auto-merge des patches passing CI + Trivy clean
+- [ ] Cron Trivy quotidien qui ouvre une issue GitHub si nouvelle CVE détectée sur image en prod (= `obs check security` quotidien)
+
+**Tickets vers team leads apps (à ouvrir une fois Phase 2 finie)**
+
+Chaque app Veridian (Hub, Prospection, Analytics, CMS, Twenty, Notifuse) doit ajouter un workflow CI security dans son worktree :
+
+```yaml
+# .github/workflows/security-cve.yml
+name: Security — CVE scan
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 3 * * *'  # quotidien 3h UTC pour détecter CVE upstream
+
+jobs:
+  trivy-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - run: docker build -t app:${{ github.sha }} .
+      - uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'app:${{ github.sha }}'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: true
+```
+
+Tickets à ouvrir dans `todo/apps/<app>/TODO.md` section "Tickets infra" une fois P0.8 phase 2 finie :
+- [ ] **Hub** : ajouter `security-cve.yml`, intégrer auto-merge Renovate sur patch Docker
+- [ ] **Prospection** : idem
+- [ ] **Analytics** : idem
+- [ ] **CMS** : idem (Payload + plugins npm)
+- [ ] **Twenty** : (upstream, skip CI build mais cron Trivy sur image deployed)
+- [ ] **Notifuse** : (upstream, idem)
+
+Pattern auto-merge Renovate à standardiser : "patches passing CI + 0 CRIT/HIGH Trivy = merge auto. Minor/major = review humaine.". Doc complète dans `runbooks/dokploy-gitops-pattern.md` créé en Phase 1.
+
+**Risques connus à anticiper**
+
+| Risque | Mitigation |
+|---|---|
+| Dokploy ajoute toujours ses labels Traefik propres aux composes Git | Documenter quels labels Dokploy override vs ceux qu'il respecte (test sur pilote) |
+| Webhook GitHub down → désync prod | Ajouter check `obs` qui compare le SHA Git du dernier commit deployé avec `git rev-parse HEAD` du repo |
+| Image upstream cassée → Dokploy redéploie en boucle | Pinning SHA + Trivy CI bloquant en amont = condition d'entrée |
+| Backup volumes Dokploy ne suit pas si stack recréée | Vérifier qu'on garde le même `compose project name` et donc les mêmes volumes Docker |
+| Migration de stack existante = perte temporaire de healthcheck Dokploy | Procédure : créer la nouvelle stack en parallèle, switcher Traefik labels, supprimer l'ancienne |
+
+**Quick wins en attendant la migration complète**
+
+Sans toucher Dokploy mais en réduisant le drift :
+
+- [x] **Bump Traefik via script idempotent** (`grafana/scripts/bump-traefik.sh` 2026-05-13) — modèle pour les autres bumps
+- [ ] Snapshot quotidien des composes live `/etc/dokploy/compose/*/code/docker-compose.yml` → commit dans `infra/dokploy-snapshots/` (audit trail minimal)
+- [ ] Trivy `obs check security` quotidien qui alerte sur les CVE des images live (= P1.1)
+- [ ] Script qui dump tous les composes Dokploy live et vérifie le delta avec `infra/services/` (détecte le drift)
+
+**Lien avec autres chantiers** :
+- **P0.6** (Dokploy UI exposé) : si on migre tout en GitOps, l'UI Dokploy devient secondaire (sans pour autant pouvoir la supprimer car certs Let's Encrypt + dashboard)
+- **P1.1** (Trivy scan) : devient pleinement utile une fois GitOps en place — les CVE détectées seront fixables par PR
+- **P1.2** (rotation secrets) : la migration GitOps oblige à clarifier où vivent les secrets (Dokploy ENV store vs `.env` Git non-commité vs OpenBao/Vault à terme)
+
+**Référence ouverte** :
+- Discussion Dokploy mode "Compose Git Provider" : pas (encore) documentée dans `~/Bureau/dokploy-infra/docs/`, à investiguer dans l'UI Dokploy ou poser la question à Mauricio (auteur Dokploy)
+- Patterns GitOps alternatifs : ArgoCD, Flux, Komodo — overkill pour Veridian solo mais bon à connaître
+
+**Pourquoi P0 et pas P1** : ce blocage architectural amplifie TOUS les autres P0/P1. La sécurité (P0.6, P1.1, P1.2), la stabilité (P0.0 dual-router), les coûts opérationnels (chaque bump manuel = 30 min de Robert) — tout dépend de fixer cette double source de vérité. Tant que ça reste, on bricole.
+
+---
+
 ## P1 — important, à venir après les P0
 
 ### P1.1 — 🟡 Trivy scan automatisé : script prêt, scheduler à brancher
