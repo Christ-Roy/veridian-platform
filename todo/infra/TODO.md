@@ -160,6 +160,8 @@
 - [x] Allowlist Veridian versionnée : `infra/crowdsec/whitelists.yaml` + `infra/scripts/crowdsec-apply-allowlist.sh` (Robert + dev-server + Tailscale 100.64/10 + RFC1918 + 6 IPs Better Uptime). Mécanisme = parser CrowdSec `/etc/crowdsec/parsers/s02-enrich/whitelists.yaml` (collection `crowdsecurity/whitelist-good-actors` déjà installée). Script idempotent + SIGHUP reload. Testé live 2026-05-13 10:31.
 - [x] Vérif : burst 100 req parallèles → 100/100 en 200 (vs 53% en 403 hier), latence 153-200ms stable
 - [x] Vérif : `obs pentest deep` lancé sur app.veridian.site, monitoring en cours (run `20260513-102318-deep`)
+- [x] **Vérif real-IP CrowdSec** (audit Robert 2026-05-13 11:00) : `cscli decisions list --type ban` montre 36 bans actifs dont les IPs sont **toutes des vraies IPs publiques externes** (Chine 123.57.x.x, Singapour, Azure 20.206.x.x, DigitalOcean 159.65.x.x, Cloudflare Warp 104.28.x.x). **Aucun ban sur IP 172.x ou 100.x** = real-IP fonctionne, CrowdSec bannit bien les vrais attaquants. Acquisition metrics : `docker:dokploy-traefik` 108k lines read, 106k parsed, 45k whitelisted, 70k poured to bucket. Alertes actives diverses (http-wordpress-scan 28, ssh-time-based-bf 636, http-probing 101, etc.).
+- [x] Doomsday consécutifs validés : 4 runs après le fix (1001+1101+1001+1001 = 4104 req), tous 100% 200 OK, 0% 403, latence avg ~1.6s.
 
 **Découvertes pendant l'audit** :
 - Le compose Dokploy CrowdSec (`compose-program-digital-application-vb1x5n`) est en état `.disabled-2026-05-10-collision-fix` — les containers tournent en `unless-stopped` (survivent reboot) mais Dokploy ne les manage plus. À ré-onboarder proprement (sans le service `crowdsec-traefik-bouncer` désormais inutile)
