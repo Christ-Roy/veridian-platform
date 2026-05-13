@@ -40,34 +40,37 @@ push GitHub → webhook ping Dokploy → Dokploy fait `git pull` + `docker pull 
 
 ---
 
-## 🔴 P0 2026-05-13 — Migrer les autres stacks Veridian en GitOps réel
+## ✅ P0 RÉSOLU 2026-05-14 — Migration GitOps des autres stacks Veridian
 
-État des stacks Veridian côté Dokploy :
+État final des stacks Veridian côté Dokploy après audit + fixes :
 
-| Stack | sourceType | composePath | Webhook GitHub | Action |
+| Stack | sourceType | composePath | Webhook GitHub | Recette Prospection |
 |---|---|---|---|---|
-| **prospection-prod** | ✅ git | infra/docker-compose.yml | ✅ configuré | rien (modèle) |
-| **hub-prod** | git | docker-compose.yml | ❓ à vérifier | webhook si manquant |
-| **analytics-prod** | git | ? | ❓ | vérifier + webhook |
-| **notifuse-prod** | git | ? | ❓ | vérifier + webhook |
-| **cms-prod** | git | ? | ❓ | vérifier + webhook |
-| **twenty-prod** | raw | — | — | legacy, à dégager (cf P0 dégagement Twenty) |
-| **crowdsec-prod** | raw | — | — | migrer si on continue à itérer dessus |
-| **asset-bank-prod**, **linkedin-prod**, **prospection-fr**, **internal-tools-legacy** | raw | — | — | apps internes, P1 (pas critique business) |
-| **supabase-prod** | raw | — | — | dégage, voir incident Supabase ci-dessous |
+| **prospection-prod** | ✅ git | infra/docker-compose.yml | ✅ configuré | ✅ modèle |
+| **hub-prod** | ✅ git | docker-compose.yml | ✅ ajouté + content_type=json fix | ✅ pull_policy+IPv4 patch b723ad0 |
+| **analytics-prod** | ✅ git | ./docker-compose.yml | ✅ déjà OK | ✅ pull_policy patch 948d94d |
+| **notifuse-prod** | ✅ git | ./docker-compose.yml | ✅ déjà OK | ✅ déjà conforme (rien à patcher) |
+| **cms-prod** | ✅ git | ./docker-compose.yml | ✅ déjà OK | ✅ pull_policy + retrait container_name patch 2a7e1a4 |
+| **twenty-prod** | raw | — | — | ⏳ legacy, à dégager (cf P0 dégagement Twenty) |
+| **crowdsec-prod** | raw | — | — | ⏳ migrer si on continue à itérer dessus |
+| **asset-bank-prod**, **linkedin-prod**, **prospection-fr**, **internal-tools-legacy** | raw | — | — | ⏳ P1 |
+| **supabase-prod** | raw | — | — | 🗑️ dégagé 2026-05-13 |
 
-**Pour chaque app `git` déjà migrée** : vérifier que la recette Prospection est appliquée :
-- `pull_policy: always` dans le compose
-- Healthcheck IPv4 (pas localhost)
-- Webhook GitHub configuré côté repo
-- Pas de `container_name` forcé qui casserait Traefik
+**Découverte CI critique** (cf [[project-github-webhook-content-type]]) :
+le webhook GitHub vers Dokploy doit avoir `content_type=json` (pas `application/json`).
+Avec `application/json`, GitHub envoie une requête mal formée → Dokploy renvoie 301 →
+delivery échoue → **aucun auto-deploy**. La recette Prospection documentée ci-dessus
+contient l'erreur, à corriger dans toute recette future.
 
-**Tickets P0 par app** :
-- [ ] **hub-prod** : audit GitOps complet (webhook, pull_policy, healthcheck IPv4) — Hub est critique billing/auth, on veut zéro intervention manuelle
-- [ ] **notifuse-prod** : idem, critique pour magic links cross-app
-- [ ] **analytics-prod** : idem, déjà partiellement audité (commit récent migre vers GitOps)
-- [ ] **cms-prod** : idem
+**Tests bout-en-bout validés 2026-05-14** :
+- hub : push → webhook OK 200 → redeploy → container Up + /api/auth/providers HTTP 200
+- analytics : push → webhook OK 200 → image SHA pulled (idempotent) → container healthy
+- cms : push → webhook OK 200 → next build + container nouveau Up + Traefik routing OK
+- notifuse : déjà cleanement configuré, pas touché
+
+**Tâches restantes** :
 - [ ] **twenty-prod** : décision dégagement vs GitOps — alignée avec la vision "Twenty dégage P0"
+- [ ] **notifuse** : commit CI baseline bloqué par rebase conflict sur veridian-ci.yml + 119 violations test-mapping locales — à reprendre en session dédiée
 
 ---
 
