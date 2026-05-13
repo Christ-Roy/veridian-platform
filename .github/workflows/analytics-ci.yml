@@ -245,7 +245,7 @@ jobs:
 
       - name: Upload playwright report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-ci
           path: analytics/playwright-report
@@ -405,7 +405,7 @@ jobs:
 
       - name: Upload playwright report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-staging
           path: analytics/playwright-report
