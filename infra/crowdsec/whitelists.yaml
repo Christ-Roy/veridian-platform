@@ -1,0 +1,26 @@
+name: crowdsecurity/whitelists
+description: "Veridian — private IPs + opérateurs + monitoring"
+whitelist:
+  reason: "rfc1918 + tailscale + robert local + dev server + better uptime"
+  ip:
+    - "127.0.0.1"
+    - "::1"
+    # Robert (local KDE, IP résidentielle Free)
+    - "78.112.59.120"
+    # Dev server (OVH 37.187.199.185)
+    - "37.187.199.185"
+    # Better Uptime monitoring IPs
+    # https://betterstack.com/help/uptime/monitoring-ips/
+    - "46.4.81.185"
+    - "46.4.97.118"
+    - "65.21.155.117"
+    - "116.203.66.64"
+    - "135.181.110.107"
+    - "167.235.149.107"
+  cidr:
+    # RFC1918 internal
+    - "192.168.0.0/16"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    # Tailscale CGNAT (toutes machines Tailscale Veridian)
+    - "100.64.0.0/10"
