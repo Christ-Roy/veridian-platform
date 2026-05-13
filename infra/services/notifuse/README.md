@@ -61,27 +61,6 @@ Le compose supporte le pattern blue-green via `${DEPLOY_ENV}` :
 
 Cf [06-blue-green-procedure.md](../../../../cc-saas/prompts/applicatif/06-blue-green-procedure.md).
 
-## Piège Dokploy Domains à connaître (résolu 2026-05-13)
-
-Dokploy a une notion de "Domains" séparée du compose Git (UI → Stack → Domains).
-Tant qu'un Domain est configuré, **Dokploy injecte ses propres labels Traefik**
-(`compose-<appName>-<uniqueConfigKey>-web`...) **en plus** de ceux du compose Git,
-ce qui crée un **dual-router** sur le même host (`notifuse.app.veridian.site`).
-
-Pour Notifuse : le Domain `maQQWxvRFHCH8NM5mezBx` (uniqueConfigKey=4) a été
-**supprimé** via `POST /api/domain.delete` lors de la bascule GitOps. Les labels
-Traefik viennent maintenant exclusivement du compose Git. Confirmer après chaque
-deploy :
-
-```bash
-ssh prod-pub 'sudo docker inspect compose-transmit-open-source-microchip-k9lvap-notifuse-prod-1 --format "{{json .Config.Labels}}"' \
-  | jq -r 'to_entries[] | select(.key|startswith("traefik")) | "\(.key) = \(.value)"'
-# Attendu : 10 lignes commençant par notifuse-prod-* (zéro compose-transmit-...-4-*)
-```
-
-Si un jour un router `compose-transmit-...-4-*` réapparaît : c'est qu'un Domain
-Dokploy a été recréé via l'UI. Le supprimer immédiatement.
-
 ## Forensique pré-migration (snapshot 2026-05-13)
 
 Snapshot du compose live + container inspect AVANT bascule Raw→Git :
