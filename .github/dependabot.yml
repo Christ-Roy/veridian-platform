@@ -64,6 +64,59 @@ updates:
   # Renovate gère compose nativement — à activer plus tard si besoin (cf
   # sprint SPRINT-GITOPS-VERIDIAN section "Auto-merge sur patches Trivy-clean").
 
+  # --- prospection ---
+  - package-ecosystem: "npm"
+    directory: "/prospection"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "app:prospection"
+    commit-message:
+      prefix: "chore(prospection-deps)"
+      include: "scope"
+    groups:
+      next-stack:
+        patterns:
+          - "next"
+          - "next-auth"
+          - "@auth/*"
+          - "react"
+          - "react-dom"
+      prisma-stack:
+        patterns:
+          - "prisma"
+          - "@prisma/*"
+      dev-tooling:
+        dependency-type: "development"
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "@playwright/test"
+          - "playwright"
+          - "eslint*"
+          - "typescript"
+          - "@types/*"
+    # Majors framework restent en PR individuelles, review humaine
+    ignore:
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "next-auth"
+        update-types: ["version-update:semver-major"]
+
+  # NOTE : ecosystem `docker` non configuré pour /infra/services/prospection
+  # car Dependabot docker ne scanne PAS docker-compose.yml (cf NOTE hub ci-dessus).
+  # Le bump des images SHA-pinnées passe par :
+  #   - prospection-security-cve.yml (cron Trivy quotidien — détecte CVE upstream)
+  #   - bump manuel ou via Renovate (.github/renovate.json)
+
+  # --- github-actions (cross-app) ---
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -76,3 +129,9 @@ updates:
       - "ci"
     commit-message:
       prefix: "chore(ci)"
+      include: "scope"
+    groups:
+      github-actions-patches:
+        update-types:
+          - "patch"
+          - "minor"
