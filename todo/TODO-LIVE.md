@@ -105,7 +105,7 @@ consulter les TODO dediees :
 - [`apps/analytics/TODO.md`](./apps/analytics/TODO.md) — **Analytics (PRIORITE)**
 - [`apps/hub/TODO.md`](./apps/hub/TODO.md) — Hub SaaS
 - [`apps/prospection/TODO.md`](./apps/prospection/TODO.md) — Dashboard prospection
-- [`apps/notifuse/TODO.md`](./apps/notifuse/TODO.md) — Notifuse fork (a creer)
+- Notifuse fork — **EXTRAITE 2026-05-13** vers [`Christ-Roy/notifuse-deploy`](https://github.com/Christ-Roy/notifuse-deploy) (TODO dans `todo/TODO.md` du repo extrait)
 - [`apps/twenty/TODO.md`](./apps/twenty/TODO.md) — Twenty hands-off
 
 **Polish UI solo** : chaque app a son `UI-REVIEW.md` — file d'attente pour Robert en session
