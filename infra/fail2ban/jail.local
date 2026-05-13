@@ -67,11 +67,20 @@ findtime = 10m
 [traefik-auth]
 # Ban les IPs qui reçoivent 401/403 répétés sur endpoints auth (brute applicatif).
 # Filter parse les access logs JSON Traefik émis via Docker stdout.
+#
+# IMPORTANT: Docker prod (2026-05-13) est en log-driver=json-file, donc backend=pyinotify
+# avec logpath direct vers le Docker container log file. Si on migre vers journald un
+# jour, swap : backend = systemd + journalmatch = CONTAINER_NAME=dokploy-traefik
 enabled = true
 port = http,https
 filter = traefik-auth
-backend = systemd
-journalmatch = CONTAINER_NAME=dokploy-traefik
+backend = pyinotify
+# Le compose.yml monte /var/lib/docker en RO. Pattern wildcard car le container-id
+# peut changer si Traefik est recreated. fail2ban suit les nouveaux fichiers.
+logpath = /var/lib/docker/containers/*/*-json.log
+# Tag systemd alternatif (commenté) si migration journald future :
+# backend = systemd
+# journalmatch = CONTAINER_NAME=dokploy-traefik
 maxretry = 8
 findtime = 5m
 bantime = 1h
@@ -82,8 +91,8 @@ bantime = 1h
 enabled = true
 port = http,https
 filter = dokploy-login
-backend = systemd
-journalmatch = CONTAINER_NAME=dokploy-traefik
+backend = pyinotify
+logpath = /var/lib/docker/containers/*/*-json.log
 maxretry = 10
 findtime = 10m
 bantime = 6h

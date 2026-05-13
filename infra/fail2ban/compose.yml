@@ -30,12 +30,19 @@ services:
       - TZ=Europe/Paris
       - VERBOSITY=-vv
     volumes:
-      # Config jails versionnée (IaC)
-      - ./config:/config
-      # Logs hôte accessibles RO
+      # Config jails versionnée (IaC) — pointe sur ce dossier git
+      # Le container lscr.io/linuxserver/fail2ban lit /config/jail.local
+      # et /config/filter.d/*.conf (à symlinker depuis filter/)
+      - ./:/config:ro
+      # Logs hôte accessibles RO (sshd: /var/log/auth.log)
       - /var/log:/var/log:ro
-      # Docker socket pour parser logs Traefik (optionnel, voir filter.d/traefik-auth.conf)
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Docker container json-file logs (Traefik access logs JSON via stdout)
+      # Pattern *-json.log dans /var/lib/docker/containers/<id>/. RO.
+      # Si Docker passe en log-driver=journald un jour, retirer ce mount et
+      # ajouter /run/systemd/journal:/run/systemd/journal:ro + /var/log/journal:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # iptables binary + sock (depuis network_mode: host)
+      - /run/xtables.lock:/run/xtables.lock:rw
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "fail2ban-client", "status"]
