@@ -1,0 +1,102 @@
+# fail2ban — jail config IaC (Veridian)
+# Lu par /config/jail.local dans le container linuxserver/fail2ban
+#
+# Adapté à la stack réelle Veridian :
+# - sshd port 22 + 2222 (Dokploy SSH git)
+# - traefik-auth (depuis Docker stdout Traefik via journald)
+# - dokploy-login (Better-Auth POST brute)
+# Retiré : nginx (pas utilisé), postfix (pas de SMTP local), supabase-auth
+# (Supabase legacy n'écrit pas ses logs sur disque, hors scope)
+
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+maxretry = 5
+backend = systemd
+
+# Allowlist : ne JAMAIS bannir ces IPs
+ignoreip = 127.0.0.1/8 ::1
+           # Robert local (Free)
+           78.112.59.120
+           # Dev server OVH
+           37.187.199.185
+           # Tailscale CGNAT (toutes machines Tailscale Veridian)
+           100.64.0.0/10
+
+# Action par défaut : iptables sur l'hôte (container en network_mode: host)
+banaction = iptables-multiport
+banaction_allports = iptables-allports
+
+# ============================================================================
+# SSH jails
+# ============================================================================
+
+[sshd]
+enabled = true
+port = 22
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 5
+bantime = 1h
+findtime = 10m
+
+[sshd-aggressive]
+# Brute slow / distributed : bantime 24h après plus de tentatives
+enabled = true
+port = 22
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 10
+bantime = 24h
+findtime = 1h
+
+[sshd-alt]
+# Port SSH alternatif 2222 (Dokploy SSH git)
+enabled = true
+port = 2222
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 5
+bantime = 1h
+findtime = 10m
+
+# ============================================================================
+# HTTP jails — Traefik via Docker logs JSON (journald)
+# ============================================================================
+
+[traefik-auth]
+# Ban les IPs qui reçoivent 401/403 répétés sur endpoints auth (brute applicatif).
+# Filter parse les access logs JSON Traefik émis via Docker stdout.
+enabled = true
+port = http,https
+filter = traefik-auth
+backend = systemd
+journalmatch = CONTAINER_NAME=dokploy-traefik
+maxretry = 8
+findtime = 5m
+bantime = 1h
+
+[dokploy-login]
+# Brute force sur Dokploy /api/auth/sign-in/email (Better-Auth).
+# Better-Auth rate-limit déjà à 429 vers 3-5 essais, on prend le relais à 10.
+enabled = true
+port = http,https
+filter = dokploy-login
+backend = systemd
+journalmatch = CONTAINER_NAME=dokploy-traefik
+maxretry = 10
+findtime = 10m
+bantime = 6h
+
+# ============================================================================
+# Recidive — repeat offenders (essais multiples sur N jails différents)
+# ============================================================================
+
+[recidive]
+enabled = true
+filter = recidive
+logpath = /config/log/fail2ban.log
+banaction = iptables-allports
+bantime = 7d
+findtime = 24h
+maxretry = 3

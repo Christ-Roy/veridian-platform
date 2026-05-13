@@ -1,0 +1,52 @@
+http:
+  routers:
+    dokploy-router-app:
+      rule: Host(`dokploy.veridian.site`)
+      service: dokploy-service-app
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-to-https
+    dokploy-router-tailscale:
+      rule: Host(`dokploy.veridian.site`)
+      service: dokploy-service-app
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - dokploy-cors
+    dokploy-router-app-secure:
+      rule: Host(`dokploy.veridian.site`)
+      service: dokploy-service-app
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+  services:
+    dokploy-service-app:
+      loadBalancer:
+        servers:
+          - url: http://dokploy:3000
+        passHostHeader: true
+  middlewares:
+    dokploy-cors:
+      headers:
+        accessControlAllowOriginList:
+          - https://dokploy.veridian.site
+          - http://localhost:3000
+          - http://localhost:3001
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+          - PATCH
+        accessControlAllowHeaders:
+          - Content-Type
+          - Authorization
+          - x-api-key
+          - trpc-accept
+        accessControlMaxAge: 3600
+        addVaryHeader: true
