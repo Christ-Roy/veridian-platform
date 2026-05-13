@@ -96,19 +96,21 @@ entryPoints:
 
 accessLog:
   format: json
-  bufferingSize: 100
+  # Le dossier /etc/dokploy/traefik/logs est créé manuellement dans le container
+  # (docker exec dokploy-traefik mkdir -p /etc/dokploy/traefik/logs). Le dossier
+  # est mounté en RW car parent du dynamic/. Survit au restart container (mount
+  # bind volume Dokploy). ⚠ NE PAS mettre dans dynamic/ : Traefik tente de parser
+  # comme YAML et crashe.
+  # Pas de filePath : Traefik écrit sur stdout (default) quand accessLog.otlp
+  # absent. CrowdSec lit ce stdout via la datasource docker dokploy-traefik.
+  bufferingSize: 0  # flush immédiat
   filters:
     statusCodes:
       - "200-599"
     retryAttempts: true
-  otlp:
-    grpc:
-      endpoint: 51.210.7.44:4317
-      insecure: true
-    serviceName: traefik
-    resourceAttributes:
-      deployment.environment: prod
-      host.name: vps-10f2bc7c
+  # ⚠ accessLog.otlp DÉSACTIVE filePath/stdout dans Traefik v3.
+  # Choix : on garde filePath pour CrowdSec, on perd les access logs détaillés
+  # dans Grafana Cloud (mais on garde tracing + metrics).
 
 tracing:
   serviceName: traefik
