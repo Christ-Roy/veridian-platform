@@ -1,0 +1,64 @@
+# CrowdSec — compose IaC (Veridian prod)
+#
+# Statut : draft 2026-05-13 — pas encore appliqué via Dokploy.
+# Container `code-crowdsec-1` tourne actuellement en `unless-stopped` (donc
+# survit aux reboots) mais Dokploy ne le manage plus depuis le 2026-05-10
+# (compose en `.disabled` à cause d'une collision résolue). Faut le re-onboarder.
+#
+# Différences vs compose original (`docker-compose.yml.bak-20260508-175526`) :
+# - SUPPRIMÉ : service `crowdsec-traefik-bouncer` (fbonalair v0.5.0 abandonware).
+#   Depuis 2026-05-13, le bouncer est un plugin Traefik officiel embarqué dans
+#   `dokploy-traefik` (cf `infra/traefik/dynamic/crowdsec-middleware.yml`).
+# - GARDÉ : service `crowdsec` v1.7.7 + volumes external + mount docker.sock.
+
+services:
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.7.7
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+    environment:
+      GID: "1000"
+      DISABLE_ONLINE_API: "false"
+      # Collections installées au boot si absentes :
+      # - linux : SSH brute, fail2ban-style scenarios
+      # - traefik : HTTP brute, slowloris, path traversal, sqli
+      # - http-cve : signatures CVE web connues
+      # - whitelist-good-actors : whitelist DNS publics, CDN, SEO bots
+      COLLECTIONS: crowdsecurity/linux crowdsecurity/traefik crowdsecurity/http-cve crowdsecurity/whitelist-good-actors
+    volumes:
+      # Logs hôte (SSH auth.log pour scenarios linux)
+      - /var/log:/var/log:ro
+      # Volumes external CrowdSec (DB sqlite + config)
+      # Préservent les bans actifs + collections installées entre redéploiements
+      - infra_crowdsec-db:/var/lib/crowdsec/data
+      - infra_crowdsec-config:/etc/crowdsec
+      # Docker socket : datasource Docker pour parser les logs Traefik
+      # via le acquis.yaml généré (cf session 2026-05-08 crowdsec-aveugle)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test:
+        - CMD
+        - cscli
+        - version
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+          cpus: "2.0"
+        reservations:
+          memory: 128M
+          cpus: "0.1"
+
+volumes:
+  infra_crowdsec-db:
+    external: true
+  infra_crowdsec-config:
+    external: true
+
+networks:
+  dokploy-network:
+    external: true
