@@ -30,7 +30,7 @@
     "@supabase/ssr": "^0.10.0",
     "@supabase/supabase-js": "^2.101.0",
     "@tanstack/react-table": "^8.21.3",
-    "@telnyx/webrtc": "^2.25.25",
+    "@telnyx/webrtc": "^2.26.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
