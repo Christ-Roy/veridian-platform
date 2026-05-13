@@ -20,21 +20,52 @@ services:
     environment:
       GID: "1000"
       DISABLE_ONLINE_API: "false"
-      # Collections installées au boot si absentes :
-      # - linux : SSH brute, fail2ban-style scenarios
-      # - traefik : HTTP brute, slowloris, path traversal, sqli
+      # Collections installées au boot si absentes (16 collections, 69 scenarios,
+      # 188 appsec rules actives au 2026-05-13 11:37).
+      #
+      # HTTP générique :
       # - http-cve : signatures CVE web connues
-      # - whitelist-good-actors : whitelist DNS publics, CDN, SEO bots
       # - http-dos : DDoS bypass-cache, random-uri, switching-ua, invalid-versions
-      #              (installée 2026-05-13 11:08 après audit Robert sur couverture DDoS volumetric)
-      # - appsec-virtual-patching : règles WAF virtual patching pour CVE récentes
+      # - http-extended-context : enrichit events HTTP (geo, ASN)
+      #
+      # WAF / AppSec (règles chargées, nécessite service AppSec proxy actif) :
+      # - appsec-virtual-patching : règles WAF vpatch pour CVE récentes
       # - appsec-generic-rules : règles WAF génériques (SSTI, no-UA, wordpress uploads)
-      # - http-extended-context : enrichit events HTTP (geo, ASN, etc.)
-      #              (3 dernières installées 2026-05-13 11:28 pour couverture L7)
-      # NOTE : appsec-* nécessite un service AppSec proxy actif pour s'appliquer.
-      # Les règles sont chargées mais inactives tant que le service AppSec n'est
-      # pas configuré côté Traefik (futur chantier).
-      COLLECTIONS: crowdsecurity/linux crowdsecurity/traefik crowdsecurity/http-cve crowdsecurity/whitelist-good-actors crowdsecurity/http-dos crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules crowdsecurity/http-extended-context
+      #
+      # Reverse proxy :
+      # - traefik : HTTP brute, slowloris, path traversal, sqli
+      #
+      # SSH :
+      # - sshd (via collection linux) : SSH brute-force
+      # - sshd-impossible-travel : compte compromis via geo anomalie
+      #
+      # Linux :
+      # - linux : SSH brute, fail2ban-style scenarios
+      # - linux-lpe : CVE-2021-4034 (PwnKit), CVE-2023-4911 (Looney Tunables)
+      #
+      # Firewall :
+      # - iptables : détection port scans via iptables logs
+      #
+      # Supabase (legacy en prod) :
+      # - supabase-compose : SaaS Supabase auth/gotrue
+      # - supabase-supavisor : Postgres pooler brute-force
+      #
+      # Whitelist :
+      # - whitelist-good-actors : DNS publics, CDN Cloudflare, SEO bots
+      COLLECTIONS: >-
+        crowdsecurity/linux
+        crowdsecurity/traefik
+        crowdsecurity/http-cve
+        crowdsecurity/http-dos
+        crowdsecurity/http-extended-context
+        crowdsecurity/appsec-virtual-patching
+        crowdsecurity/appsec-generic-rules
+        crowdsecurity/sshd-impossible-travel
+        crowdsecurity/linux-lpe
+        crowdsecurity/iptables
+        crowdsecurity/supabase-compose
+        crowdsecurity/supabase-supavisor
+        crowdsecurity/whitelist-good-actors
     volumes:
       # Logs hôte (SSH auth.log pour scenarios linux)
       - /var/log:/var/log:ro
