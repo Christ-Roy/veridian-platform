@@ -1,0 +1,60 @@
+{
+  "openai": {
+    "npm": "@ai-sdk/openai",
+    "label": "OpenRouter (free tier)",
+    "apiKey": "{{OPENAI_API_KEY}}",
+    "baseURL": "https://openrouter.ai/api/v1",
+    "models": [
+      {
+        "name": "openai/gpt-oss-120b:free",
+        "label": "GPT-OSS 120B (free)",
+        "modelFamily": "GPT",
+        "inputCostPerMillionTokens": 0,
+        "outputCostPerMillionTokens": 0,
+        "contextWindowTokens": 131072,
+        "maxOutputTokens": 4096,
+        "modalities": []
+      },
+      {
+        "name": "z-ai/glm-4.5-air:free",
+        "label": "GLM 4.5 Air (free)",
+        "modelFamily": "GPT",
+        "inputCostPerMillionTokens": 0,
+        "outputCostPerMillionTokens": 0,
+        "contextWindowTokens": 131072,
+        "maxOutputTokens": 4096,
+        "modalities": []
+      },
+      {
+        "name": "google/gemma-4-31b-it:free",
+        "label": "Gemma 4 31B (free)",
+        "modelFamily": "GPT",
+        "inputCostPerMillionTokens": 0,
+        "outputCostPerMillionTokens": 0,
+        "contextWindowTokens": 262144,
+        "maxOutputTokens": 4096,
+        "modalities": []
+      },
+      {
+        "name": "meta-llama/llama-3.3-70b-instruct:free",
+        "label": "Llama 3.3 70B (free)",
+        "modelFamily": "GPT",
+        "inputCostPerMillionTokens": 0,
+        "outputCostPerMillionTokens": 0,
+        "contextWindowTokens": 131072,
+        "maxOutputTokens": 4096,
+        "modalities": []
+      },
+      {
+        "name": "qwen/qwen3-coder:free",
+        "label": "Qwen3 Coder (free)",
+        "modelFamily": "GPT",
+        "inputCostPerMillionTokens": 0,
+        "outputCostPerMillionTokens": 0,
+        "contextWindowTokens": 262000,
+        "maxOutputTokens": 4096,
+        "modalities": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,47 @@
+# Traefik dynamic config for Twenty v2.2 staging
+# À déposer dans /etc/dokploy/traefik/dynamic/twenty22-staging.yml
+# (depuis le VPS prod)
+#
+# Pre-requis :
+# - Compose Dokploy déployé avec service `twenty-server` (cf docs/twenty-v22-dokploy-compose.yml)
+# - Domaine plat `twenty22.veridian.site` (PAS multi-niveau type `xxx.app.veridian.site`)
+# - DNS Cloudflare A-record pour `twenty22.veridian.site` et `<workspace>.twenty22.veridian.site` (non proxied)
+#
+# Le wildcard `*.twenty22.veridian.site` couvre alors tous les sous-domaines workspace.
+# Pour le redirect Twenty `DEFAULT_SUBDOMAIN`, désactiver via `DEFAULT_SUBDOMAIN: ""` dans le compose,
+# ou bien ajouter explicitement le DNS pour `app.twenty22.veridian.site`.
+
+http:
+  routers:
+    twenty-v22-staging-main:
+      # Match host principal + tous les sous-domaines workspace (HostRegexp pour Traefik)
+      rule: "Host(`twenty22.veridian.site`) || HostRegexp(`^[a-z0-9-]+\\.twenty22\\.veridian\\.site$`)"
+      service: twenty-v22-staging
+      entryPoints:
+        - websecure
+      priority: 200  # plus haute que les routers @docker auto pour gagner
+      middlewares:
+        - twenty-v22-staging-headers
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: twenty22.veridian.site
+            sans:
+              - "*.twenty22.veridian.site"
+
+  middlewares:
+    twenty-v22-staging-headers:
+      headers:
+        # Critical pour multi-tenant Twenty : sans ça il ne sait pas quel workspace servir
+        customRequestHeaders:
+          X-Forwarded-Host: "{host}"
+          X-Forwarded-Proto: "https"
+
+  services:
+    twenty-v22-staging:
+      loadBalancer:
+        servers:
+          # Le hostname change selon l'appName généré par Dokploy au moment du create
+          # Récupérer avec : docker ps | grep twenty-v22 | grep server
+          - url: "http://compose-<APPNAME>-twenty-server-1:3000"
+        passHostHeader: true

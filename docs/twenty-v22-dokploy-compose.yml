@@ -1,0 +1,135 @@
+# Twenty v2.2.0 — Compose Dokploy staging (Phase 3 du runbook)
+# Utilisé pour creer le compose `twenty-v22` via API Dokploy puis tester en clone DB.
+#
+# Différences avec le compose prod actuel (v1.16.7) :
+# - Image bumped to v2.2.0
+# - Volumes nommés `twenty-v22-*` (jamais réutiliser ceux de prod)
+# - Réseau : `default: { name: dokploy-network, external: true }` pour éviter le leak 172.17.0.1 (DETTE-002)
+# - Env : OPENAI_API_KEY (OpenRouter) + AI_CATALOG_STORAGE_PATH + DEFAULT_SUBDOMAIN=""
+# - Stripe en test (pas de live key sur staging, sinon risque de hit la prod Stripe)
+#
+# Domain géré via fichier Traefik dédié (cf docs/twenty-v22-traefik.yml), PAS via labels Dokploy
+# (les labels Dokploy ne supportent pas HostRegexp + tls.domains.sans pour wildcard).
+
+services:
+  twenty-postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: twenty
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: twenty
+    volumes:
+      - twenty-v22-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twenty -d twenty"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 4096M
+          cpus: "2.0"
+        reservations:
+          memory: 256M
+
+  twenty-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1000 --appendonly yes --maxmemory-policy noeviction
+    volumes:
+      - twenty-v22-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  twenty-server:
+    image: twentycrm/twenty:v2.2.0
+    restart: unless-stopped
+    depends_on:
+      twenty-postgres:
+        condition: service_healthy
+      twenty-redis:
+        condition: service_healthy
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      NODE_PORT: "3000"
+      LOG_LEVELS: error,warn
+      SERVER_URL: https://twenty22.veridian.site
+      FRONTEND_URL: https://twenty22.veridian.site
+      APP_SECRET: ${TWENTY_APP_SECRET}
+      IS_MULTIWORKSPACE_ENABLED: "true"
+      IS_BILLING_ENABLED: "false"
+      DEFAULT_SUBDOMAIN: ""  # disable redirect vers app.<host>
+      PG_DATABASE_URL: postgres://twenty:${POSTGRES_PASSWORD}@twenty-postgres:5432/twenty
+      REDIS_URL: redis://twenty-redis:6379
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/.local-storage
+      OPENAI_API_KEY: ${OPENAI_API_KEY_OPENROUTER}
+      AI_CATALOG_STORAGE_PATH: ai-catalog.json
+      EMAIL_DRIVER: logger
+      EMAIL_FROM_ADDRESS: notifications@veridian.site
+      EMAIL_FROM_NAME: Veridian Staging
+      BILLING_STRIPE_API_KEY: sk_test_unused_for_staging
+      BILLING_STRIPE_WEBHOOK_SECRET: whsec_unused_for_staging
+    volumes:
+      - twenty-v22-storage:/app/.local-storage
+    deploy:
+      resources:
+        limits:
+          memory: 4096M
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+
+  twenty-worker:
+    image: twentycrm/twenty:v2.2.0
+    restart: unless-stopped
+    depends_on:
+      twenty-server:
+        condition: service_started
+    command: ["yarn", "worker:prod"]
+    environment:
+      NODE_ENV: production
+      LOG_LEVELS: error,warn
+      SERVER_URL: https://twenty22.veridian.site
+      FRONTEND_URL: https://twenty22.veridian.site
+      APP_SECRET: ${TWENTY_APP_SECRET}
+      DISABLE_DB_MIGRATIONS: "true"
+      DISABLE_CRON_JOBS_REGISTRATION: "true"
+      PG_DATABASE_URL: postgres://twenty:${POSTGRES_PASSWORD}@twenty-postgres:5432/twenty
+      REDIS_URL: redis://twenty-redis:6379
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/.local-storage
+      OPENAI_API_KEY: ${OPENAI_API_KEY_OPENROUTER}
+      EMAIL_DRIVER: logger
+      EMAIL_FROM_ADDRESS: notifications@veridian.site
+      EMAIL_FROM_NAME: Veridian Staging
+      BILLING_STRIPE_API_KEY: sk_test_unused_for_staging
+      BILLING_STRIPE_WEBHOOK_SECRET: whsec_unused_for_staging
+    volumes:
+      - twenty-v22-storage:/app/.local-storage
+    deploy:
+      resources:
+        limits:
+          memory: 2048M
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+
+volumes:
+  twenty-v22-db-data: {}
+  twenty-v22-redis-data: {}
+  twenty-v22-storage: {}
+
+networks:
+  # FORCE le default sur dokploy-network pour éviter qu'un `_default` soit créé automatiquement
+  # Sans ça, les containers leak `172.17.0.1` dans les requêtes Traefik (cf DETTE-002)
+  default:
+    name: dokploy-network
+    external: true

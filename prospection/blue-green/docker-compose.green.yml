@@ -1,0 +1,32 @@
+services:
+  prospection-authjs-green:
+    image: ghcr.io/christ-roy/prospection:latest
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      DATABASE_URL: postgresql://postgres:prospection-prod-2026@prospection-saas-db:5432/prospection?connection_limit=10
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_TRUST_HOST: "true"
+      NEXTAUTH_URL: https://prospection.app.veridian.site
+      TENANT_API_SECRET: ${TENANT_API_SECRET}
+      APP_URL: https://prospection.app.veridian.site
+      NEXT_PUBLIC_SITE_URL: https://prospection.app.veridian.site
+      NEXT_PUBLIC_HUB_URL: https://app.veridian.site
+      TRIAL_DAYS: "7"
+      NEXT_PUBLIC_TRIAL_DAYS: "7"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      # Sous-domaine green pour test isolé avant bascule
+      - traefik.http.routers.prospection-green.rule=Host(`prospection-green.app.veridian.site`)
+      - traefik.http.routers.prospection-green.entrypoints=websecure
+      - traefik.http.routers.prospection-green.tls.certresolver=letsencrypt
+      - traefik.http.services.prospection-green.loadbalancer.server.port=3000
+
+networks:
+  dokploy-network:
+    external: true
