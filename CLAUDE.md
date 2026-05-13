@@ -25,7 +25,7 @@ parallèle, créer un worktree temporaire à ce moment-là (pas avant).
 |---|---|---|
 | `~/Bureau/veridian-platform/` | `ci-prod-smoke` | **Robert uniquement** — agents : interdit |
 | `~/Bureau/veridian-platform-main/` | `main` | `main` (commits transverses : CLAUDE.md, doc, `.claude/rules/`) |
-| `~/Bureau/veridian-platform-hub/` | `feat/hub-authjs-migration` | `feat/hub-*`, `hub/p14-p15-wip` |
+| `~/Bureau/veridian-hub/` | `main` | **EXTRAITE 2026-05-13** vers `Christ-Roy/veridian-hub` |
 | `~/Bureau/veridian-prospection/` | `main` | **EXTRAITE 2026-05-13** vers `Christ-Roy/veridian-prospection` |
 | `~/Bureau/veridian-platform-cms/` | `work/cms` | `feat/cms-*`, `fix/cms-*` |
 | `~/Bureau/veridian-platform-analytics/` | `work/analytics` | `feat/analytics-*`, `fix/analytics-*` |
@@ -124,8 +124,13 @@ Veridian est un **hub SaaS B2B** qui orchestre plusieurs applications open-sourc
 en les packagant pour des utilisateurs business. Chaque app est independante,
 avec son propre auth, sa propre DB, et son integration Stripe.
 
-Le hub (`hub/`) gere l'inscription, le billing centralisé, et le provisioning
+Le Hub gere l'inscription, le billing centralisé, et le provisioning
 automatique des apps pour chaque nouveau tenant.
+
+**Hub a été extrait le 2026-05-13** vers `Christ-Roy/veridian-hub`. Le code,
+le compose Dokploy, la CI et la TODO hub vivent maintenant LÀ-BAS.
+Le monorepo garde les apps non-extraites (cms, analytics, twenty, sites) et
+l'infra commune.
 
 ## Architecture cible
 
@@ -175,16 +180,11 @@ automatique des apps pour chaque nouveau tenant.
 
 ```
 veridian-platform/
-├── hub/                    # Hub SaaS (ex Web-Dashboard) — Next.js 14, pnpm
-│   ├── Dockerfile
-│   ├── package.json
-│   └── app/, lib/, ...
 ├── infra/                  # Docker compose prod/staging/dev + scripts
 │   ├── docker-compose.yml
 │   ├── docker-compose.prod.yml
 │   └── docker-compose.staging.yml
 ├── .github/workflows/
-│   ├── hub-ci.yml          # CI hub (trigger: hub/**)
 │   ├── _audit-cve.yml      # Reusable npm audit (utilisé par toutes apps)
 │   └── _trivy-image.yml    # Reusable Trivy image scan
 ├── .claude/
@@ -193,6 +193,10 @@ veridian-platform/
 │   └── TODO-LIVE.md        # Backlog priorise P0→P3, source unique
 └── docs/                   # Architecture, deploy, testing
 ```
+
+**Hub a été extrait le 2026-05-13** vers son propre repo :
+- Repo : `Christ-Roy/veridian-hub` (public)
+- Worktree local : `~/Bureau/veridian-hub/`
 
 **Prospection a été extraite le 2026-05-13** vers son propre repo :
 - Repo : `Christ-Roy/veridian-prospection` (privé)

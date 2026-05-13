@@ -103,7 +103,7 @@ Ce fichier = **vue strategique globale** (ordre des sprints, arbitrages, chantie
 Pour les **sous-taches detaillees, bugs, decisions techniques, notes agents** d'une app,
 consulter les TODO dediees :
 - [`apps/analytics/TODO.md`](./apps/analytics/TODO.md) — **Analytics (PRIORITE)**
-- [`apps/hub/TODO.md`](./apps/hub/TODO.md) — Hub SaaS
+- Hub SaaS — **EXTRAIT 2026-05-13** vers [`Christ-Roy/veridian-hub`](https://github.com/Christ-Roy/veridian-hub) (TODO dans `todo/apps/hub/TODO.md` du repo extrait)
 - [`apps/prospection/TODO.md`](./apps/prospection/TODO.md) — Dashboard prospection
 - Notifuse fork — **EXTRAITE 2026-05-13** vers [`Christ-Roy/notifuse-deploy`](https://github.com/Christ-Roy/notifuse-deploy) (TODO dans `todo/TODO.md` du repo extrait)
 - [`apps/twenty/TODO.md`](./apps/twenty/TODO.md) — Twenty hands-off
