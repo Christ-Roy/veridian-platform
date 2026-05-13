@@ -803,6 +803,46 @@ def check_security_fail2ban_jails(env_filter: str | None = None, **_) -> CheckRe
     return CheckResult("security_fail2ban_jails", findings)
 
 
+# ----- Check : stacks Dokploy zombies (compose .disabled/.draft) -----
+
+
+def check_security_dokploy_zombies(**_) -> CheckResult:
+    """Détecte les compose Dokploy en `.disabled-*` / `.draft-*`.
+
+    Pattern récurrent (incidents 2026-05-10 et 2026-05-13) : un compose
+    Dokploy laissé en `.disabled-<date>` sans cleanup → les containers
+    tournent en `unless-stopped` mais Dokploy ne les manage plus. Au prochain
+    deploy via Dokploy, soit perdus, soit ressuscités avec une config obsolète.
+
+    Lecture : `ls /etc/dokploy/compose/*/code/docker-compose.yml.disabled-*`.
+    """
+    rc, out, _ = _ssh_run(
+        "prod-pub",
+        "sudo ls /etc/dokploy/compose/*/code/docker-compose.yml.disabled-* "
+        "/etc/dokploy/compose/*/code/docker-compose.yml.draft-* 2>/dev/null",
+        timeout=10,
+    )
+    if rc != 0 or not out.strip():
+        return CheckResult("security_dokploy_zombies", [])
+
+    zombies = [line.strip() for line in out.strip().splitlines() if line.strip()]
+    findings = []
+    for path in zombies:
+        # Extraire le composeId (avant-dernier segment du path)
+        # /etc/dokploy/compose/<composeId>/code/docker-compose.yml.disabled-*
+        parts = path.split("/")
+        compose_id = parts[4] if len(parts) > 5 else path
+        findings.append(Finding(
+            check_id="security_dokploy_zombies",
+            severity=Severity.WARN,
+            target=compose_id,
+            summary=f"compose Dokploy zombie : {path.split('/')[-1]}",
+            drilldown=f"ssh prod-pub 'sudo ls /etc/dokploy/compose/{compose_id}/code/'  # cf TODO P0.4 follow-ups",
+        ))
+
+    return CheckResult("security_dokploy_zombies", findings)
+
+
 # ----- Registry des checks security -----
 
 
@@ -815,5 +855,6 @@ SECURITY_CHECKS = [
     ("security_cors_wildcard", check_security_cors_wildcard),
     ("security_bouncer_health", check_security_bouncer_health),
     ("security_traefik_real_ip", check_security_traefik_real_ip),
+    ("security_dokploy_zombies", check_security_dokploy_zombies),
     ("security_fail2ban_jails", check_security_fail2ban_jails),
 ]
