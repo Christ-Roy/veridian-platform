@@ -1,0 +1,90 @@
+# Dokploy admin UI router — DRAFT P0.6 LOCKDOWN
+#
+# ⚠ STATUT : draft, NE PAS apply tel quel sans accord Robert.
+# Fichier nommé `.draft-*` pour ne pas être chargé par Traefik (provider file
+# ne pull que `.yml` et `.yaml`).
+#
+# Diff vs dokploy.yml actuel :
+# 1. Supprime les 2 routers HTTPS doublonnés (`dokploy-router-tailscale` +
+#    `dokploy-router-app-secure`) — il n'y en avait aucun besoin, c'était du
+#    legacy de migration.
+# 2. Ajoute middleware `tailscale-only-with-robert` (ipAllowList) sur l'unique
+#    router HTTPS — bloque tous les accès non-Tailscale et non-allowlisted.
+#
+# Procédure d'apply (à valider AVANT) :
+# 1. Vérifier que Tailscale prod est UP : `tailscale status | grep prod`
+# 2. Vérifier que `78.112.59.120` est bien l'IP publique actuelle de Robert
+#    (curl ifconfig.me depuis local)
+# 3. Renommer ce fichier en `dokploy.yml` (écrase l'actuel)
+# 4. Watch=true reload auto → dokploy.veridian.site devrait répondre 403 pour
+#    les non-allowlistés
+# 5. Test depuis non-Tailscale (4G mobile) → doit retourner 403
+# 6. Test depuis Tailscale (`ssh prod`) → doit toujours marcher
+# 7. Si KO → cp dokploy.yml.bak dokploy.yml + force reload
+#
+# Alternative recommandée long terme : CF Access (cf TODO P0.6 option 1).
+# Plus robuste car indépendant de Tailscale up/down + IP Robert changeante.
+
+http:
+  routers:
+    dokploy-router-app:
+      rule: Host(`dokploy.veridian.site`)
+      service: dokploy-service-app
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-to-https
+
+    dokploy-router-secure:
+      rule: Host(`dokploy.veridian.site`)
+      service: dokploy-service-app
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - tailscale-only-with-robert
+        - dokploy-cors
+
+  services:
+    dokploy-service-app:
+      loadBalancer:
+        servers:
+          - url: http://dokploy:3000
+        passHostHeader: true
+
+  middlewares:
+    dokploy-cors:
+      headers:
+        accessControlAllowOriginList:
+          - https://dokploy.veridian.site
+          - http://localhost:3000
+          - http://localhost:3001
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+          - PATCH
+        accessControlAllowHeaders:
+          - Content-Type
+          - Authorization
+          - x-api-key
+          - trpc-accept
+        accessControlMaxAge: 3600
+        addVaryHeader: true
+
+    tailscale-only-with-robert:
+      ipAllowList:
+        sourceRange:
+          - "100.64.0.0/10"
+          - "fd7a:115c:a1e0::/48"
+          - "127.0.0.1/32"
+          - "172.16.0.0/12"
+          - "10.0.0.0/8"
+          - "192.168.0.0/16"
+          - "78.112.59.120/32"
+          - "37.187.199.185/32"
+        ipStrategy:
+          depth: 0
