@@ -1,6 +1,6 @@
 services:
   notifuse-prod-db:
-    image: postgres:17-alpine@sha256:${NOTIFUSE_DB_IMAGE_DIGEST:-aa3668fcbcb5ded731b7d5c27065a4edf545debb7f27bf514c709b1b4e032352}
+    image: postgres:17-alpine@sha256:${NOTIFUSE_DB_IMAGE_DIGEST:-ff4ccc02b97e0ebb6b328ef9ff92522f95586f83be6801896b615088defc8ad2}
     restart: unless-stopped
     networks:
       - notifuse-internal
@@ -26,7 +26,7 @@ services:
           cpus: "0.25"
 
   notifuse-prod:
-    image: ghcr.io/christ-roy/notifuse-veridian:${NOTIFUSE_IMAGE_TAG:-saas-v1.0.3}@sha256:${NOTIFUSE_IMAGE_DIGEST:-d0975ef7850483808097ecbbd7278b2cb0657a8df87bc97b3e67d9aa0868143b}
+    image: ghcr.io/christ-roy/notifuse-veridian:${NOTIFUSE_IMAGE_TAG:-saas-v1.0.3}@sha256:${NOTIFUSE_IMAGE_DIGEST:-b07226febf9ea3d4f724f120919d18edf95cbe02dc94d7732c01b5ba5d425adc}
     pull_policy: always
     restart: unless-stopped
     networks:
