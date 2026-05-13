@@ -1,0 +1,28 @@
+# Wildcard router pour blue-green deployments — geré par agent infra
+# DNS : *.green.app.veridian.site → 51.210.7.44 (Cloudflare wildcard A)
+# Cert : Let's Encrypt wildcard via DNS-01 challenge Cloudflare
+#
+# Usage : un agent applicatif qui veut faire du blue-green crée sa stack avec un router
+# Traefik dédié `Host(<app>.green.app.veridian.site)` AVANT de basculer sur le Host prod.
+# Le placeholder ci-dessous capture tous les hosts green non encore réclamés (503 explicite).
+
+http:
+  routers:
+    green-placeholder:
+      rule: "HostRegexp(`^[a-z0-9-]+\\.green\\.app\\.veridian\\.site$`)"
+      service: green-placeholder
+      entryPoints:
+        - websecure
+      priority: 1
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: green.app.veridian.site
+            sans:
+              - "*.green.app.veridian.site"
+
+  services:
+    green-placeholder:
+      loadBalancer:
+        servers:
+          - url: "http://dokploy-traefik:8080"

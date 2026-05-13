@@ -1,0 +1,67 @@
+http:
+  routers:
+    twenty-main:
+      rule: "Host(`twenty.app.veridian.site`) || HostRegexp(`^[a-z0-9-]+\\.twenty\\.app\\.veridian\\.site$`) || Host(`app.twenty.app.veridian.site`) || HostRegexp(`^[a-z0-9-]+\\.app\\.twenty\\.app\\.veridian\\.site$`)"
+      service: twenty
+      entryPoints:
+        - websecure
+      priority: 10
+      middlewares:
+        - twenty-headers
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: twenty.app.veridian.site
+            sans:
+              - "*.twenty.app.veridian.site"
+
+    twenty-redirect-welcome:
+      rule: "Host(`twenty.app.veridian.site`) && Path(`/welcome`)"
+      service: twenty
+      entryPoints:
+        - websecure
+      priority: 100
+      middlewares:
+        - twenty-redirect-to-signup
+      tls:
+        certResolver: letsencrypt
+
+    twenty-redirect-app-welcome:
+      rule: "Host(`app.twenty.app.veridian.site`) && Path(`/welcome`)"
+      service: twenty
+      entryPoints:
+        - websecure
+      priority: 100
+      middlewares:
+        - twenty-redirect-to-signup
+      tls:
+        certResolver: letsencrypt
+
+    twenty-webhooks:
+      rule: "Host(`twenty.app.veridian.site`) && PathPrefix(`/webhooks/stripe`)"
+      service: twenty
+      entryPoints:
+        - websecure
+      priority: 50
+      middlewares:
+        - twenty-headers
+      tls:
+        certResolver: letsencrypt
+
+  middlewares:
+    twenty-headers:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Host: "{host}"
+          X-Forwarded-Proto: "https"
+    twenty-redirect-to-signup:
+      redirectRegex:
+        regex: ".*"
+        replacement: "https://app.veridian.site/signup"
+        permanent: true
+
+  services:
+    twenty:
+      loadBalancer:
+        servers:
+          - url: "http://compose-parse-optical-array-lvh5md-twenty-server-1:3000"

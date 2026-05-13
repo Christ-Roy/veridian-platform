@@ -248,7 +248,24 @@
 
 **Lien session pentest** : `runbooks/incidents/2026-05-13-pentest-manuel.md` (à remplir)
 
-### P0.5 — 🔥 fail2ban prod = uniquement jail `sshd`, aucun jail HTTP/Traefik
+### P0.5 — 🟡 fail2ban IaC stack draft 2026-05-13 — restant : deploy + cleanup apt
+
+**Statut** : config IaC complète préparée dans `infra/fail2ban/` (commit `<TBD>`), pas encore déployée. Le fail2ban apt actuel reste actif (730 IPs bannies/semaine sur jail `sshd`). Plan de déploiement détaillé dans `infra/fail2ban/README.md`.
+
+**Préparé (commitable, sans risque prod)** :
+- [x] `infra/fail2ban/compose.yml` — container `linuxserver/fail2ban` en `network_mode: host`
+- [x] `infra/fail2ban/jail.local` — 5 jails (sshd, sshd-aggressive, sshd-alt port 2222, traefik-auth, dokploy-login) + recidive 7j + allowlist (Robert + dev + Tailscale)
+- [x] `infra/fail2ban/filter/traefik-auth.conf` — parse access logs JSON via `journalmatch CONTAINER_NAME=dokploy-traefik` (compatible accessLog.format=json déjà configuré)
+- [x] `infra/fail2ban/filter/dokploy-login.conf` — match `/api/auth/sign-in*` 401 brute Better-Auth
+
+**Restant (nécessite intervention prod, risque modéré)** :
+- [ ] Vérifier que Docker logs vont dans journald (`journalctl CONTAINER_NAME=dokploy-traefik`). Si pas → ajouter `"log-driver": "journald"` dans `/etc/docker/daemon.json` = restart daemon = downtime stack entière
+- [ ] Deploy via Dokploy UI (créer stack pointant sur `infra/fail2ban/`)
+- [ ] Test SSH brute depuis dev (10 wrongpass) → vérifier ban < 30s
+- [ ] Test HTTP brute Dokploy login → vérifier ban via `fail2ban-client status dokploy-login`
+- [ ] Cleanup apt `sudo apt purge fail2ban` (le container reprend)
+
+### P0.5-archive — état historique avant IaC
 
 **Statut** : ouvert, **état clarifié pendant pentest 2026-05-12 23:25**. Contrairement à ce qu'on pourrait croire, `fail2ban` **EST installé et actif** (depuis 2026-05-02 18:11, soit 1 semaine 3 jours).
 

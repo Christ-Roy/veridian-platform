@@ -1,0 +1,44 @@
+# fail2ban — IaC stack Dokploy
+#
+# Migration depuis l'install apt sur l'hôte (cf TODO P0.5).
+# Le container tourne en network_mode: host pour pouvoir manipuler iptables
+# du host (le DROP doit se faire sur ens3, pas sur un bridge Docker).
+#
+# Jails fournis :
+# 1. sshd       : brute SSH port 22 (via /var/log/auth.log mount)
+# 2. sshd-alt   : brute SSH port 2222 (idem)
+# 3. traefik-auth : 401/403 répétés sur Traefik (depuis stdout Docker via journald)
+# 4. dokploy-login : brute /api/auth/sign-in sur dokploy.veridian.site
+#
+# Déploiement : via Dokploy UI (créer stack "fail2ban" pointant sur ce dossier git)
+# OU manuellement : docker compose -f infra/fail2ban/compose.yml up -d
+#
+# Note : ne supprime PAS le fail2ban apt actuel avant validation que ce
+# container fonctionne (double-couverture temporaire OK).
+
+services:
+  fail2ban:
+    image: lscr.io/linuxserver/fail2ban:latest
+    container_name: veridian-fail2ban
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    network_mode: host
+    environment:
+      - PUID=0
+      - PGID=0
+      - TZ=Europe/Paris
+      - VERBOSITY=-vv
+    volumes:
+      # Config jails versionnée (IaC)
+      - ./config:/config
+      # Logs hôte accessibles RO
+      - /var/log:/var/log:ro
+      # Docker socket pour parser logs Traefik (optionnel, voir filter.d/traefik-auth.conf)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "fail2ban-client", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
