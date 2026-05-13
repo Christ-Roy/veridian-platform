@@ -1,19 +1,18 @@
-name: Hub CI/CD
+name: Hub CI/CD (DEPRECATED — extraction 2026-05-13)
+
+# ⚠️ DÉPRÉCIÉ depuis 2026-05-13.
+# Hub a été extrait dans son propre repo : https://github.com/Christ-Roy/veridian-hub
+# Toute modif hub/ ou infra/services/hub/ doit se faire LÀ-BAS maintenant.
+#
+# Ce workflow ne déclenche plus automatiquement (push/pull_request désactivés)
+# pour éviter une double-publication sur GHCR / une double-bascule Dokploy.
+# Il reste exécutable manuellement via `workflow_dispatch` au cas où il faille
+# revert l'extraction.
+#
+# À supprimer définitivement avec le dossier hub/ une fois que veridian-hub
+# a tourné en prod sans incident pendant 7 jours.
 
 on:
-  push:
-    branches: [main, staging]
-    paths:
-      - 'hub/**'
-      - '.github/workflows/hub-ci.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'hub/**'
-      - '.github/workflows/hub-ci.yml'
-      - '.github/workflows/_audit-cve.yml'
-      - '.github/workflows/_trivy-image.yml'
-      - 'infra/services/hub/**'
   workflow_dispatch:
 
 concurrency:

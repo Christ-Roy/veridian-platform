@@ -1,13 +1,14 @@
-name: Hub — Security cron (Trivy daily)
+name: Hub — Security cron (DEPRECATED — extraction 2026-05-13)
 
-# Cron quotidien Trivy sur l'image hub deployed (latest tag GHCR).
-# Détecte les CVE upstream sorties APRÈS le merge (entre 2 builds).
-# Si CRIT/HIGH apparaît : ce workflow fail et l'agent CI hub doit ouvrir une PR de bump.
-# Référence : SPRINT-GITOPS-VERIDIAN.md "Cron Trivy quotidien".
+# ⚠️ DÉPRÉCIÉ depuis 2026-05-13.
+# Hub a été extrait dans son propre repo : https://github.com/Christ-Roy/veridian-hub
+# Le cron Trivy quotidien tourne maintenant LÀ-BAS.
+#
+# Ce workflow garde uniquement workflow_dispatch (déclenchement manuel) au cas
+# où il faille revert l'extraction. Schedule désactivé pour éviter un double
+# scan (et un double "fail = ouvrir PR de bump" sur le mauvais repo).
 
 on:
-  schedule:
-    - cron: '0 3 * * *'   # 3h UTC = 4h/5h Paris
   workflow_dispatch:
 
 permissions:
