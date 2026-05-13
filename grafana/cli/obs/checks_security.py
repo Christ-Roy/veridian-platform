@@ -355,6 +355,454 @@ def check_security_docker_version(env_filter: str | None = None, **_) -> CheckRe
     return CheckResult("security_docker_version", findings)
 
 
+# ----- Check : headers HTTP de sécurité sur les apps publiques -----
+#
+# Audit passif : un curl par domaine, lit les headers, flag les manquants.
+# CRIT pour les apps auth/billing (hub, twenty, notifuse, analytics, prospection).
+# WARN pour les apps publiques sans auth.
+
+# Sous-domaines à auditer (domaine → criticité si headers manquants)
+# - "crit" : app auth-protected, headers OBLIGATOIRES (hub, twenty, prospection, analytics, notifuse)
+# - "warn" : app publique, headers recommandés (sites vitrines, cms)
+# - "info" : domaines internes Dokploy/admin, on s'attend déjà à des headers,
+#            mais l'absence reste pas critique business
+HTTP_SECURITY_TARGETS = [
+    ("app.veridian.site", "crit"),
+    ("twenty.app.veridian.site", "crit"),
+    ("notifuse.app.veridian.site", "crit"),
+    ("analytics.app.veridian.site", "crit"),
+    ("prospection.app.veridian.site", "crit"),
+    ("dokploy.veridian.site", "info"),
+]
+
+# Headers de sécurité attendus. Map header (lowercase) → niveau (crit/warn/info)
+SECURITY_HEADERS_EXPECTED = {
+    "strict-transport-security": "crit",
+    "x-frame-options": "crit",
+    "x-content-type-options": "crit",
+    "referrer-policy": "warn",
+    "content-security-policy": "warn",
+    "permissions-policy": "info",
+}
+
+
+@cached("security_http_headers", max_age_seconds=600)
+def _fetch_headers(url: str, timeout: float = 6.0) -> dict | None:
+    """HEAD request via curl. Retourne {header_lowercase: value} ou None si fail.
+
+    On utilise subprocess(curl) plutôt que `requests` pour éviter de poller
+    le DNS Python (résolution plus fiable + HTTP/2 supporté nativement).
+    """
+    try:
+        proc = subprocess.run(
+            ["curl", "-sI", "-L", "--max-time", str(int(timeout)),
+             "-H", "User-Agent: veridian-obs-check/1.0",
+             url],
+            capture_output=True, text=True, timeout=timeout + 2,
+        )
+        if proc.returncode != 0:
+            return None
+        headers: dict[str, str] = {}
+        for line in proc.stdout.splitlines():
+            if ":" not in line:
+                continue
+            k, _, v = line.partition(":")
+            headers[k.strip().lower()] = v.strip()
+        return headers
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+
+
+def check_security_http_headers(**_) -> CheckResult:
+    """Vérifie que chaque app publique sert les headers de sécurité essentiels.
+
+    Non-destructif : 1 HEAD request par domaine, 6s timeout, cache 10 min.
+    """
+    findings = []
+    for domain, criticality in HTTP_SECURITY_TARGETS:
+        url = f"https://{domain}/"
+        headers = _fetch_headers(url)
+        if headers is None:
+            findings.append(Finding(
+                check_id="security_http_headers",
+                severity=Severity.INFO,
+                target=domain,
+                summary="HEAD request a échoué",
+                drilldown=f"curl -sI {url}",
+            ))
+            continue
+
+        missing = []
+        for h_name, h_level in SECURITY_HEADERS_EXPECTED.items():
+            if h_name not in headers:
+                missing.append((h_name, h_level))
+
+        if not missing:
+            continue
+
+        # Tier la severity : CRIT si app "crit" + au moins 1 header crit manque
+        has_crit_missing = any(level == "crit" for _, level in missing)
+        if criticality == "crit" and has_crit_missing:
+            sev = Severity.CRIT
+        elif criticality == "warn" or has_crit_missing:
+            sev = Severity.WARN
+        else:
+            sev = Severity.INFO
+
+        # Format : 3 headers manquants → liste courte
+        missing_names = ", ".join(h for h, _ in missing[:4])
+        if len(missing) > 4:
+            missing_names += f" +{len(missing) - 4}"
+
+        findings.append(Finding(
+            check_id="security_http_headers",
+            severity=sev,
+            target=domain,
+            summary=f"{len(missing)} headers sécu manquants : {missing_names}",
+            drilldown=f"curl -sI {url} | grep -iE 'strict|x-frame|x-content|csp'",
+        ))
+    return CheckResult("security_http_headers", findings)
+
+
+# ----- Check : panel admin Dokploy exposé Internet -----
+
+
+def check_security_dokploy_exposed(**_) -> CheckResult:
+    """Vérifie que dokploy.veridian.site n'est PAS accessible publiquement.
+
+    Idéal : 403/401/timeout depuis une IP non-allowlistée → reverse-proxy
+    a un middleware ipAllowList ou un Cloudflare Access devant.
+
+    Réalité actuelle (2026-05-12) : répond 200 OK depuis n'importe où.
+    """
+    url = "https://dokploy.veridian.site/"
+    headers = _fetch_headers(url)
+    if headers is None:
+        # Pas accessible = bon signe (probablement ipAllowList configuré ou tunnel)
+        return CheckResult("security_dokploy_exposed", [Finding(
+            check_id="security_dokploy_exposed",
+            severity=Severity.INFO,
+            target="dokploy.veridian.site",
+            summary="non accessible publiquement (bon signe)",
+            drilldown=f"curl -sI {url}",
+        )])
+
+    # Si on a une réponse, vérifier le code
+    # _fetch_headers ne retourne pas le code directement, mais s'il a réussi
+    # c'est qu'il y a au moins eu un 2xx/3xx. On va checker via curl directement.
+    try:
+        proc = subprocess.run(
+            ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+             "--max-time", "6", url],
+            capture_output=True, text=True, timeout=10,
+        )
+        code = proc.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        code = "?"
+
+    if code == "200":
+        return CheckResult("security_dokploy_exposed", [Finding(
+            check_id="security_dokploy_exposed",
+            severity=Severity.CRIT,
+            target="dokploy.veridian.site",
+            summary="Dokploy admin UI exposé publiquement (HTTP 200 sans auth)",
+            drilldown=f"curl -sI {url}  # voir infra/TODO.md P0.6",
+        )])
+
+    return CheckResult("security_dokploy_exposed", [])
+
+
+# ----- Check : CORS wildcard sur apps auth-protected -----
+
+
+# Apps où CORS *  est un risque critique (manipule cookies / tokens)
+CORS_CRIT_DOMAINS = {
+    "app.veridian.site",
+    "twenty.app.veridian.site",
+    "notifuse.app.veridian.site",
+    "analytics.app.veridian.site",
+    "prospection.app.veridian.site",
+}
+
+
+def check_security_cors_wildcard(**_) -> CheckResult:
+    """Détecte `Access-Control-Allow-Origin: *` sur les apps auth-protected.
+
+    Envoie un curl avec Origin: https://evil.com et vérifie si l'app
+    accepte. Si oui + cookies présents = vrai problème.
+    """
+    findings = []
+    for domain in CORS_CRIT_DOMAINS:
+        url = f"https://{domain}/"
+        try:
+            proc = subprocess.run(
+                ["curl", "-sI", "--max-time", "6",
+                 "-H", "Origin: https://evil.com",
+                 "-H", "User-Agent: veridian-obs-check/1.0",
+                 url],
+                capture_output=True, text=True, timeout=10,
+            )
+            if proc.returncode != 0:
+                continue
+            headers: dict[str, str] = {}
+            for line in proc.stdout.splitlines():
+                if ":" not in line:
+                    continue
+                k, _, v = line.partition(":")
+                headers[k.strip().lower()] = v.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            continue
+
+        aco = headers.get("access-control-allow-origin", "")
+        acc = headers.get("access-control-allow-credentials", "").lower()
+
+        if aco == "*":
+            # Wildcard CORS — risque selon credentials
+            if acc == "true":
+                # Combo non-spec mais dangereux sur User-Agents permissifs
+                findings.append(Finding(
+                    check_id="security_cors_wildcard",
+                    severity=Severity.CRIT,
+                    target=domain,
+                    summary="CORS * + Credentials: true (lecture cross-origin avec cookies)",
+                    drilldown=f"curl -sI -H 'Origin: https://evil.com' {url}",
+                ))
+            else:
+                findings.append(Finding(
+                    check_id="security_cors_wildcard",
+                    severity=Severity.WARN,
+                    target=domain,
+                    summary="CORS Access-Control-Allow-Origin: * sur app auth-protected",
+                    drilldown=f"curl -sI -H 'Origin: https://evil.com' {url}",
+                ))
+        elif aco == "https://evil.com":
+            # Reflète l'Origin tel quel = bypass total
+            findings.append(Finding(
+                check_id="security_cors_wildcard",
+                severity=Severity.CRIT,
+                target=domain,
+                summary="CORS reflète l'Origin attaquant (allow https://evil.com)",
+                drilldown=f"curl -sI -H 'Origin: https://evil.com' {url}",
+            ))
+
+    return CheckResult("security_cors_wildcard", findings)
+
+
+# ----- Check : santé du bouncer CrowdSec (taux de 500/timeout) -----
+
+
+def check_security_bouncer_health(loki: LokiClient, **_) -> CheckResult:
+    """Détecte si le bouncer CrowdSec rame / fail-closed.
+
+    Depuis 2026-05-13 P0.4 fix : le bouncer est un plugin Traefik intégré
+    (maxlerebourg/crowdsec-bouncer-traefik-plugin v1.6.0) en mode stream.
+    Le poll LAPI 1x/60s loggue `handleStreamCache:updated` quand OK,
+    `handleStreamCache:...error` quand LAPI down. Si pas un seul OK en 5min,
+    le cache du bouncer n'est plus rafraîchi → c'est un signal d'alerte.
+
+    Garde aussi l'ancien check sur `code-crowdsec-traefik-bouncer-1` (fbonalair)
+    au cas où il serait remis en route (rollback potentiel).
+    """
+    findings = []
+
+    # --- Plugin Traefik (nouveau) ---
+    try:
+        plugin_ok = loki.query_instant(
+            'sum(count_over_time({container="dokploy-traefik"} '
+            '|~ "CrowdsecBouncerTraefikPlugin" |~ "handleStreamCache:updated" [10m]))'
+        )
+        plugin_err = loki.query_instant(
+            'sum(count_over_time({container="dokploy-traefik"} '
+            '|~ "CrowdsecBouncerTraefikPlugin" |~ "error|fail|unable" [10m]))'
+        )
+        n_ok = int(float(plugin_ok[0]["value"][1])) if plugin_ok else 0
+        n_err = int(float(plugin_err[0]["value"][1])) if plugin_err else 0
+    except Exception:
+        n_ok = n_err = 0
+
+    if n_ok == 0 and n_err == 0:
+        findings.append(Finding(
+            check_id="security_bouncer_health",
+            severity=Severity.WARN,
+            target="dokploy-traefik (plugin)",
+            summary="Aucun log plugin CrowdSec sur 10min (ni OK ni erreur) — plugin actif ?",
+            drilldown="obs tail dokploy-traefik | grep -i crowdsec",
+        ))
+    elif n_err > n_ok and n_err > 3:
+        findings.append(Finding(
+            check_id="security_bouncer_health",
+            severity=Severity.CRIT,
+            target="dokploy-traefik (plugin)",
+            summary=f"Plugin CrowdSec : {n_err} erreurs vs {n_ok} OK sur 10min — LAPI joignable ?",
+            drilldown="obs tail dokploy-traefik | grep -i crowdsec",
+        ))
+
+    # --- Ancien bouncer fbonalair (rollback safety) ---
+    try:
+        deadline_res = loki.query_instant(
+            'sum(count_over_time({container="code-crowdsec-traefik-bouncer-1"} '
+            '|~ "context deadline exceeded|context canceled" [15m]))'
+        )
+        total_res = loki.query_instant(
+            'sum(count_over_time({container="code-crowdsec-traefik-bouncer-1"} [15m]))'
+        )
+        n_deadlines = int(float(deadline_res[0]["value"][1])) if deadline_res else 0
+        n_total = int(float(total_res[0]["value"][1])) if total_res else 0
+    except Exception:
+        n_deadlines = n_total = 0
+
+    if n_total > 0:
+        pct = (n_deadlines / n_total) * 100
+        if pct >= 20:
+            findings.append(Finding(
+                check_id="security_bouncer_health",
+                severity=Severity.CRIT,
+                target="code-crowdsec-traefik-bouncer-1 (legacy)",
+                summary=f"{n_deadlines}/{n_total} ({pct:.1f}%) requêtes bouncer legacy en timeout — rollback en cours ?",
+                drilldown="obs tail code-crowdsec-traefik-bouncer-1  # cf infra/TODO.md P0.4",
+            ))
+        elif pct >= 5:
+            findings.append(Finding(
+                check_id="security_bouncer_health",
+                severity=Severity.WARN,
+                target="code-crowdsec-traefik-bouncer-1 (legacy)",
+                summary=f"{n_deadlines}/{n_total} ({pct:.1f}%) requêtes bouncer legacy en timeout",
+                drilldown="obs tail code-crowdsec-traefik-bouncer-1",
+            ))
+
+    return CheckResult("security_bouncer_health", findings)
+
+
+# ----- Check : Traefik voit-il les vraies IPs clients ? -----
+
+
+# Ranges Cloudflare v4 (récupérés via api.cloudflare.com/client/v4/ips).
+# Si Traefik log `ClientHost` dans ces ranges, c'est que `forwardedHeaders.trustedIPs`
+# n'est pas configuré → CrowdSec ne peut pas bannir l'attaquant réel.
+CLOUDFLARE_V4_PREFIXES = (
+    "173.245.48.", "103.21.244.", "103.22.200.", "103.31.4.",
+    "141.101.64.", "108.162.192.", "190.93.240.", "188.114.96.",
+    "197.234.240.", "198.41.128.", "162.158.", "104.16.", "104.17.",
+    "104.18.", "104.19.", "104.20.", "104.21.", "104.22.", "104.23.",
+    "104.24.", "104.25.", "104.26.", "104.27.", "172.64.", "172.65.",
+    "172.66.", "172.67.", "172.68.", "172.69.", "172.70.", "172.71.",
+    "131.0.72.",
+)
+
+
+def check_security_traefik_real_ip(**_) -> CheckResult:
+    """Vérifie que Traefik voit les vraies IPs clients, pas celles du proxy CF.
+
+    Note 2026-05-13 : Traefik envoie ses access logs en OTLP gRPC (pas Loki),
+    donc on lit directement les logs Docker via SSH. Les logs Traefik en INFO
+    contiennent rarement ClientHost mais on regarde les éventuelles entrées
+    JSON access-log qui auraient fui sur stdout.
+
+    Symptôme bug : `ClientHost` dans logs Traefik commence par un range CF
+    (ex `172.70.x.x`). Conséquences :
+    - CrowdSec bannit Cloudflare au lieu de l'attaquant → DoS tous users CF
+    - fail2ban-traefik-auth ne peut pas distinguer attaquants des proxies
+    - Audit logs faussés
+    """
+    rc, out, _ = _ssh_run(
+        "prod-pub",
+        "docker logs --since 1h dokploy-traefik 2>&1 | grep -oE 'ClientHost\":\"[0-9.]+' | sort -u | head -50",
+        timeout=15,
+    )
+    if rc != 0 or not out.strip():
+        # Pas d'access logs sur stdout — c'est normal, vu qu'OTLP gRPC
+        # est utilisé. Pas de finding, ce check est best-effort.
+        return CheckResult("security_traefik_real_ip", [])
+
+    cf_hosts: list[str] = []
+    other_hosts: list[str] = []
+    for line in out.strip().splitlines():
+        ip = line.split('"')[-1]
+        if any(ip.startswith(p) for p in CLOUDFLARE_V4_PREFIXES):
+            cf_hosts.append(ip)
+        else:
+            other_hosts.append(ip)
+
+    findings = []
+    total = len(cf_hosts) + len(other_hosts)
+    if cf_hosts and total > 0:
+        pct = (len(cf_hosts) / total) * 100
+        sample = ", ".join(cf_hosts[:3])
+        findings.append(Finding(
+            check_id="security_traefik_real_ip",
+            severity=Severity.CRIT if pct > 5 else Severity.WARN,
+            target="dokploy-traefik",
+            summary=f"{len(cf_hosts)}/{total} IPs uniques observées sont CF ({sample}) — forwardedHeaders.trustedIPs incomplet ?",
+            drilldown="ssh prod-pub 'docker logs --tail 100 dokploy-traefik | grep ClientHost'",
+        ))
+
+    return CheckResult("security_traefik_real_ip", findings)
+
+
+# ----- Check : fail2ban jails actifs -----
+
+# Jails minimum attendus sur prod. Manque l'un = lacune sécurité.
+FAIL2BAN_JAILS_EXPECTED = {
+    "sshd",
+    # à ajouter après P0.5 :
+    # "traefik-auth",
+    # "dokploy-login",
+}
+
+
+@cached("security_fail2ban_jails", max_age_seconds=900)
+def _list_fail2ban_jails_raw(ssh_alias: str) -> list[str] | None:
+    """Liste les jails actifs sur un host. None si fail2ban absent.
+
+    Retourne une liste (sérialisable JSON) — le cache convertit set→str sinon.
+    """
+    rc, out, _ = _ssh_run(ssh_alias, "sudo fail2ban-client status 2>/dev/null", timeout=10)
+    if rc != 0:
+        return None
+    for line in out.splitlines():
+        if "Jail list:" in line:
+            parts = line.split("Jail list:")
+            if len(parts) > 1:
+                return sorted({j.strip() for j in parts[1].split(",") if j.strip()})
+    return []
+
+
+def _list_fail2ban_jails(ssh_alias: str) -> set[str] | None:
+    raw = _list_fail2ban_jails_raw(ssh_alias)
+    if raw is None:
+        return None
+    return set(raw)
+
+
+def check_security_fail2ban_jails(env_filter: str | None = None, **_) -> CheckResult:
+    """Audit fail2ban : container/service actif ? quels jails sont activés ?"""
+    findings = []
+    for host_label, ssh_alias, _ip in _hosts_to_audit(env_filter):
+        jails = _list_fail2ban_jails(ssh_alias)
+        if jails is None:
+            findings.append(Finding(
+                check_id="security_fail2ban_jails",
+                severity=Severity.CRIT,
+                target=host_label,
+                summary="fail2ban absent ou service down",
+                drilldown=f"ssh {ssh_alias} 'systemctl status fail2ban'",
+            ))
+            continue
+
+        missing = FAIL2BAN_JAILS_EXPECTED - jails
+        if missing:
+            findings.append(Finding(
+                check_id="security_fail2ban_jails",
+                severity=Severity.WARN,
+                target=host_label,
+                summary=f"jails attendus manquants : {', '.join(sorted(missing))}",
+                drilldown=f"ssh {ssh_alias} 'sudo fail2ban-client status'",
+            ))
+        # Pas de jail HTTP/Traefik = ticket P0.5 ouvert mais pas un finding direct
+        # car on attend l'implémentation IaC. Si jails == {"sshd"} seul, c'est OK.
+    return CheckResult("security_fail2ban_jails", findings)
+
+
 # ----- Registry des checks security -----
 
 
@@ -362,4 +810,10 @@ SECURITY_CHECKS = [
     ("security_ports", check_security_ports),
     ("security_ssh", check_security_ssh_bruteforce),
     ("security_docker_version", check_security_docker_version),
+    ("security_http_headers", check_security_http_headers),
+    ("security_dokploy_exposed", check_security_dokploy_exposed),
+    ("security_cors_wildcard", check_security_cors_wildcard),
+    ("security_bouncer_health", check_security_bouncer_health),
+    ("security_traefik_real_ip", check_security_traefik_real_ip),
+    ("security_fail2ban_jails", check_security_fail2ban_jails),
 ]

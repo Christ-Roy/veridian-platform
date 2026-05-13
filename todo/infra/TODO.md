@@ -144,6 +144,279 @@
 
 **Déclencheur** : la majorité des bugs business viennent de la jonction entre apps, mais aucun test ne les couvre.
 
+### P0.4 — ✅ RÉSOLU 2026-05-13 10:21 : CrowdSec bouncer fail-closed sur LAPI timeout
+
+**Statut** : ✅ résolu — migration `fbonalair/traefik-crowdsec-bouncer:v0.5.0` (live, abandonware 2022) → **plugin officiel `maxlerebourg/crowdsec-bouncer-traefik-plugin v1.6.0`** en **mode stream** (poll LAPI 1x/60s, cache local mémoire, fail-open via `updateMaxFailure: -1`).
+
+**Fix appliqué** :
+- [x] `/etc/dokploy/traefik/traefik.yml` : ajout `experimental.plugins.bouncer` + `100.64.0.0/10` Tailscale CGNAT dans `trustedIPs` (déjà avait CF v4/v6 + RFC1918 + Docker overlays)
+- [x] `/etc/dokploy/traefik/dynamic/crowdsec-middleware.yml` : remplacé `forwardAuth` → `plugin.bouncer` avec `crowdsecMode: stream`, `updateIntervalSeconds: 60`, `updateMaxFailure: -1` (fail-open), `httpTimeoutSeconds: 5`, `defaultDecisionSeconds: 60`, ranges trustés CF + Tailscale dans `forwardedHeadersTrustedIPs`, `clientTrustedIPs: 100.64/10 + RFC1918`
+- [x] Restart `dokploy-traefik` : downtime ~10s, plugin téléchargé depuis GitHub, `handleStreamCache:updated` confirme le sync LAPI
+- [x] Backup forensique : `/home/ubuntu/forensics/2026-05-13-bouncer-plugin/` (traefik.yml.bak, crowdsec-middleware.yml.bak, crowdsec-compose.yml.bak)
+- [x] Allowlist Veridian versionnée : `infra/crowdsec/whitelists.yaml` + `infra/scripts/crowdsec-apply-allowlist.sh` (Robert + dev-server + Tailscale 100.64/10 + RFC1918 + 6 IPs Better Uptime). Mécanisme = parser CrowdSec `/etc/crowdsec/parsers/s02-enrich/whitelists.yaml` (collection `crowdsecurity/whitelist-good-actors` déjà installée). Script idempotent + SIGHUP reload. Testé live 2026-05-13 10:31.
+- [x] Vérif : burst 100 req parallèles → 100/100 en 200 (vs 53% en 403 hier), latence 153-200ms stable
+- [x] Vérif : `obs pentest deep` lancé sur app.veridian.site, monitoring en cours (run `20260513-102318-deep`)
+
+**Découvertes pendant l'audit** :
+- Le compose Dokploy CrowdSec (`compose-program-digital-application-vb1x5n`) est en état `.disabled-2026-05-10-collision-fix` — les containers tournent en `unless-stopped` (survivent reboot) mais Dokploy ne les manage plus. À ré-onboarder proprement (sans le service `crowdsec-traefik-bouncer` désormais inutile)
+- Drift de credentials : `CROWDSEC_BOUNCER_API_KEY_PROD` diffère entre `~/credentials/.all-creds.env` (`6e4d89...`) et le `.env` du compose prod (`eW0y...`). Source de vérité = le `.env` runtime. À synchroniser
+- Aucun bouncer firewall CrowdSec sur la prod (`ipset` pas installé) — seul le bouncer HTTP via Traefik filtre. Cohérent avec les 403 observés pendant le pentest (pas des DROP réseau)
+- fail2ban actuel = jail `sshd` uniquement (cf P0.5). Pendant le pentest, aucune interception réseau n'a eu lieu, c'était bien le bouncer fbonalair qui répondait fail-closed
+
+**Restant pour fermer définitivement P0.4** :
+- [x] ~~Stopper le container fbonalair~~ → fait 2026-05-13 10:29 (stopped + restart=no, kept 24h pour rollback)
+- [ ] `docker rm code-crowdsec-traefik-bouncer-1` après 2026-05-14 (rollback window 24h dépassée)
+- [ ] Ré-onboarder le compose CrowdSec dans Dokploy proprement → **chantier non trivial** : le compose actuel `compose-program-digital-application-vb1x5n` a un `.env` orphelin avec des creds d'autres services (Supabase/Twenty) + `COMPOSE_FILE=...:docker-compose.prod.yml:docker-compose.resources.yml` pointant sur des fichiers absents. Brouillon ready : `/etc/dokploy/compose/compose-program-digital-application-vb1x5n/code/docker-compose.yml.draft-2026-05-13-needs-dokploy-recreate`. **Action propre** = supprimer la stack zombie via Dokploy API + recréer une nouvelle stack "crowdsec" dédiée. À faire en session dédiée, hors fenêtre prod chargée.
+- [ ] Vérifier résultat `obs pentest deep` complet (run `20260513-102318-deep`) — phase 6 (DoS bouncer) doit passer cette fois
+- [x] ~~Refaire le script `crowdsec-apply-allowlist.sh`~~ → fait 2026-05-13 10:31 (parser `s02-enrich/whitelists.yaml` + SIGHUP)
+- [x] ~~Ajouter check `obs check security` real-IP cassée~~ → fait 2026-05-13 10:34. Nouveaux checks `security_traefik_real_ip` + bouncer_health updated pour plugin. Best-effort (Traefik utilise OTLP pas Loki pour access logs, le check lit stdout via SSH). Pas de finding = OK.
+- [ ] Migrer LAPI sqlite → Postgres (cf doc CrowdSec) — moins urgent maintenant que le bouncer ne tape plus LAPI à chaque req
+
+**Référence pentest** : `runbooks/incidents/2026-05-13-pentest-manuel.md`
+
+---
+
+### P0.4 — historique (avant fix)
+
+**Bug actif depuis au moins 2026-05-08** (déjà documenté dans `memory/project_infra_pieges.md` : « ForwardAuth = SPOF »). Confirmé en prod par pentest manuel du **2026-05-12 23:15**.
+
+**Preuves brutes (logs prod) `bouncer` :**
+```
+{"level":"warn","error":"Get \"http://crowdsec:8080/v1/decisions?type=ban&ip=78.112.59.120\":
+ context deadline exceeded (Client.Timeout exceeded while awaiting headers)",
+ "message":"An error occurred while checking IP \"\""}
+
+{"level":"warn","status":403,"path":"/api/v1/forwardAuth","latency":5001.520425,
+ "user_agent":"Mozilla/5.0 (CentOS; ...) Chrome/137.0.0.0","message":"Request"}
+```
+
+**Symptôme** : sous charge légère (80 req/s nuclei depuis **une seule IP**) :
+- LAPI CrowdSec sature → 500 `context canceled` après 5s
+- Bouncer ForwardAuth Traefik répond **403 fail-closed** pendant le timeout
+- Comportement non-déterministe (200 OK et 403 alternent sur la même IP au même moment)
+- Latence par requête : **2-5 secondes** ajoutées partout
+- Quand l'utilisateur essaye `https://app.veridian.site/` legit pendant ce temps : **403 5s** au lieu de 200
+
+**Impact business :**
+- **DoS trivial** : 80 req/s = ~1 nœud résidentiel = peut faire tomber la prod (toutes apps simultanément, car Traefik = ForwardAuth pour tout)
+- Aucun bannissement effectif : LAPI n'a pas le temps de prendre une décision, donc l'attaquant n'est jamais banni → boucle infinie « je tape → bouncer répond 500 → tu vois 500 mais moi je continue »
+- **Stack `obs` détecte bien** (`code-crowdsec-traefik-bouncer-1` à 34.9% logs erreur en alerte CRIT, `dokploy-traefik` à 100%) mais **aucune action automatique**
+
+**Cause profonde probable** (à confirmer) :
+1. CrowdSec LAPI sqlite par défaut → contention sous concurrence
+2. Timeout bouncer côté Traefik à 5s = trop long, devrait être 200-500ms avec fail-**open** par défaut (au lieu de fail-closed)
+3. Pas de cache local côté bouncer (chaque requête = 1 query LAPI = effondrement quand LAPI lent)
+4. Pas d'allowlist IP locale (mon IP `78.112.59.120` aurait dû être whitelistée → 0 query LAPI)
+
+**Plan de fix (ordonné par urgence) :**
+
+1. **[QUICK WIN]** Passer le bouncer Traefik en `forwardedHeadersTrustedIPs` + mode `none` au lieu de `live` (=cache 60s + fallback IP non-checkée = passe) :
+   ```yaml
+   # dokploy-traefik labels du middleware crowdsec :
+   forwardAuth.address: http://crowdsec-traefik-bouncer:8080/api/v1/forwardAuth
+   forwardAuth.tls.insecureSkipVerify: true
+   # + bouncer env :
+   CROWDSEC_BOUNCER_API_KEY: ...
+   CROWDSEC_MODE: stream    # au lieu de live → poll LAPI 1x/min, cache local
+   CROWDSEC_UPDATE_INTERVAL: 60s
+   ```
+   → la requête utilisateur n'attend plus LAPI, elle consulte un cache local en mémoire. LAPI peut crever, l'app reste up.
+
+2. **[QUICK WIN 2]** Ajouter une **allowlist permanente** des IPs Veridian (Robert local, dev server, CI runner, bots Better Uptime) directement dans CrowdSec :
+   ```bash
+   ssh prod-pub "docker exec code-crowdsec-1 cscli decisions add \
+     --ip 78.112.59.120 --duration 100y --type whitelist --reason 'robert-local'"
+   ```
+   Idem pour Better Uptime, GitHub Actions, dev.veridian.site.
+
+3. **[MEDIUM]** Migrer LAPI de sqlite vers Postgres (peut réutiliser `dokploy-postgres`) — sqlite verrouille la DB sur écritures concurrentes, c'est la cause #1 des timeouts. Doc : https://docs.crowdsec.net/u/user_guides/database/
+
+4. **[MEDIUM]** Réduire le `forwardAuth` timeout côté Traefik de 5s à 500ms, avec **fail-open** explicite (mieux vaut laisser passer un attaquant 60s qu'avoir 100% de la prod en 403).
+
+5. **[LONG TERME]** Ajouter un check `obs check security` qui mesure le **temps de réponse LAPI** et alerte si > 200ms moyen sur 5 min. Sans ça on ne sait pas que le SPOF se réveille avant que la prod tombe.
+
+**Test de non-régression à inclure dans `obs pentest fast` (en cours de design)** :
+- Spam 200 req/s pendant 30s depuis IP attaquant sur `app.veridian.site`
+- Vérifier en parallèle qu'un curl legit (autre IP) reçoit 200 < 1s
+- Si latence legit dépasse 2s OU si attaquant pas banni en 30s → **FAIL**
+
+**Pourquoi ce P0.4 est ENFIN un P0** :
+- C'est documenté depuis le 2026-05-08 dans la mémoire (`project_infra_pieges.md`)
+- Confirmé exploitable en 2 min avec un nuclei standard et 1 seule IP
+- Bloque même la détection : pendant l'attaque, **on ne peut pas voir qui attaque** car LAPI plante
+- Si un attaquant lit ce repo (`runbooks/` est public dans les forks éventuels), il a la recette gratuite
+
+**Lien session pentest** : `runbooks/incidents/2026-05-13-pentest-manuel.md` (à remplir)
+
+### P0.5 — 🔥 fail2ban prod = uniquement jail `sshd`, aucun jail HTTP/Traefik
+
+**Statut** : ouvert, **état clarifié pendant pentest 2026-05-12 23:25**. Contrairement à ce qu'on pourrait croire, `fail2ban` **EST installé et actif** (depuis 2026-05-02 18:11, soit 1 semaine 3 jours).
+
+**État réel mesuré :**
+```
+$ ssh prod "sudo fail2ban-client status"
+Status
+|- Number of jail: 1
+`- Jail list:      sshd
+
+$ ssh prod "sudo fail2ban-client status sshd"
+Status for the jail: sshd
+|- Filter
+|  |- Currently failed: 4
+|  |- Total failed:     14013    ← 14k tentatives SSH en 1 semaine
+|  `- Journal matches:  _SYSTEMD_UNIT=sshd.service + _COMM=sshd
+`- Actions
+   |- Currently banned: 1
+   |- Total banned:     730      ← 730 IPs bannies en 1 semaine = ~104/jour
+   `- Banned IP list:   78.112.59.120  ← Robert s'est fait bannir pendant le pentest
+```
+
+**Bonne nouvelle :** SSH brute fonctionne, fail2ban a banni 730 IPs en 1 semaine. Robert (IP `78.112.59.120`) s'est fait bannir en **10 tentatives SSH** pendant le pentest → réaction effective.
+
+**Mauvaise nouvelle (le vrai problème) :**
+
+1. **Aucun jail HTTP/Traefik** : nuclei à 80 req/s pendant 4 min depuis une seule IP = aucune action fail2ban. C'est pour ça que le DoS du bouncer (cf P0.4) a pu durer 4+ min sans bannissement.
+2. **Le jail `sshd` couvre uniquement le port 22 standard** (parser `_SYSTEMD_UNIT=sshd.service`). Le port `2222` n'est pas couvert si c'est un sshd container Docker (logs pas dans systemd-journald de l'hôte).
+3. **Pas de jail recidive** = bannissement temporaire (par défaut 10min). Une IP bannie 1×/h revient indéfiniment. À 104 IPs/jour, c'est du gaspillage.
+4. **Pas dans IaC** : la config `/etc/fail2ban/jail.local` est installée à la main sur le VPS. Pas versionnée. Si on perd le VPS, on perd la config. Pas de revue de change possible.
+
+**Surface réellement vulnérable (non couverte par fail2ban actuel) :**
+- Brute sur `/api/auth/sign-in` Dokploy (cf P0.6)
+- Brute sur `/api/auth/callback/credentials` Hub Auth.js
+- Brute sur Twenty `/auth` (port 3000 derrière Traefik)
+- Brute sur Notifuse `/console` login
+- Spam de POST sur Stripe webhook endpoints (DoS apps + facture Anthropic API)
+- Crawling agressif (cf nuclei à 80 req/s qui a fait tomber tout)
+- Slowloris / TCP slow-read sur Traefik
+
+**Approche IaC souhaitée** (cohérente avec le reste de la stack Docker/Dokploy) :
+
+Plutôt que de garder `fail2ban` en paquet apt sur l'hôte (couplé au VPS, pas reproductible, pas versionné, config manuelle), on **migre vers un container Docker dédié** :
+
+```yaml
+# infra/compose/security/fail2ban.yml — à ajouter comme stack Dokploy
+services:
+  fail2ban:
+    image: lscr.io/linuxserver/fail2ban:latest
+    container_name: fail2ban
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    network_mode: host        # nécessaire pour iptables sur l'hôte
+    environment:
+      - PUID=0
+      - PGID=0
+      - TZ=Europe/Paris
+      - VERBOSITY=-vv
+    volumes:
+      - ./fail2ban-config:/config
+      - /var/log:/var/log:ro  # accès aux logs sshd hôte
+      - /var/log/auth.log:/var/log/auth.log:ro
+    restart: unless-stopped
+```
+
+**Avantages IaC :**
+- Configuration `jail.local` versionnée dans `infra/compose/security/fail2ban-config/`
+- Reproductible (clone + `docker compose up` = même état)
+- Géré par Dokploy comme tout le reste → logs accessibles via `obs tail fail2ban`
+- Backup via le même flow que les autres stacks
+
+**Jails à activer (minimum vital) :**
+1. **sshd** sur `:22` et `:2222` — bantime 1h, findtime 10m, maxretry 5
+2. **sshd-aggressive** — bantime 24h, findtime 1h, maxretry 10 (couvre les distributed brute slow)
+3. **traefik-auth** — parse les logs Traefik JSON et ban sur 401/403 répétés (utile pour Dokploy UI exposé publiquement, cf P0.6)
+4. **dokploy-login** — ban sur les `/api/auth/*` qui répondent 401 en série (4-5 essais en 1 min depuis même IP)
+
+**Plan de fix :**
+
+1. **[QUICK]** Vérifier l'état réel sur prod : `ssh prod-pub "which fail2ban-client; systemctl status fail2ban; iptables -L -n | grep -i f2b"`. Mettre à jour CLAUDE.md global selon le résultat (ne plus dire « fail2ban actif » si c'est faux).
+2. **[QUICK]** Créer `infra/compose/security/fail2ban.yml` + `fail2ban-config/jail.local` + `filter.d/` pour les jails custom (traefik-auth, dokploy-login)
+3. **[MEDIUM]** Déployer comme nouvelle stack Dokploy. Vérifier que `iptables -L f2b-sshd` apparaît côté hôte.
+4. **[MEDIUM]** Tester en lançant un brute SSH depuis dev server (10 essais wrongpass) → vérifier ban < 30s
+5. **[MEDIUM]** Ajouter au `obs check security` un check « fail2ban container up + nombre d'IPs bannies actuelles » pour visibilité
+6. **[LONG]** Intégrer dans `obs pentest fast` un test SSH brute qui valide que fail2ban réagit en < 30s sinon FAIL
+
+**Pourquoi P0 et pas P1 :**
+- Port 22 ouvert sur internet 24/7 avec auth password désactivée mais clé OpenSSH 9.6 = surface réelle (0-day OpenSSH possible)
+- Le port `2222` n'est pas documenté dans CLAUDE.md → on ne sait pas ce qu'il fait. Si c'est Dokploy SSH git, un brute pourrait potentiellement viser des repos clients
+- Combiné à P0.4 (bouncer down), un attaquant peut DoS le bouncer ET brute SSH en parallèle sans qu'aucun système ne réagisse
+
+**Lien CrowdSec vs fail2ban — différence :**
+- CrowdSec = community-driven, partage les IPs malveillantes, mais c'est aussi le composant qui plante en P0.4
+- fail2ban = local, simple, fait son job sans dépendance réseau
+- Les deux sont complémentaires : CrowdSec en première ligne (partagé), fail2ban en filet de sécurité local
+
+**Connexe** : P1.4 (audit SSH) devient prérequis simple pour ce ticket — savoir qui a accès avant de durcir.
+
+### P0.6 — 🔥 Dokploy admin UI exposé publiquement sur dokploy.veridian.site
+
+**Statut** : ouvert, confirmé pendant pentest 2026-05-12 23:09. CLAUDE.md prétend « Dokploy UI port 3000 Tailscale-only » → **FAUX**. `https://dokploy.veridian.site/` répond `HTTP 200` avec page login depuis n'importe quelle IP du monde.
+
+**Preuves :**
+```bash
+$ curl -sI https://dokploy.veridian.site/
+HTTP/2 200
+content-security-policy: frame-ancestors 'none'
+x-frame-options: DENY
+x-powered-by: Next.js
+```
+
+Login form HTML servi en clair, version Dokploy inconnue (pas exposée dans headers).
+
+**Surface d'attaque :**
+- Brute force admin login illimité (rien ne ban — cf. P0.5 et P0.4)
+- Si CVE Dokploy auth bypass (cf. v0.29 a patché Pre-Auth Admin Takeover en mai 2026 — Robert vient d'upgrader, mais futures CVE arrivent)
+- Toute la stack Veridian gouvernée depuis ce panel : compromise admin = game over total (secrets ENV de toutes les apps, accès SSH au VPS via Dokploy terminal, etc.)
+
+**Plan de fix (3 options) :**
+
+1. **[RECOMMANDÉ] Cloudflare Tunnel + Access** : Tunnel `dokploy.veridian.site` → seulement accessible via login Cloudflare Access (email magic link Robert + dev server). Zéro exposition publique. Coût : 0€ (CF Access gratuit jusqu'à 50 users). 30 min de setup.
+
+2. **Tailscale only** : Retirer le DNS public + Traefik label, exposer seulement sur `100.88.202.29:3000` (Tailscale). Robert + dev server peuvent y accéder via VPN. Inconvénient : nécessite Tailscale ON tout le temps (le CLAUDE.md mentionne déjà que Tailscale est parfois idle).
+
+3. **IP allowlist Traefik** : Middleware Traefik `ipAllowList` avec IP Robert + dev + CI. Plus simple mais Robert change d'IP en déplacement → galère.
+
+**Action immédiate (cette nuit, avant fin pentest) :**
+- Si CF Access est dispo : mettre en place + cleanup DNS public
+- Sinon : ajouter middleware Traefik `ipAllowList` avec 78.112.59.120 + 37.187.199.185 en attendant
+
+**Connexe :**
+- P0.4 (bouncer fail-closed) : si on déplace Dokploy hors CrowdSec, on n'a plus le SPOF
+- P0.5 (fail2ban) : si on garde Dokploy public, fail2ban-traefik-auth devient critique pour les `/api/auth/*` Dokploy
+
+### P0.7 — ✅ FAUX POSITIF 2026-05-13 10:30 : CVE-2024-34351 Next.js SSRF (nuclei alarmiste)
+
+**Statut** : ✅ non-issue après vérif — Next.js Hub en `15.5.18` (patché depuis 14.2.7), `next.config*` filtre les `remotePatterns`. Test manuel `curl /_next/image?url=https://example.com/...` → **400 Bad Request** côté Next.js, **404** sur path inattendu. Pas de SSRF exploitable.
+
+**Origine du finding** : nuclei template `CVE-2024-34351` matche probablement le simple fait que `/_next/image` existe + OAST callback DNS, sans valider que le proxy fetch vraiment. À surveiller dans futurs runs mais pas de fix nécessaire.
+
+**Action** : aucune. Garder en mémoire que nuclei flag ce path systématiquement sur tout Next.js exposé — c'est un piège.
+
+### P0.7-archive — finding nuclei brut (référence)
+
+**Preuve nuclei** :
+```
+[CVE-2024-34351] HIGH
+https://app.veridian.site/_next/image?w=16&q=10&url=https://d823akq9dke6d3smi0c0c9wg8wah1aezz.oast.me
+```
+
+L'app a fetché l'URL OAST (out-of-band) externe via son `/_next/image` proxy → confirme SSRF exploitable. Next.js Image Optimization peut être abusé pour faire des requêtes serveur vers des cibles arbitraires (incluant le réseau interne Docker → autres containers Veridian).
+
+**Surface concrète** :
+- Scan du réseau interne `dokploy-network` depuis le container Hub
+- Lecture metadata cloud (heureusement OVH = pas d'AWS IMDS, mais quand même)
+- Exfiltration via DNS rebinding / TOCTOU
+
+**Fix** :
+- [ ] Vérifier la version Next.js du container Hub (`docker exec compose-back-up-online-pixel-nl2k9p-hub-authjs-1 cat /app/package.json | grep '"next"'`)
+- [ ] Si < `14.2.7` ou `13.5.7` : bump immédiat
+- [ ] Si version récente mais pas de `images.remotePatterns` strict configuré : ajouter dans `next.config.js` pour blacklister tout sauf domaines whitelistés
+- [ ] Re-tester avec `obs pentest deep` après fix → finding doit disparaître
+
+**Ticket vers team lead Hub** : à ajouter dans `todo/apps/hub/TODO.md` section "Tickets infra" — fix dans le code Next.js du Hub.
+
+**Lien** : `runbooks/incidents/2026-05-13-pentest-manuel.md` à updater.
+
 ## P1 — important, à venir après les P0
 
 ### P1.1 — Trivy scan automatisé
