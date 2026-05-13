@@ -28,7 +28,7 @@ parallèle, créer un worktree temporaire à ce moment-là (pas avant).
 | `~/Bureau/veridian-platform-hub/` | `feat/hub-authjs-migration` | `feat/hub-*`, `hub/p14-p15-wip` |
 | `~/Bureau/veridian-prospection/` | `main` | **EXTRAITE 2026-05-13** vers `Christ-Roy/veridian-prospection` |
 | `~/Bureau/veridian-platform-cms/` | `work/cms` | `feat/cms-*`, `fix/cms-*` |
-| `~/Bureau/veridian-platform-analytics/` | `work/analytics` | `feat/analytics-*`, `fix/analytics-*` |
+| `~/Bureau/veridian-platform-analytics/` | `main` | **EXTRAITE 2026-05-13** vers `Christ-Roy/veridian-analytics` |
 | `~/Bureau/notifuse-deploy/` | `main` | **EXTRAITE 2026-05-13** vers `Christ-Roy/notifuse-deploy` |
 | `~/Bureau/veridian-platform-twenty/` | `work/twenty` | `feat/twenty-*`, `fix/twenty-*` |
 | `~/Bureau/veridian-platform-sites/` | `work/sites` | `feat/sites-*`, sites clients |
