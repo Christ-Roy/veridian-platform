@@ -26,7 +26,7 @@ parallèle, créer un worktree temporaire à ce moment-là (pas avant).
 | `~/Bureau/veridian-platform/` | `ci-prod-smoke` | **Robert uniquement** — agents : interdit |
 | `~/Bureau/veridian-platform-main/` | `main` | `main` (commits transverses : CLAUDE.md, doc, `.claude/rules/`) |
 | `~/Bureau/veridian-platform-hub/` | `feat/hub-authjs-migration` | `feat/hub-*`, `hub/p14-p15-wip` |
-| `~/Bureau/veridian-platform-prospection/` | `feat/tenants-magic-link` | `feat/prospection-*`, `feat/tenants-magic-link`, `feat/prospection-authjs-migration`, `staging` |
+| `~/Bureau/veridian-prospection/` | `main` | **EXTRAITE 2026-05-13** vers `Christ-Roy/veridian-prospection` |
 | `~/Bureau/veridian-platform-cms/` | `work/cms` | `feat/cms-*`, `fix/cms-*` |
 | `~/Bureau/veridian-platform-analytics/` | `work/analytics` | `feat/analytics-*`, `fix/analytics-*` |
 | `~/Bureau/veridian-platform-notifuse/` | `work/notifuse` | `feat/notifuse-*`, `fix/notifuse-*` |
@@ -179,24 +179,26 @@ veridian-platform/
 │   ├── Dockerfile
 │   ├── package.json
 │   └── app/, lib/, ...
-├── prospection/            # Dashboard B2B prospection — Next.js 15, npm
-│   ├── Dockerfile
-│   ├── package.json
-│   ├── prisma/
-│   └── src/, e2e/, ...
 ├── infra/                  # Docker compose prod/staging/dev + scripts
 │   ├── docker-compose.yml
 │   ├── docker-compose.prod.yml
 │   └── docker-compose.staging.yml
 ├── .github/workflows/
 │   ├── hub-ci.yml          # CI hub (trigger: hub/**)
-│   └── prospection-ci.yml  # CI prospection (trigger: prospection/**)
+│   ├── _audit-cve.yml      # Reusable npm audit (utilisé par toutes apps)
+│   └── _trivy-image.yml    # Reusable Trivy image scan
 ├── .claude/
 │   └── rules/              # Regles contextuelles par domaine
 ├── todo/
 │   └── TODO-LIVE.md        # Backlog priorise P0→P3, source unique
 └── docs/                   # Architecture, deploy, testing
 ```
+
+**Prospection a été extraite le 2026-05-13** vers son propre repo :
+- Repo : `Christ-Roy/veridian-prospection` (privé)
+- Worktree local : `~/Bureau/veridian-prospection/`
+- Raison : aucun code partagé prospection ↔ monorepo, PRs/Dependabot polluaient
+  inutilement le contexte des autres agents apps.
 
 ## CI/CD — Ship fast, break nothing
 
@@ -226,10 +228,12 @@ Voir `ci/README.md` pour les details.
 | Service | Prod | Staging |
 |---------|------|---------|
 | Hub | app.veridian.site | saas-hub.staging.veridian.site |
-| Prospection | prospection.app.veridian.site | saas-prospection.staging.veridian.site |
+| Prospection ⚠️ extraite | prospection.app.veridian.site | saas-prospection.staging.veridian.site |
 | Supabase API | api.app.veridian.site | saas-api.staging.veridian.site |
 | Twenty | twenty.app.veridian.site | — |
 | Notifuse | notifuse.app.veridian.site | — |
+
+⚠️ Prospection vit maintenant dans `Christ-Roy/veridian-prospection` (extrait du monorepo 2026-05-13).
 
 ## Regles absolues
 
