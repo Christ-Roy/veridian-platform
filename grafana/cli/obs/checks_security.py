@@ -856,5 +856,51 @@ SECURITY_CHECKS = [
     ("security_bouncer_health", check_security_bouncer_health),
     ("security_traefik_real_ip", check_security_traefik_real_ip),
     ("security_dokploy_zombies", check_security_dokploy_zombies),
+    ("security_crowdsec_blind", lambda **_: _check_crowdsec_blind()),
     ("security_fail2ban_jails", check_security_fail2ban_jails),
 ]
+
+
+# ----- Check : CrowdSec lit-il les logs HTTP en temps réel ? -----
+
+
+def _check_crowdsec_blind() -> CheckResult:
+    """Anti-récidive incident 2026-05-13 accessLog.otlp.
+
+    Snapshot `Lines read` de la datasource docker:dokploy-traefik, attend 10s,
+    re-snapshot. Si compteur figé alors que la prod reçoit du trafic, CrowdSec
+    est aveugle aux logs HTTP.
+    """
+    cmd = "docker exec code-crowdsec-1 cscli metrics show acquisition 2>&1 | grep 'docker:dokploy-traefik' | awk '{print $4}' | tr -d ' '"
+    rc1, out1, _ = _ssh_run("prod-pub", cmd, timeout=10)
+    if rc1 != 0 or not out1.strip():
+        return CheckResult("security_crowdsec_blind", [])
+
+    import time as _t
+    _t.sleep(12)
+
+    rc2, out2, _ = _ssh_run("prod-pub", cmd, timeout=10)
+    if rc2 != 0 or not out2.strip():
+        return CheckResult("security_crowdsec_blind", [])
+
+    def _parse_k(s: str) -> float:
+        s = s.strip().rstrip("k")
+        try:
+            return float(s)
+        except ValueError:
+            return 0.0
+
+    v1, v2 = _parse_k(out1), _parse_k(out2)
+
+    findings = []
+    if v1 > 0 and v2 == v1:
+        findings.append(Finding(
+            check_id="security_crowdsec_blind",
+            severity=Severity.CRIT,
+            target="code-crowdsec-1",
+            summary=f"Lines read figé à {v2}k sur 12s — CrowdSec aveugle aux logs HTTP",
+            drilldown="ssh prod-pub 'docker exec code-crowdsec-1 cscli metrics show acquisition' "
+                     "# Vérifier que traefik.yml n'a PAS accessLog.otlp (cf runbooks/incidents/2026-05-13-accesslog-otlp-blind.md)",
+        ))
+
+    return CheckResult("security_crowdsec_blind", findings)
