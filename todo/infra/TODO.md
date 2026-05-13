@@ -511,6 +511,19 @@ L'app a fetché l'URL OAST (out-of-band) externe via son `/_next/image` proxy �
 - [ ] Standardiser le schéma cross-app (si pertinent)
 - [ ] Dashboard Grafana qui affiche l'activité audit
 
+## Stacks Dokploy zombies (détecté par `obs check security` 2026-05-13)
+
+Compose `.disabled-*` qui traînent dans `/etc/dokploy/compose/*/code/` :
+
+| Compose ID | État | Action |
+|---|---|---|
+| `compose-program-digital-application-vb1x5n` | `.disabled-2026-05-10` (CrowdSec) + `.draft-2026-05-13` | Cf P0.4 follow-ups — re-onboarder ou supprimer stack Dokploy |
+| `compose-copy-mobile-card-hy9a9f` | `.disabled-2026-05-10-collision-fix` | À supprimer via Dokploy API (orphelin) |
+| `compose-generate-bluetooth-alarm-rtemgt` | `.disabled-2026-04-11` | Probable ancien chantier supprimable |
+| `compose-input-back-end-application-t364gq` | `.disabled-2026-05-10-collision-fix` | À supprimer via Dokploy API |
+
+Process : Dokploy UI → si la stack existe encore → delete. Si entrée DB seule → `compose.delete` trpc API.
+
 ## Tickets ouverts vers les team leads d'app
 
 (À remplir au fur et à mesure que tu détectes des bugs ou améliorations qui requièrent du code app)
